@@ -1,6 +1,6 @@
 # API
 
-Base path for all documented endpoints is `/api/v1`.
+Base path for all documented endpoints is `/api/`. API versioning is implemented trough the request header.
 
 ## /auth endpoint
 Authentication is token-based. Login returns an access token and a refresh token. Protected endpoints expect the access token in the `Authorization` header as `Bearer <access_token>`.
@@ -104,22 +104,7 @@ Example response:
   "last_name": "Smith",
   "username": "jsmith",
   "status": "Active",
-  "password_expires_at": "2026-04-30T12:00:00Z",
-  "roles": [
-    {
-      "id": 1,
-      "name": "Admin",
-      "description": "Application administrator with full access",
-      "status": "Active",
-      "permissions": [
-        {
-          "id": 1,
-          "resource": "users",
-          "actions": "read,write"
-        }
-      ]
-    }
-  ]
+  "password_expires_at": "2026-04-30T12:00:00Z"
 }
 ```
 
@@ -138,7 +123,7 @@ password (unencrypted)
 status
 
 Delete user:
-set status to deleted, same as updating user and changing status to deleted
+set status to deleted, same as updating and changing status to deleted
 
 Response:
 complete user object with:
@@ -147,3 +132,25 @@ name,
 password (ecrypted),
 status
 
+## /roles endpoint
+Create role:
+Name
+Description
+Permissions
+
+Update role:
+Name
+Description
+Permissions
+Status
+
+Delete user:
+set status to deleted, same as updating and changing status to deleted
+
+Response:
+Complete role object with
+id
+Name
+Description
+Permissions
+Status

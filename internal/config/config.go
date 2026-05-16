@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/goccy/go-yaml"
 	"github.com/pelletier/go-toml/v2"
@@ -15,6 +16,7 @@ import (
 
 type Config struct {
 	App      AppConfig
+	Auth     AuthConfig
 	HTTP     HTTPConfig
 	Database DatabaseConfig
 	Seed     SeedConfig
@@ -25,6 +27,11 @@ type AppConfig struct {
 	NodeID      string
 	Coordinator bool
 	Storage     bool
+}
+
+type AuthConfig struct {
+	AccessTokenDuration  time.Duration
+	RefreshTokenDuration time.Duration
 }
 
 type HTTPConfig struct {
@@ -44,6 +51,7 @@ type SeedConfig struct {
 
 type rawConfig struct {
 	App      rawAppConfig      `json:"app" yaml:"app" toml:"app"`
+	Auth     rawAuthConfig     `json:"auth" yaml:"auth" toml:"auth"`
 	HTTP     rawHTTPConfig     `json:"http" yaml:"http" toml:"http"`
 	Database rawDatabaseConfig `json:"database" yaml:"database" toml:"database"`
 	Seed     rawSeedConfig     `json:"seed" yaml:"seed" toml:"seed"`
@@ -54,6 +62,11 @@ type rawAppConfig struct {
 	NodeID      *string `json:"node_id" yaml:"node_id" toml:"node_id"`
 	Coordinator *bool   `json:"coordinator" yaml:"coordinator" toml:"coordinator"`
 	Storage     *bool   `json:"storage" yaml:"storage" toml:"storage"`
+}
+
+type rawAuthConfig struct {
+	AccessTokenDuration  *string `json:"access_token_duration" yaml:"access_token_duration" toml:"access_token_duration"`
+	RefreshTokenDuration *string `json:"refresh_token_duration" yaml:"refresh_token_duration" toml:"refresh_token_duration"`
 }
 
 type rawHTTPConfig struct {
@@ -92,6 +105,10 @@ func Load() (Config, error) {
 			NodeID:      resolveString("APP_NODE_ID", fileCfg.App.NodeID, "node-1"),
 			Coordinator: resolveBool("APP_COORDINATOR", fileCfg.App.Coordinator, true),
 			Storage:     resolveBool("APP_STORAGE", fileCfg.App.Storage, true),
+		},
+		Auth: AuthConfig{
+			AccessTokenDuration:  resolveDuration("AUTH_ACCESS_TOKEN_DURATION", fileCfg.Auth.AccessTokenDuration, 30*time.Minute),
+			RefreshTokenDuration: resolveDuration("AUTH_REFRESH_TOKEN_DURATION", fileCfg.Auth.RefreshTokenDuration, 8*time.Hour),
 		},
 		HTTP: HTTPConfig{
 			Address: resolveString("HTTP_ADDR", fileCfg.HTTP.Address, ":8080"),
@@ -214,6 +231,28 @@ func resolveBool(key string, fileValue *bool, fallback bool) bool {
 	return parsed
 }
 
+func resolveDuration(key string, fileValue *string, fallback time.Duration) time.Duration {
+	if value, ok := os.LookupEnv(key); ok && value != "" {
+		if parsed, err := time.ParseDuration(strings.TrimSpace(value)); err == nil {
+			return parsed
+		}
+		if fileValue != nil {
+			if parsed, err := time.ParseDuration(strings.TrimSpace(*fileValue)); err == nil {
+				return parsed
+			}
+		}
+		return fallback
+	}
+
+	if fileValue != nil && *fileValue != "" {
+		if parsed, err := time.ParseDuration(strings.TrimSpace(*fileValue)); err == nil {
+			return parsed
+		}
+	}
+
+	return fallback
+}
+
 func (c Config) Validate() error {
 	if c.App.Name == "" {
 		return errors.New("app.name is required")
@@ -226,6 +265,12 @@ func (c Config) Validate() error {
 	}
 	if c.HTTP.Address == "" {
 		return errors.New("http.address is required")
+	}
+	if c.Auth.AccessTokenDuration <= 0 {
+		return errors.New("auth.access_token_duration must be greater than 0")
+	}
+	if c.Auth.RefreshTokenDuration <= 0 {
+		return errors.New("auth.refresh_token_duration must be greater than 0")
 	}
 	if c.Database.Driver == "" {
 		return errors.New("database.driver is required")

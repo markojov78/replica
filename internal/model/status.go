@@ -11,6 +11,9 @@ type ReplicationGroupType string
 type ReplicationGroupStatus string
 type ShareStatus string
 type UserStatus string
+type RoleStatus string
+type PermissionResource string
+type PermissionAction string
 
 const (
 	InventoryStatusOnline  InventoryStatus = "online"
@@ -72,6 +75,24 @@ const (
 const (
 	UserStatusActive  UserStatus = "active"
 	UserStatusDeleted UserStatus = "deleted"
+)
+
+const (
+	RoleStatusActive  RoleStatus = "active"
+	RoleStatusDeleted RoleStatus = "deleted"
+)
+
+const (
+	PermissionResourceUsers       PermissionResource = "users"
+	PermissionResourceShares      PermissionResource = "shares"
+	PermissionResourceInventories PermissionResource = "inventories"
+)
+
+const (
+	PermissionActionRead   PermissionAction = "read"
+	PermissionActionCreate PermissionAction = "create"
+	PermissionActionUpdate PermissionAction = "update"
+	PermissionActionDelete PermissionAction = "delete"
 )
 
 func (s InventoryStatus) Valid() bool {
@@ -167,6 +188,33 @@ func (s ShareStatus) Valid() bool {
 func (s UserStatus) Valid() bool {
 	switch s {
 	case UserStatusActive, UserStatusDeleted:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s RoleStatus) Valid() bool {
+	switch s {
+	case RoleStatusActive, RoleStatusDeleted:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r PermissionResource) Valid() bool {
+	switch r {
+	case PermissionResourceUsers, PermissionResourceShares, PermissionResourceInventories:
+		return true
+	default:
+		return false
+	}
+}
+
+func (a PermissionAction) Valid() bool {
+	switch a {
+	case PermissionActionRead, PermissionActionCreate, PermissionActionUpdate, PermissionActionDelete:
 		return true
 	default:
 		return false

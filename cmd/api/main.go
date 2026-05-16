@@ -2,11 +2,11 @@ package main
 
 import (
 	"log"
+	"net/http"
 
 	"dropoutbox/internal/buildinfo"
 	"dropoutbox/internal/config"
 	"dropoutbox/internal/db"
-	"dropoutbox/internal/handler"
 	"dropoutbox/internal/repository"
 	"dropoutbox/internal/router"
 	"dropoutbox/internal/service"
@@ -29,28 +29,31 @@ func main() {
 		}
 	}
 
-	inventoryRepo := repository.NewInventoryRepository(database)
-	replicaRepo := repository.NewReplicaRepository(database)
-	shareRepo := repository.NewShareRepository(database)
+	userRepo := repository.NewUserRepository(database)
+	tokenRepo := repository.NewTokenRepository(database)
+	roleRepo := repository.NewRoleRepository(database)
 
-	nodeService := service.NewNodeService(cfg)
-	inventoryService := service.NewInventoryService(inventoryRepo)
-	replicaService := service.NewReplicaService(replicaRepo)
-	shareService := service.NewShareService(shareRepo)
+	authService := service.NewAuthService(
+		userRepo,
+		tokenRepo,
+		cfg.Auth.AccessTokenDuration,
+		cfg.Auth.RefreshTokenDuration,
+	)
+	userService := service.NewUserService(userRepo, roleRepo)
+	roleService := service.NewRoleService(roleRepo)
 
-	healthHandler := handler.NewHealthHandler(nodeService)
-	inventoryHandler := handler.NewInventoryHandler(inventoryService)
-	replicaHandler := handler.NewReplicaHandler(replicaService)
-	shareHandler := handler.NewShareHandler(shareService)
-
-	engine := router.New(
+	handler := router.New(
 		cfg,
 		buildinfo.Get(),
-		healthHandler,
-		inventoryHandler,
-		replicaHandler,
-		shareHandler,
+		authService,
+		userService,
+		roleService,
 	)
+
+	server := &http.Server{
+		Addr:    cfg.HTTP.Address,
+		Handler: handler,
+	}
 
 	log.Printf(
 		"starting %s version=%s node_id=%s coordinator=%t storage=%t listen=%s",
@@ -62,7 +65,7 @@ func main() {
 		cfg.HTTP.Address,
 	)
 
-	if err := engine.Run(cfg.HTTP.Address); err != nil {
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("run api: %v", err)
 	}
 }

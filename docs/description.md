@@ -117,3 +117,12 @@ status \- active, deleted
 #### users
 name \- username or email    
 status \- active, deleted  
+
+#### user_roles
+
+#### roles
+status - active, deleted
+
+#### permissions
+resource - users, shares, inventories (permissions to manage inventories implies permission to manage replicas and replication groups)
+action - read, create, update delete

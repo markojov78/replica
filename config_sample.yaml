@@ -4,6 +4,10 @@ app:
   coordinator: true
   storage: true
 
+auth:
+  access_token_duration: "30m"
+  refresh_token_duration: "8h"
+
 http:
   address: ":8080"
 

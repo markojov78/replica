@@ -1,0 +1,54 @@
+# Go build output
+/bin/
+/build/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Go cache
+*.out
+
+# Go workspace files
+go.sum
+go.work
+go.work.sum
+
+# Dependency directories (if using vendoring)
+vendor/
+
+# Config / secrets
+.env
+config.yaml
+
+# Logs
+*.log
+
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# OS-specific
+Thumbs.db
+
+# sqlite db
+dropoutbox.db
+
+# builds
+dropoutbox
+dropoutbox.exe
+dropoutbox-seed
+dropoutbox-seed.exe
+
+# ai stuff
+.cursor/
+.claude/
+.codex
+.aider
+

@@ -1,6 +1,6 @@
 # Dropoutbox
 
-Skeleton `Go + Gin + GORM` project for a distributed, self-hosted file sharing and replication service.
+Skeleton `Go + Huma + GORM` project for a distributed, self-hosted file sharing and replication service.
 
 Current scaffold includes:
 
@@ -8,7 +8,7 @@ Current scaffold includes:
 * seed binary for database bootstrap
 * GORM models for the schema from `docs/description.md` and `docs/database.jpg`
 * enum/status constants with `Valid()` helpers for documented database states
-* minimal Gin routes for health, inventories, replicas, and shares
+* Huma-based auth and user management endpoints under `/api`
 
 ## Run
 

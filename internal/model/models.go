@@ -114,6 +114,7 @@ type User struct {
 	Status   UserStatus `gorm:"size:32;not null" json:"status"`
 	Password string     `gorm:"size:255;not null" json:"-"`
 	Tokens   []Token    `json:"tokens,omitempty"`
+	Roles    []Role     `gorm:"many2many:user_role;" json:"roles,omitempty"`
 }
 
 func (User) TableName() string {
@@ -132,6 +133,39 @@ type Token struct {
 
 func (Token) TableName() string {
 	return "tokens"
+}
+
+type UserRole struct {
+	UserID uint `gorm:"primaryKey;column:user_id" json:"user_id"`
+	RoleID uint `gorm:"primaryKey;column:role_id" json:"role_id"`
+}
+
+func (UserRole) TableName() string {
+	return "user_role"
+}
+
+type Role struct {
+	ID          uint         `gorm:"primaryKey" json:"id"`
+	Name        string       `gorm:"size:255;uniqueIndex;not null" json:"name"`
+	Description string       `gorm:"size:1024" json:"description"`
+	Status      RoleStatus   `gorm:"size:32;not null" json:"status"`
+	Permissions []Permission `gorm:"foreignKey:RoleID" json:"permissions,omitempty"`
+}
+
+func (Role) TableName() string {
+	return "roles"
+}
+
+type Permission struct {
+	ID       uint               `gorm:"primaryKey" json:"id"`
+	RoleID   uint               `gorm:"not null;index" json:"role_id"`
+	Resource PermissionResource `gorm:"size:64;not null" json:"resource"`
+	Action   PermissionAction   `gorm:"column:actions;size:64;not null" json:"actions"`
+	Role     Role               `gorm:"foreignKey:RoleID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
+}
+
+func (Permission) TableName() string {
+	return "permissions"
 }
 
 type ShareUser struct {
@@ -191,6 +225,9 @@ func AllModels() []any {
 		&GroupReplica{},
 		&Share{},
 		&User{},
+		&UserRole{},
+		&Role{},
+		&Permission{},
 		&ShareUser{},
 		&InventoryUser{},
 		&SharePermission{},
