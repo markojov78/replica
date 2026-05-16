@@ -1,0 +1,39 @@
+package model
+
+import "testing"
+
+func TestDocumentedEnumsAreValid(t *testing.T) {
+	tests := []struct {
+		name  string
+		valid bool
+	}{
+		{name: string(InventoryStatusOnline), valid: InventoryStatusOnline.Valid()},
+		{name: string(InventoryTypeFolder), valid: InventoryTypeFolder.Valid()},
+		{name: string(InventoryFileStatusActive), valid: InventoryFileStatusActive.Valid()},
+		{name: string(FileJournalActionModified), valid: FileJournalActionModified.Valid()},
+		{name: string(ReplicaStatusActive), valid: ReplicaStatusActive.Valid()},
+		{name: string(ReplicaTypeFilesystem), valid: ReplicaTypeFilesystem.Valid()},
+		{name: string(ReplicaFileStatusConflict), valid: ReplicaFileStatusConflict.Valid()},
+		{name: string(ReplicationGroupTypeOneWay), valid: ReplicationGroupTypeOneWay.Valid()},
+		{name: string(ReplicationGroupStatusDeleted), valid: ReplicationGroupStatusDeleted.Valid()},
+		{name: string(ShareStatusActive), valid: ShareStatusActive.Valid()},
+	}
+
+	for _, test := range tests {
+		if !test.valid {
+			t.Fatalf("%s should be valid", test.name)
+		}
+	}
+}
+
+func TestInvalidStatusesFailValidation(t *testing.T) {
+	if InventoryStatus("invalid").Valid() {
+		t.Fatal("invalid inventory status should fail")
+	}
+	if ReplicaFileStatus("invalid").Valid() {
+		t.Fatal("invalid replica file status should fail")
+	}
+	if ReplicationGroupType("invalid").Valid() {
+		t.Fatal("invalid replication group type should fail")
+	}
+}

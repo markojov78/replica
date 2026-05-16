@@ -1,0 +1,163 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
+	t.Setenv("CONFIG_FILE", "")
+	t.Setenv("APP_NAME", "")
+	t.Setenv("APP_NODE_ID", "")
+	t.Setenv("APP_COORDINATOR", "")
+	t.Setenv("APP_STORAGE", "")
+	t.Setenv("HTTP_ADDR", "")
+	t.Setenv("DB_DRIVER", "")
+	t.Setenv("DB_DSN", "")
+	t.Setenv("DB_AUTO_MIGRATE", "")
+	t.Setenv("SEED_ADMIN_NAME", "")
+	t.Setenv("SEED_ADMIN_PASSWORD", "")
+
+	wd := t.TempDir()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(prev)
+	}()
+	if err := os.Chdir(wd); err != nil {
+		t.Fatalf("Chdir(%q) error = %v", wd, err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.App.Name != "dropoutbox" {
+		t.Fatalf("App.Name = %q, want %q", cfg.App.Name, "dropoutbox")
+	}
+	if cfg.Database.Driver != "sqlite" {
+		t.Fatalf("Database.Driver = %q, want %q", cfg.Database.Driver, "sqlite")
+	}
+	if cfg.Database.DSN != "dropoutbox.db" {
+		t.Fatalf("Database.DSN = %q, want %q", cfg.Database.DSN, "dropoutbox.db")
+	}
+	if !cfg.Database.AutoMigrate {
+		t.Fatal("Database.AutoMigrate = false, want true")
+	}
+}
+
+func TestLoadYAMLConfigWithEnvOverride(t *testing.T) {
+	wd := t.TempDir()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(prev)
+	}()
+	if err := os.Chdir(wd); err != nil {
+		t.Fatalf("Chdir(%q) error = %v", wd, err)
+	}
+
+	configBody := `
+app:
+  name: dropoutbox-file
+  node_id: coordinator-1
+  coordinator: true
+  storage: false
+http:
+  address: ":9090"
+database:
+  driver: postgres
+  dsn: "host=db user=postgres password=postgres dbname=dropoutbox port=5432 sslmode=disable"
+  auto_migrate: false
+seed:
+  admin_name: root
+  admin_password: secret
+`
+	if err := os.WriteFile(filepath.Join(wd, "config.yaml"), []byte(configBody), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	t.Setenv("HTTP_ADDR", ":8088")
+	t.Setenv("DB_AUTO_MIGRATE", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.App.Name != "dropoutbox-file" {
+		t.Fatalf("App.Name = %q, want %q", cfg.App.Name, "dropoutbox-file")
+	}
+	if cfg.HTTP.Address != ":8088" {
+		t.Fatalf("HTTP.Address = %q, want %q", cfg.HTTP.Address, ":8088")
+	}
+	if cfg.Database.Driver != "postgres" {
+		t.Fatalf("Database.Driver = %q, want %q", cfg.Database.Driver, "postgres")
+	}
+	if cfg.Database.DSN != "host=db user=postgres password=postgres dbname=dropoutbox port=5432 sslmode=disable" {
+		t.Fatalf("Database.DSN = %q", cfg.Database.DSN)
+	}
+	if !cfg.Database.AutoMigrate {
+		t.Fatal("Database.AutoMigrate = false, want true from env override")
+	}
+	if cfg.Seed.AdminName != "root" {
+		t.Fatalf("Seed.AdminName = %q, want %q", cfg.Seed.AdminName, "root")
+	}
+}
+
+func TestLoadFromExplicitTOMLConfigFile(t *testing.T) {
+	wd := t.TempDir()
+	configPath := filepath.Join(wd, "dropoutbox.toml")
+	configBody := `
+[app]
+name = "dropoutbox-toml"
+node_id = "storage-1"
+coordinator = false
+storage = true
+
+[http]
+address = ":8181"
+
+[database]
+driver = "sqlite"
+dsn = "custom.db"
+auto_migrate = false
+`
+	if err := os.WriteFile(configPath, []byte(configBody), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	t.Setenv("CONFIG_FILE", configPath)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.App.Name != "dropoutbox-toml" {
+		t.Fatalf("App.Name = %q, want %q", cfg.App.Name, "dropoutbox-toml")
+	}
+	if cfg.Database.Driver != "sqlite" {
+		t.Fatalf("Database.Driver = %q, want %q", cfg.Database.Driver, "sqlite")
+	}
+	if cfg.Database.DSN != "custom.db" {
+		t.Fatalf("Database.DSN = %q, want %q", cfg.Database.DSN, "custom.db")
+	}
+	if cfg.Database.AutoMigrate {
+		t.Fatal("Database.AutoMigrate = true, want false")
+	}
+}
+
+func TestLoadRejectsMissingExplicitConfigFile(t *testing.T) {
+	t.Setenv("CONFIG_FILE", filepath.Join(t.TempDir(), "missing.yaml"))
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want error")
+	}
+}

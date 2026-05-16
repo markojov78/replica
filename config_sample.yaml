@@ -1,0 +1,20 @@
+app:
+  name: dropoutbox
+  node_id: coordinator-1
+  coordinator: true
+  storage: true
+
+http:
+  address: ":8080"
+
+database:
+  driver: "sqlite"
+  dsn: "dropoutbox.db"
+  auto_migrate: true
+#  driver: "postgres"
+#  dsn: "host=localhost user=postgres password=postgres dbname=dropoutbox port=5432 sslmode=disable"
+#  auto_migrate: true
+
+seed:
+  admin_name: admin
+  admin_password: change-me
