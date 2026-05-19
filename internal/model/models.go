@@ -3,10 +3,11 @@ package model
 import "time"
 
 type Inventory struct {
-	ID     uint            `gorm:"primaryKey" json:"id"`
-	Name   string          `gorm:"size:255" json:"name"`
-	Status InventoryStatus `gorm:"size:32;not null" json:"status"`
-	Type   InventoryType   `gorm:"size:32;not null" json:"type"`
+	ID       uint            `gorm:"primaryKey" json:"id"`
+	Name     string          `gorm:"size:255" json:"name"`
+	Status   InventoryStatus `gorm:"size:32;not null" json:"status"`
+	Type     InventoryType   `gorm:"size:32;not null" json:"type"`
+	Replicas []Replica       `gorm:"foreignKey:InventoryID" json:"replicas,omitempty"`
 }
 
 func (Inventory) TableName() string {

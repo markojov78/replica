@@ -239,7 +239,7 @@ It is the source from which the initial inventory state is built.
 So the default replica starts as `synchronized`, and additional replicas added later start as `pending` 
 because they need to receive the already-known inventory files.  
 
-### File update
+### File update and replication
 When multiple replicas exit this is how replication works:  
 1. Detect local change on replica A
 2. Record authoritative logical change

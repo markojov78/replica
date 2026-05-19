@@ -17,9 +17,10 @@ import (
 )
 
 type services struct {
-	auth  *service.AuthService
-	users *service.UserService
-	roles *service.RoleService
+	auth        *service.AuthService
+	users       *service.UserService
+	roles       *service.RoleService
+	inventories *service.InventoryService
 }
 
 func New(
@@ -28,21 +29,24 @@ func New(
 	authService *service.AuthService,
 	userService *service.UserService,
 	roleService *service.RoleService,
+	inventoryService *service.InventoryService,
 ) http.Handler {
 	mux := http.NewServeMux()
 	api := humago.New(mux, huma.DefaultConfig(serviceName, info.Version))
 	apiGroup := huma.NewGroup(api, "/api")
 
 	svc := services{
-		auth:  authService,
-		users: userService,
-		roles: roleService,
+		auth:        authService,
+		users:       userService,
+		roles:       roleService,
+		inventories: inventoryService,
 	}
 
 	registerServiceInfoRoute(mux, cfg, info, svc)
 	registerAuthRoutes(apiGroup, svc)
 	registerUserRoutes(apiGroup, svc)
 	registerRoleRoutes(apiGroup, svc)
+	registerInventoryRoutes(apiGroup, svc)
 
 	return withMiddleware(mux)
 }
@@ -164,6 +168,31 @@ func mapRoleError(err error, roleService *service.RoleService) error {
 		return huma.Error409Conflict("role already exists")
 	default:
 		return huma.Error500InternalServerError("role request failed", err)
+	}
+}
+
+func mapInventoryError(err error, inventoryService *service.InventoryService) error {
+	switch {
+	case inventoryService.IsNotFound(err):
+		return huma.Error404NotFound("inventory not found")
+	case errors.Is(err, service.ErrInvalidInventoryStatus):
+		return huma.Error400BadRequest("invalid inventory status")
+	case errors.Is(err, service.ErrInvalidInventoryType):
+		return huma.Error400BadRequest("invalid inventory type")
+	case errors.Is(err, service.ErrInvalidInventoryURI):
+		return huma.Error400BadRequest("invalid inventory uri")
+	case errors.Is(err, service.ErrInventoryFileNotFound):
+		return huma.Error404NotFound("inventory file not found")
+	case errors.Is(err, service.ErrInvalidReplicaStatus):
+		return huma.Error400BadRequest("invalid replica status")
+	case errors.Is(err, service.ErrInvalidReplicaType):
+		return huma.Error400BadRequest("invalid replica type")
+	case errors.Is(err, service.ErrInvalidReplicaURI):
+		return huma.Error400BadRequest("invalid replica uri")
+	case errors.Is(err, service.ErrReplicaNotFound):
+		return huma.Error404NotFound("replica not found")
+	default:
+		return huma.Error500InternalServerError("inventory request failed", err)
 	}
 }
 

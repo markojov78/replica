@@ -32,6 +32,7 @@ func main() {
 	userRepo := repository.NewUserRepository(database)
 	tokenRepo := repository.NewTokenRepository(database)
 	roleRepo := repository.NewRoleRepository(database)
+	inventoryRepo := repository.NewInventoryRepository(database)
 
 	authService := service.NewAuthService(
 		userRepo,
@@ -41,6 +42,7 @@ func main() {
 	)
 	userService := service.NewUserService(userRepo, roleRepo)
 	roleService := service.NewRoleService(roleRepo)
+	inventoryService := service.NewInventoryService(inventoryRepo)
 
 	handler := router.New(
 		cfg,
@@ -48,6 +50,7 @@ func main() {
 		authService,
 		userService,
 		roleService,
+		inventoryService,
 	)
 
 	server := &http.Server{
