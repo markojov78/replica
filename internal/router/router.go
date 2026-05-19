@@ -47,6 +47,7 @@ func New(
 	registerUserRoutes(apiGroup, svc)
 	registerRoleRoutes(apiGroup, svc)
 	registerInventoryRoutes(apiGroup, svc)
+	registerReplicaRoutes(apiGroup, svc)
 
 	return withMiddleware(mux)
 }

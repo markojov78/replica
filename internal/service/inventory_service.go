@@ -29,11 +29,12 @@ var (
 )
 
 type InventoryReplicaDetails struct {
-	ID     uint   `json:"id"`
-	NodeID string `json:"node_id"`
-	URI    string `json:"uri"`
-	Status string `json:"status"`
-	Type   string `json:"type"`
+	ID          uint   `json:"id"`
+	InventoryID uint   `json:"inventory_id"`
+	NodeID      string `json:"node_id"`
+	URI         string `json:"uri"`
+	Status      string `json:"status"`
+	Type        string `json:"type"`
 }
 
 type InventoryDetails struct {
@@ -79,14 +80,21 @@ type CreateInventoryInput struct {
 }
 
 type CreateReplicaInput struct {
-	NodeID string
-	URI    string
-	Type   string
+	InventoryID uint
+	NodeID      string
+	URI         string
+	Type        string
 }
 
 type UpdateInventoryInput struct {
 	Name   *string
 	Status *string
+}
+
+type ReplicaListFilter struct {
+	InventoryID *uint
+	NodeID      string
+	URIPrefix   string
 }
 
 type UpdateReplicaInput struct {
@@ -204,8 +212,8 @@ func (s *InventoryService) GetFile(inventoryID, fileID uint) (*InventoryFileDeta
 	return toInventoryFileDetails(file), nil
 }
 
-func (s *InventoryService) CreateReplica(inventoryID uint, input CreateReplicaInput) (*InventoryReplicaDetails, error) {
-	if _, err := s.repo.FindByID(inventoryID); err != nil {
+func (s *InventoryService) CreateReplica(input CreateReplicaInput) (*InventoryReplicaDetails, error) {
+	if _, err := s.repo.FindByID(input.InventoryID); err != nil {
 		return nil, err
 	}
 
@@ -221,7 +229,7 @@ func (s *InventoryService) CreateReplica(inventoryID uint, input CreateReplicaIn
 	}
 
 	replica := &model.Replica{
-		InventoryID: inventoryID,
+		InventoryID: input.InventoryID,
 		NodeID:      nodeID,
 		URI:         uri,
 		Status:      model.ReplicaStatusActive,
@@ -234,12 +242,8 @@ func (s *InventoryService) CreateReplica(inventoryID uint, input CreateReplicaIn
 	return toInventoryReplicaDetails(replica), nil
 }
 
-func (s *InventoryService) GetReplica(inventoryID, replicaID uint) (*InventoryReplicaDetails, error) {
-	if _, err := s.repo.FindByID(inventoryID); err != nil {
-		return nil, err
-	}
-
-	replica, err := s.repo.FindReplicaByID(inventoryID, replicaID)
+func (s *InventoryService) GetReplica(replicaID uint) (*InventoryReplicaDetails, error) {
+	replica, err := s.repo.FindReplicaByID(replicaID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrReplicaNotFound
@@ -250,12 +254,12 @@ func (s *InventoryService) GetReplica(inventoryID, replicaID uint) (*InventoryRe
 	return toInventoryReplicaDetails(replica), nil
 }
 
-func (s *InventoryService) ListReplicas(inventoryID uint) ([]InventoryReplicaDetails, error) {
-	if _, err := s.repo.FindByID(inventoryID); err != nil {
-		return nil, err
-	}
-
-	replicas, err := s.repo.ListReplicas(inventoryID)
+func (s *InventoryService) ListReplicas(filter ReplicaListFilter) ([]InventoryReplicaDetails, error) {
+	replicas, err := s.repo.ListReplicas(repository.ReplicaListFilter{
+		InventoryID: filter.InventoryID,
+		NodeID:      filter.NodeID,
+		URIPrefix:   filter.URIPrefix,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -301,12 +305,8 @@ func (s *InventoryService) ListFiles(inventoryID uint, page, perPage int) (*Inve
 	}, nil
 }
 
-func (s *InventoryService) UpdateReplica(inventoryID, replicaID uint, input UpdateReplicaInput) (*InventoryReplicaDetails, error) {
-	if _, err := s.repo.FindByID(inventoryID); err != nil {
-		return nil, err
-	}
-
-	replica, err := s.repo.FindReplicaByID(inventoryID, replicaID)
+func (s *InventoryService) UpdateReplica(replicaID uint, input UpdateReplicaInput) (*InventoryReplicaDetails, error) {
+	replica, err := s.repo.FindReplicaByID(replicaID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrReplicaNotFound
@@ -371,8 +371,8 @@ func (s *InventoryService) Delete(id uint) (*InventoryDetails, error) {
 	})
 }
 
-func (s *InventoryService) DeleteReplica(inventoryID, replicaID uint) (*InventoryReplicaDetails, error) {
-	return s.UpdateReplica(inventoryID, replicaID, UpdateReplicaInput{
+func (s *InventoryService) DeleteReplica(replicaID uint) (*InventoryReplicaDetails, error) {
+	return s.UpdateReplica(replicaID, UpdateReplicaInput{
 		Status: stringPtr(string(model.ReplicaStatusDeleted)),
 	})
 }
@@ -398,11 +398,12 @@ func toInventoryDetails(inventory *model.Inventory) *InventoryDetails {
 
 func toInventoryReplicaDetails(replica *model.Replica) *InventoryReplicaDetails {
 	return &InventoryReplicaDetails{
-		ID:     replica.ID,
-		NodeID: replica.NodeID,
-		URI:    replica.URI,
-		Status: string(replica.Status),
-		Type:   string(replica.Type),
+		ID:          replica.ID,
+		InventoryID: replica.InventoryID,
+		NodeID:      replica.NodeID,
+		URI:         replica.URI,
+		Status:      string(replica.Status),
+		Type:        string(replica.Type),
 	}
 }
 

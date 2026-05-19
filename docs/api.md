@@ -1,9 +1,41 @@
 # API
 
-Base path for all documented endpoints is `/api/`. API versioning is implemented trough the request header.
+Base path for all documented endpoints is `/api/`.
+
+API versioning is implemented through the `X-API-Version` request header. Supported values are `1` and `v1`.
+
+Protected endpoints expect:
+
+```http
+Authorization: Bearer <access_token>
+X-API-Version: 1
+```
+
+## Service Info
+
+### GET /
+Returns service metadata for the authenticated user.
+
+Example response:
+
+```json
+{
+  "service": "DropOutBox",
+  "version": "dev",
+  "commit": "abc1234",
+  "build_date": "2026-05-19T12:00:00Z",
+  "node_id": "node-1",
+  "coordinator": true,
+  "storage": true
+}
+```
+
+Possible errors:
+- `401` missing authenticated user
 
 ## /auth endpoint
-Authentication is token-based. Login returns an access token and a refresh token. Protected endpoints expect the access token in the `Authorization` header as `Bearer <access_token>`.
+
+Authentication is token-based. Login returns an access token and a refresh token.
 
 ### POST /auth/login
 Authenticates a user and returns a new token pair.
@@ -13,6 +45,7 @@ Request body:
 - `password` required
 
 Example request:
+
 ```json
 {
   "username": "jsmith",
@@ -21,6 +54,7 @@ Example request:
 ```
 
 Example response:
+
 ```json
 {
   "user_id": 1,
@@ -35,7 +69,6 @@ Possible errors:
 - `400` invalid JSON payload
 - `401` invalid username or password
 - `403` inactive user
-- `403` password expired
 
 ### POST /auth/refresh
 Exchanges a refresh token for a new token pair.
@@ -44,6 +77,7 @@ Request body:
 - `refresh_token` required
 
 Example request:
+
 ```json
 {
   "refresh_token": "refresh-token-value"
@@ -51,6 +85,7 @@ Example request:
 ```
 
 Example response:
+
 ```json
 {
   "user_id": 1,
@@ -69,13 +104,12 @@ Possible errors:
 ### POST /auth/logout
 Invalidates the current access token.
 
-Request headers:
-- `Authorization: Bearer <access_token>`
-
 Example request:
+
 ```http
-POST /api/v1/auth/logout
+POST /api/auth/logout
 Authorization: Bearer access-token-value
+X-API-Version: 1
 ```
 
 Successful response:
@@ -87,24 +121,36 @@ Possible errors:
 ### GET /auth/me
 Returns the currently authenticated user with expanded roles and permissions.
 
-Request headers:
-- `Authorization: Bearer <access_token>`
-
 Example request:
+
 ```http
-GET /api/v1/auth/me
+GET /api/auth/me
 Authorization: Bearer access-token-value
+X-API-Version: 1
 ```
 
 Example response:
+
 ```json
 {
   "id": 1,
-  "first_name": "John",
-  "last_name": "Smith",
   "username": "jsmith",
-  "status": "Active",
-  "password_expires_at": "2026-04-30T12:00:00Z"
+  "status": "active",
+  "roles": [
+    {
+      "id": 1,
+      "name": "admin",
+      "description": "Administrator",
+      "status": "active",
+      "permissions": [
+        {
+          "id": 1,
+          "resource": "users",
+          "actions": "read"
+        }
+      ]
+    }
+  ]
 }
 ```
 
@@ -113,55 +159,386 @@ Possible errors:
 
 ## /users endpoint
 
-Create user:
-name
-password (unencrypted)
+All `/users` endpoints require the matching `users` permission for the requested action.
 
-Update user:
-name
-password (unencrypted)
-status
+### GET /users
+Returns a paginated list of users.
 
-Delete user:
-set status to deleted, same as updating and changing status to deleted
+Query parameters:
+- `page` optional, default `1`
+- `count` optional, default `20`, maximum `100`
 
-Response:
-complete user object with:
-id, 
-name, 
-password (ecrypted),
-status
+Example response:
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "name": "jsmith",
+      "password": "$2a$10$example",
+      "status": "active",
+      "roles": [
+        {
+          "id": 1,
+          "name": "admin",
+          "description": "Administrator",
+          "status": "active",
+          "permissions": [
+            {
+              "id": 1,
+              "resource": "users",
+              "actions": "read"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "page": 1,
+  "count": 20,
+  "total": 1
+}
+```
+
+### GET /users/{id}
+Returns a single user.
+
+### POST /users
+Creates a user.
+
+Request body:
+- `name` required
+- `password` required
+- `role_ids` optional
+
+Example request:
+
+```json
+{
+  "name": "jsmith",
+  "password": "secret",
+  "role_ids": [1, 2]
+}
+```
+
+### PATCH /users/{id}
+Updates a user.
+
+Request body fields are optional:
+- `name`
+- `password`
+- `status`
+- `role_ids`
+- `add_role_ids`
+- `remove_role_ids`
+
+If `role_ids` is provided, it replaces the user's roles.
+
+Example request:
+
+```json
+{
+  "status": "deleted",
+  "add_role_ids": [3]
+}
+```
+
+### DELETE /users/{id}
+Soft-deletes a user by setting its status to `deleted`.
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `404` user not found
+- `400` invalid user status
+- `400` invalid roles
+- `409` user already exists
 
 ## /roles endpoint
-Create role:
-Name
-Description
-Permissions
 
-Update role:
-Name
-Description
-Permissions
-Status
+All `/roles` endpoints currently use the `users` permission resource for authorization.
 
-Delete user:
-set status to deleted, same as updating and changing status to deleted
+### GET /roles
+Returns a paginated list of roles.
 
-Response:
-Complete role object with
-id
-Name
-Description
-Permissions
-Status
+Query parameters:
+- `page` optional, default `1`
+- `count` optional, default `20`, maximum `100`
+
+Example response:
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "name": "admin",
+      "description": "Administrator",
+      "status": "active",
+      "permissions": [
+        {
+          "id": 1,
+          "resource": "users",
+          "actions": "read"
+        },
+        {
+          "id": 2,
+          "resource": "inventories",
+          "actions": "update"
+        }
+      ]
+    }
+  ],
+  "page": 1,
+  "count": 20,
+  "total": 1
+}
+```
+
+### GET /roles/{id}
+Returns a single role.
+
+### POST /roles
+Creates a role.
+
+Request body:
+- `name` required
+- `description` optional
+- `permissions` required array of `{resource, action}`
+
+Example request:
+
+```json
+{
+  "name": "inventory-manager",
+  "description": "Can manage inventories",
+  "permissions": [
+    {
+      "resource": "inventories",
+      "action": "read"
+    },
+    {
+      "resource": "inventories",
+      "action": "update"
+    }
+  ]
+}
+```
+
+### PATCH /roles/{id}
+Updates a role.
+
+Request body fields are optional:
+- `name`
+- `description`
+- `status`
+- `permissions`
+
+If `permissions` is provided, it replaces the current permissions.
+
+### DELETE /roles/{id}
+Soft-deletes a role by setting its status to `deleted`.
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `404` role not found
+- `400` invalid role status
+- `400` invalid permissions
+- `409` role already exists
 
 ## /inventories endpoint
-Create inventory:
-When creating an inventory, user must specify uri and that uri is used to create the first replica, 
-because every inventory must have at least one replica.
-For now replica type will be "filesystem" unless something else is explicitly specified, 
-but leave a placeholder in code to determine type from url
-If inventory name is not specified, folder name (last segment of the path) is used,
-for example  if the folder is "/home/username/images/Vacation March 2026", inventory name is "Vacation March 2026"
 
+All `/inventories` and inventory file endpoints require the matching `inventories` permission for the requested action.
 
+### GET /inventories
+Returns a paginated list of inventories.
+
+Query parameters:
+- `page` optional, default `1`
+- `count` optional, default `20`, maximum `100`
+
+Example response:
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "name": "Vacation March 2026",
+      "status": "online",
+      "type": "folder",
+      "replicas": [
+        {
+          "id": 1,
+          "inventory_id": 1,
+          "node_id": "node-1",
+          "uri": "/home/username/images/Vacation March 2026",
+          "status": "active",
+          "type": "filesystem"
+        }
+      ]
+    }
+  ],
+  "page": 1,
+  "count": 20,
+  "total": 1
+}
+```
+
+### GET /inventories/{id}
+Returns a single inventory with its replicas.
+
+### POST /inventories
+Creates an inventory together with its default replica.
+
+Request body:
+- `name` optional
+- `type` optional, defaults to `folder`
+- `node_id` required
+- `uri` required
+
+Behavior:
+- if `name` is omitted, it is derived from the last path segment of `uri`
+- the default replica type is currently hardcoded to `filesystem`
+- the creating user is inserted into `inventory_users`
+- the creating user receives `read`, `create`, `update`, and `delete` inventory permissions in `inventory_permissions`
+
+Example request:
+
+```json
+{
+  "node_id": "node-1",
+  "uri": "/home/username/images/Vacation March 2026"
+}
+```
+
+### PATCH /inventories/{id}
+Updates an inventory.
+
+Request body fields are optional:
+- `name`
+- `status`
+
+### DELETE /inventories/{id}
+Soft-deletes an inventory by setting its status to `deleted`.
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `404` inventory not found
+- `400` invalid inventory status
+- `400` invalid inventory type
+- `400` invalid inventory uri
+
+## /inventories/{id}/files endpoint
+
+This endpoint is read-only. Files are expected to be changed through replicas or shares.
+
+### GET /inventories/{id}/files
+Returns a paginated list of files belonging to the inventory.
+
+Query parameters:
+- `page` optional, default `1`
+- `count` optional, default `20`, maximum `100`
+
+Example response:
+
+```json
+{
+  "items": [
+    {
+      "id": 10,
+      "inventory_id": 1,
+      "relative_uri": "album/img002.jpg",
+      "status": "active",
+      "size": 256,
+      "hash": "d5bddda567cc62b99e5695704a399c6a",
+      "version": 1,
+      "created": "2026-05-19T12:00:00Z",
+      "modified": "2026-05-19T12:00:00Z"
+    }
+  ],
+  "page": 1,
+  "count": 20,
+  "total": 1
+}
+```
+
+### GET /inventories/{id}/files/{file_id}
+Returns a single file belonging to the inventory.
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `404` inventory not found
+- `404` inventory file not found
+
+## /replica endpoint
+
+Replica management is exposed as a top-level endpoint. Authorization uses `inventories` permissions:
+- `read` for reads
+- `update` for create, update, and delete
+
+### GET /replica
+Returns replicas filtered by optional query parameters:
+- `inventory_id`
+- `node_id`
+- `uri_prefix`
+
+Example response:
+
+```json
+[
+  {
+    "id": 1,
+    "inventory_id": 1,
+    "node_id": "node-1",
+    "uri": "/home/username/images/Vacation March 2026",
+    "status": "active",
+    "type": "filesystem"
+  }
+]
+```
+
+### GET /replica/{id}
+Returns a single replica.
+
+### POST /replica
+Creates a replica.
+
+Request body:
+- `inventory_id` required
+- `node_id` required
+- `uri` required
+- `type` required
+
+Example request:
+
+```json
+{
+  "inventory_id": 1,
+  "node_id": "node-2",
+  "uri": "/mnt/backup/photos",
+  "type": "filesystem"
+}
+```
+
+### PATCH /replica/{id}
+Updates a replica.
+
+Request body fields are optional:
+- `type`
+- `status`
+
+### DELETE /replica/{id}
+Soft-deletes a replica by setting its status to `deleted`.
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `404` replica not found
+- `400` invalid replica status
+- `400` invalid replica type
+- `400` invalid replica uri

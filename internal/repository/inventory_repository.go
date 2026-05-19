@@ -2,6 +2,7 @@ package repository
 
 import (
 	"dropoutbox/internal/model"
+	"strings"
 
 	"gorm.io/gorm"
 )
@@ -92,20 +93,34 @@ func (r *InventoryRepository) CreateReplica(replica *model.Replica) error {
 	return r.db.Create(replica).Error
 }
 
-func (r *InventoryRepository) FindReplicaByID(inventoryID, replicaID uint) (*model.Replica, error) {
+func (r *InventoryRepository) FindReplicaByID(id uint) (*model.Replica, error) {
 	var replica model.Replica
-	if err := r.db.Where("inventory_id = ? AND id = ?", inventoryID, replicaID).First(&replica).Error; err != nil {
+	if err := r.db.First(&replica, id).Error; err != nil {
 		return nil, err
 	}
 	return &replica, nil
 }
 
-func (r *InventoryRepository) ListReplicas(inventoryID uint) ([]model.Replica, error) {
+type ReplicaListFilter struct {
+	InventoryID *uint
+	NodeID      string
+	URIPrefix   string
+}
+
+func (r *InventoryRepository) ListReplicas(filter ReplicaListFilter) ([]model.Replica, error) {
 	var replicas []model.Replica
-	err := r.db.
-		Where("inventory_id = ?", inventoryID).
-		Order("id asc").
-		Find(&replicas).Error
+	query := r.db.Order("id asc")
+	if filter.InventoryID != nil {
+		query = query.Where("inventory_id = ?", *filter.InventoryID)
+	}
+	if strings.TrimSpace(filter.NodeID) != "" {
+		query = query.Where("node_id = ?", strings.TrimSpace(filter.NodeID))
+	}
+	if strings.TrimSpace(filter.URIPrefix) != "" {
+		query = query.Where("uri LIKE ?", strings.TrimSpace(filter.URIPrefix)+"%")
+	}
+
+	err := query.Find(&replicas).Error
 	return replicas, err
 }
 

@@ -76,38 +76,6 @@ func registerInventoryRoutes(api huma.API, svc services) {
 		return &inventoryFileResponse{Body: *file}, nil
 	})
 
-	huma.Get(api, "/inventories/{id}/replicas", func(ctx context.Context, input *listInventoryReplicasInput) (*inventoryReplicaListResponse, error) {
-		accessToken, err := bearerToken(input.Authorization)
-		if err != nil {
-			return nil, huma.Error401Unauthorized("missing authenticated user")
-		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionRead); err != nil {
-			return nil, mapPermissionError(err)
-		}
-
-		replicas, err := svc.inventories.ListReplicas(input.ID)
-		if err != nil {
-			return nil, mapInventoryError(err, svc.inventories)
-		}
-		return &inventoryReplicaListResponse{Body: replicas}, nil
-	})
-
-	huma.Get(api, "/inventories/{id}/replicas/{replica_id}", func(ctx context.Context, input *getInventoryReplicaInput) (*inventoryReplicaResponse, error) {
-		accessToken, err := bearerToken(input.Authorization)
-		if err != nil {
-			return nil, huma.Error401Unauthorized("missing authenticated user")
-		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionRead); err != nil {
-			return nil, mapPermissionError(err)
-		}
-
-		replica, err := svc.inventories.GetReplica(input.ID, input.ReplicaID)
-		if err != nil {
-			return nil, mapInventoryError(err, svc.inventories)
-		}
-		return &inventoryReplicaResponse{Body: *replica}, nil
-	})
-
 	huma.Post(api, "/inventories", func(ctx context.Context, input *createInventoryInput) (*inventoryResponse, error) {
 		accessToken, err := bearerToken(input.Authorization)
 		if err != nil {
@@ -150,45 +118,6 @@ func registerInventoryRoutes(api huma.API, svc services) {
 		return &inventoryResponse{Body: *inventory}, nil
 	})
 
-	huma.Post(api, "/inventories/{id}/replicas", func(ctx context.Context, input *createInventoryReplicaInput) (*inventoryReplicaResponse, error) {
-		accessToken, err := bearerToken(input.Authorization)
-		if err != nil {
-			return nil, huma.Error401Unauthorized("missing authenticated user")
-		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionUpdate); err != nil {
-			return nil, mapPermissionError(err)
-		}
-
-		replica, err := svc.inventories.CreateReplica(input.ID, service.CreateReplicaInput{
-			NodeID: input.Body.NodeID,
-			URI:    input.Body.URI,
-			Type:   input.Body.Type,
-		})
-		if err != nil {
-			return nil, mapInventoryError(err, svc.inventories)
-		}
-		return &inventoryReplicaResponse{Body: *replica}, nil
-	})
-
-	huma.Patch(api, "/inventories/{id}/replicas/{replica_id}", func(ctx context.Context, input *updateInventoryReplicaInput) (*inventoryReplicaResponse, error) {
-		accessToken, err := bearerToken(input.Authorization)
-		if err != nil {
-			return nil, huma.Error401Unauthorized("missing authenticated user")
-		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionUpdate); err != nil {
-			return nil, mapPermissionError(err)
-		}
-
-		replica, err := svc.inventories.UpdateReplica(input.ID, input.ReplicaID, service.UpdateReplicaInput{
-			Type:   input.Body.Type,
-			Status: input.Body.Status,
-		})
-		if err != nil {
-			return nil, mapInventoryError(err, svc.inventories)
-		}
-		return &inventoryReplicaResponse{Body: *replica}, nil
-	})
-
 	huma.Delete(api, "/inventories/{id}", func(ctx context.Context, input *deleteInventoryInput) (*inventoryResponse, error) {
 		accessToken, err := bearerToken(input.Authorization)
 		if err != nil {
@@ -205,21 +134,6 @@ func registerInventoryRoutes(api huma.API, svc services) {
 		return &inventoryResponse{Body: *inventory}, nil
 	})
 
-	huma.Delete(api, "/inventories/{id}/replicas/{replica_id}", func(ctx context.Context, input *deleteInventoryReplicaInput) (*inventoryReplicaResponse, error) {
-		accessToken, err := bearerToken(input.Authorization)
-		if err != nil {
-			return nil, huma.Error401Unauthorized("missing authenticated user")
-		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionUpdate); err != nil {
-			return nil, mapPermissionError(err)
-		}
-
-		replica, err := svc.inventories.DeleteReplica(input.ID, input.ReplicaID)
-		if err != nil {
-			return nil, mapInventoryError(err, svc.inventories)
-		}
-		return &inventoryReplicaResponse{Body: *replica}, nil
-	})
 }
 
 type listInventoriesInput struct {
@@ -261,19 +175,6 @@ type getInventoryFileInput struct {
 	FileID        uint   `path:"file_id"`
 }
 
-type listInventoryReplicasInput struct {
-	versionHeader
-	Authorization string `header:"Authorization"`
-	ID            uint   `path:"id"`
-}
-
-type getInventoryReplicaInput struct {
-	versionHeader
-	Authorization string `header:"Authorization"`
-	ID            uint   `path:"id"`
-	ReplicaID     uint   `path:"replica_id"`
-}
-
 type updateInventoryInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
@@ -284,39 +185,10 @@ type updateInventoryInput struct {
 	}
 }
 
-type createInventoryReplicaInput struct {
-	versionHeader
-	Authorization string `header:"Authorization"`
-	ID            uint   `path:"id"`
-	Body          struct {
-		NodeID string `json:"node_id" minLength:"1"`
-		URI    string `json:"uri" minLength:"1"`
-		Type   string `json:"type" minLength:"1"`
-	}
-}
-
-type updateInventoryReplicaInput struct {
-	versionHeader
-	Authorization string `header:"Authorization"`
-	ID            uint   `path:"id"`
-	ReplicaID     uint   `path:"replica_id"`
-	Body          struct {
-		Type   *string `json:"type,omitempty"`
-		Status *string `json:"status,omitempty"`
-	}
-}
-
 type deleteInventoryInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
 	ID            uint   `path:"id"`
-}
-
-type deleteInventoryReplicaInput struct {
-	versionHeader
-	Authorization string `header:"Authorization"`
-	ID            uint   `path:"id"`
-	ReplicaID     uint   `path:"replica_id"`
 }
 
 type inventoryResponse struct {
@@ -333,12 +205,4 @@ type inventoryFileResponse struct {
 
 type inventoryFileListResponse struct {
 	Body service.InventoryFileList
-}
-
-type inventoryReplicaResponse struct {
-	Body service.InventoryReplicaDetails
-}
-
-type inventoryReplicaListResponse struct {
-	Body []service.InventoryReplicaDetails
 }
