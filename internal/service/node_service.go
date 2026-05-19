@@ -1,6 +1,8 @@
 package service
 
-import "dropoutbox/internal/config"
+import (
+	"dropoutbox/internal/config"
+)
 
 type NodeSummary struct {
 	Name        string `json:"name"`
@@ -19,7 +21,7 @@ func NewNodeService(cfg config.Config) *NodeService {
 
 func (s *NodeService) Summary() NodeSummary {
 	return NodeSummary{
-		Name:        s.cfg.App.Name,
+		Name:        "DropOutBox",
 		NodeID:      s.cfg.App.NodeID,
 		Coordinator: s.cfg.App.Coordinator,
 		Storage:     s.cfg.App.Storage,

@@ -30,7 +30,7 @@ func New(
 	roleService *service.RoleService,
 ) http.Handler {
 	mux := http.NewServeMux()
-	api := humago.New(mux, huma.DefaultConfig(cfg.App.Name, info.Version))
+	api := humago.New(mux, huma.DefaultConfig(serviceName, info.Version))
 	apiGroup := huma.NewGroup(api, "/api")
 
 	svc := services{
@@ -39,7 +39,7 @@ func New(
 		roles: roleService,
 	}
 
-	registerServiceInfoRoute(mux, info, svc)
+	registerServiceInfoRoute(mux, cfg, info, svc)
 	registerAuthRoutes(apiGroup, svc)
 	registerUserRoutes(apiGroup, svc)
 	registerRoleRoutes(apiGroup, svc)

@@ -8,7 +8,6 @@ import (
 
 func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
 	t.Setenv("CONFIG_FILE", "")
-	t.Setenv("APP_NAME", "")
 	t.Setenv("APP_NODE_ID", "")
 	t.Setenv("APP_COORDINATOR", "")
 	t.Setenv("APP_STORAGE", "")
@@ -36,9 +35,6 @@ func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.App.Name != "dropoutbox" {
-		t.Fatalf("App.Name = %q, want %q", cfg.App.Name, "dropoutbox")
-	}
 	if cfg.Database.Driver != "sqlite" {
 		t.Fatalf("Database.Driver = %q, want %q", cfg.Database.Driver, "sqlite")
 	}
@@ -65,7 +61,6 @@ func TestLoadYAMLConfigWithEnvOverride(t *testing.T) {
 
 	configBody := `
 app:
-  name: dropoutbox-file
   node_id: coordinator-1
   coordinator: true
   storage: false
@@ -91,9 +86,6 @@ seed:
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.App.Name != "dropoutbox-file" {
-		t.Fatalf("App.Name = %q, want %q", cfg.App.Name, "dropoutbox-file")
-	}
 	if cfg.HTTP.Address != ":8088" {
 		t.Fatalf("HTTP.Address = %q, want %q", cfg.HTTP.Address, ":8088")
 	}
@@ -116,7 +108,6 @@ func TestLoadFromExplicitTOMLConfigFile(t *testing.T) {
 	configPath := filepath.Join(wd, "dropoutbox.toml")
 	configBody := `
 [app]
-name = "dropoutbox-toml"
 node_id = "storage-1"
 coordinator = false
 storage = true
@@ -140,9 +131,6 @@ auto_migrate = false
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.App.Name != "dropoutbox-toml" {
-		t.Fatalf("App.Name = %q, want %q", cfg.App.Name, "dropoutbox-toml")
-	}
 	if cfg.Database.Driver != "sqlite" {
 		t.Fatalf("Database.Driver = %q, want %q", cfg.Database.Driver, "sqlite")
 	}

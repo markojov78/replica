@@ -1,5 +1,4 @@
 app:
-  name: dropoutbox
   node_id: coordinator-1
   coordinator: true
   storage: true

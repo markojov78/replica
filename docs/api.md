@@ -154,3 +154,14 @@ Name
 Description
 Permissions
 Status
+
+## /inventories endpoint
+Create inventory:
+When creating an inventory, user must specify uri and that uri is used to create the first replica, 
+because every inventory must have at least one replica.
+For now replica type will be "filesystem" unless something else is explicitly specified, 
+but leave a placeholder in code to determine type from url
+If inventory name is not specified, folder name (last segment of the path) is used,
+for example  if the folder is "/home/username/images/Vacation March 2026", inventory name is "Vacation March 2026"
+
+

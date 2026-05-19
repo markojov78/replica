@@ -23,7 +23,6 @@ type Config struct {
 }
 
 type AppConfig struct {
-	Name        string
 	NodeID      string
 	Coordinator bool
 	Storage     bool
@@ -58,7 +57,6 @@ type rawConfig struct {
 }
 
 type rawAppConfig struct {
-	Name        *string `json:"name" yaml:"name" toml:"name"`
 	NodeID      *string `json:"node_id" yaml:"node_id" toml:"node_id"`
 	Coordinator *bool   `json:"coordinator" yaml:"coordinator" toml:"coordinator"`
 	Storage     *bool   `json:"storage" yaml:"storage" toml:"storage"`
@@ -101,7 +99,6 @@ func Load() (Config, error) {
 
 	cfg := Config{
 		App: AppConfig{
-			Name:        resolveString("APP_NAME", fileCfg.App.Name, "dropoutbox"),
 			NodeID:      resolveString("APP_NODE_ID", fileCfg.App.NodeID, "node-1"),
 			Coordinator: resolveBool("APP_COORDINATOR", fileCfg.App.Coordinator, true),
 			Storage:     resolveBool("APP_STORAGE", fileCfg.App.Storage, true),
@@ -254,9 +251,6 @@ func resolveDuration(key string, fileValue *string, fallback time.Duration) time
 }
 
 func (c Config) Validate() error {
-	if c.App.Name == "" {
-		return errors.New("app.name is required")
-	}
 	if c.App.NodeID == "" {
 		return errors.New("app.node_id is required")
 	}

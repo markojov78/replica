@@ -4,9 +4,12 @@ import (
 	"net/http"
 
 	"dropoutbox/internal/buildinfo"
+	"dropoutbox/internal/config"
 )
 
-func registerServiceInfoRoute(mux *http.ServeMux, info buildinfo.Info, svc services) {
+const serviceName = "DropOutBox"
+
+func registerServiceInfoRoute(mux *http.ServeMux, cfg config.Config, info buildinfo.Info, svc services) {
 	mux.HandleFunc("GET /api/{$}", func(w http.ResponseWriter, r *http.Request) {
 		accessToken, err := bearerToken(r.Header.Get("Authorization"))
 		if err != nil {
@@ -21,17 +24,23 @@ func registerServiceInfoRoute(mux *http.ServeMux, info buildinfo.Info, svc servi
 		}
 
 		writeJSON(w, http.StatusOK, serviceInfoBody{
-			Service:   "dropoutbox",
-			Version:   info.Version,
-			Commit:    info.Commit,
-			BuildDate: info.BuildDate,
+			Service:     serviceName,
+			Version:     info.Version,
+			Commit:      info.Commit,
+			BuildDate:   info.BuildDate,
+			NodeID:      cfg.App.NodeID,
+			Coordinator: cfg.App.Coordinator,
+			Storage:     cfg.App.Storage,
 		})
 	})
 }
 
 type serviceInfoBody struct {
-	Service   string `json:"service"`
-	Version   string `json:"version"`
-	Commit    string `json:"commit"`
-	BuildDate string `json:"build_date"`
+	Service     string `json:"service"`
+	Version     string `json:"version"`
+	Commit      string `json:"commit"`
+	BuildDate   string `json:"build_date"`
+	NodeID      string `json:"node_id"`
+	Coordinator bool   `json:"coordinator"`
+	Storage     bool   `json:"storage"`
 }

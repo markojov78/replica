@@ -43,7 +43,7 @@ Even though this is a distributed service that works with the distributed data a
 
 ![System components](system_components.jpg)
 
-### Coordinator service \+ database \+ admin UI
+### Coordinator service + database + admin UI
 
 There is only one coordinator service main database holding system state, replication processes and sharing work when that service is online, otherwise everything waits
 
@@ -59,7 +59,7 @@ question: is it sufficient for storage service to have no persisted local state 
 This is maybe not an actual component but a set of connections established on demand between storage services to transfer data between storage services or between a storage service and a sharing service.  
 question: how to make a data bus really \- one way is to use zerotier/tailscale to maintain virtual local network between nodes another is to use coordinator to establish direct connections
 
-### Sharing service \+ sharing UI
+### Sharing service + sharing UI
 
 Sharing service is both a web app with UI with data presentation (previews for images, links for documents etc) and interface for data upload / replace / delete if share permissions allow it.  
 The sharing service uses the coordinator to resolve which replica to use and can even use local read-only replica for fast read and remote updateable replica for update.

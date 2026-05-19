@@ -57,7 +57,7 @@ func main() {
 
 	log.Printf(
 		"starting %s version=%s node_id=%s coordinator=%t storage=%t listen=%s",
-		cfg.App.Name,
+		"DropOutBox",
 		buildinfo.Version,
 		cfg.App.NodeID,
 		cfg.App.Coordinator,
