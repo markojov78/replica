@@ -10,7 +10,7 @@ import (
 )
 
 func registerReplicaRoutes(api huma.API, svc services) {
-	huma.Get(api, "/replica", func(ctx context.Context, input *listReplicasInput) (*replicaListResponse, error) {
+	huma.Get(api, "/replicas", func(ctx context.Context, input *listReplicasInput) (*replicaListResponse, error) {
 		accessToken, err := bearerToken(input.Authorization)
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
@@ -35,7 +35,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		return &replicaListResponse{Body: replicas}, nil
 	})
 
-	huma.Get(api, "/replica/{id}", func(ctx context.Context, input *getReplicaInput) (*replicaResponse, error) {
+	huma.Get(api, "/replicas/{id}", func(ctx context.Context, input *getReplicaInput) (*replicaResponse, error) {
 		accessToken, err := bearerToken(input.Authorization)
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
@@ -51,7 +51,40 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		return &replicaResponse{Body: *replica}, nil
 	})
 
-	huma.Post(api, "/replica", func(ctx context.Context, input *createReplicaInput) (*replicaResponse, error) {
+	huma.Get(api, "/replicas/{id}/files", func(ctx context.Context, input *listReplicaFilesInput) (*replicaFileListResponse, error) {
+		accessToken, err := bearerToken(input.Authorization)
+		if err != nil {
+			return nil, huma.Error401Unauthorized("missing authenticated user")
+		}
+		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionRead); err != nil {
+			return nil, mapPermissionError(err)
+		}
+
+		page, count := resolvePagination(input.Page, input.Count)
+		files, err := svc.inventories.ListReplicaFiles(input.ID, page, count)
+		if err != nil {
+			return nil, mapInventoryError(err, svc.inventories)
+		}
+		return &replicaFileListResponse{Body: *files}, nil
+	})
+
+	huma.Get(api, "/replicas/{id}/files/{file_id}", func(ctx context.Context, input *getReplicaFileInput) (*replicaFileResponse, error) {
+		accessToken, err := bearerToken(input.Authorization)
+		if err != nil {
+			return nil, huma.Error401Unauthorized("missing authenticated user")
+		}
+		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionRead); err != nil {
+			return nil, mapPermissionError(err)
+		}
+
+		file, err := svc.inventories.GetReplicaFile(input.ID, input.FileID)
+		if err != nil {
+			return nil, mapInventoryError(err, svc.inventories)
+		}
+		return &replicaFileResponse{Body: *file}, nil
+	})
+
+	huma.Post(api, "/replicas", func(ctx context.Context, input *createReplicaInput) (*replicaResponse, error) {
 		accessToken, err := bearerToken(input.Authorization)
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
@@ -72,7 +105,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		return &replicaResponse{Body: *replica}, nil
 	})
 
-	huma.Patch(api, "/replica/{id}", func(ctx context.Context, input *updateReplicaInput) (*replicaResponse, error) {
+	huma.Patch(api, "/replicas/{id}", func(ctx context.Context, input *updateReplicaInput) (*replicaResponse, error) {
 		accessToken, err := bearerToken(input.Authorization)
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
@@ -91,7 +124,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		return &replicaResponse{Body: *replica}, nil
 	})
 
-	huma.Delete(api, "/replica/{id}", func(ctx context.Context, input *deleteReplicaInput) (*replicaResponse, error) {
+	huma.Delete(api, "/replicas/{id}", func(ctx context.Context, input *deleteReplicaInput) (*replicaResponse, error) {
 		accessToken, err := bearerToken(input.Authorization)
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
@@ -133,6 +166,21 @@ type createReplicaInput struct {
 	}
 }
 
+type listReplicaFilesInput struct {
+	versionHeader
+	Authorization string `header:"Authorization"`
+	ID            uint   `path:"id"`
+	Page          int    `query:"page"`
+	Count         int    `query:"count"`
+}
+
+type getReplicaFileInput struct {
+	versionHeader
+	Authorization string `header:"Authorization"`
+	ID            uint   `path:"id"`
+	FileID        uint   `path:"file_id"`
+}
+
 type updateReplicaInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
@@ -155,4 +203,12 @@ type replicaResponse struct {
 
 type replicaListResponse struct {
 	Body []service.InventoryReplicaDetails
+}
+
+type replicaFileResponse struct {
+	Body service.ReplicaFileDetails
+}
+
+type replicaFileListResponse struct {
+	Body service.ReplicaFileList
 }

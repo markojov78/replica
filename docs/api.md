@@ -13,12 +13,15 @@ Authorization: Bearer <access_token>
 X-API-Version: 1
 ```
 
-## Service Info
+## Public API
 
-### GET /
-Returns service metadata for the authenticated user.
+Base path for the endpoints in this section is `/api`.
 
-Example response:
+### / endpoint
+#### GET /
+Returns service metadata for the authenticated user.  
+  
+Example response:  
 
 ```json
 {
@@ -32,12 +35,8 @@ Example response:
 }
 ```
 
-Possible errors:
-- `401` missing authenticated user
-
-## Public API
-
-Base path for the endpoints in this section is `/api/`.
+Possible errors:  
+- `401` missing authenticated user  
 
 ### /auth endpoint
 
@@ -58,7 +57,7 @@ Expiration behavior:
 - `refresh_token_expires_at` is the server-side refresh-session expiration
 - once the refresh token expires, `/auth/refresh` returns `401`
 
-### POST /auth/login
+#### POST /auth/login
 Authenticates a user and returns a new token pair.
 
 Behavior:
@@ -97,7 +96,7 @@ Possible errors:
 - `401` invalid username or password
 - `403` inactive user
 
-### POST /auth/refresh
+#### POST /auth/refresh
 Exchanges a refresh token for a new token pair.
 The refresh token is rotated on success, so the old refresh token becomes invalid.
 
@@ -136,7 +135,7 @@ Possible errors:
 - `401` invalid token
 - `401` expired token
 
-### POST /auth/logout
+#### POST /auth/logout
 Revokes the current authenticated session identified by the bearer access token.
 Because access tokens are stateless JWTs, logout revokes the corresponding refresh-token session in storage rather than deleting the access token itself.
 
@@ -163,7 +162,7 @@ Successful response:
 Possible errors:
 - `401` invalid token
 
-### GET /auth/me
+#### GET /auth/me
 Returns the currently authenticated user with expanded roles and permissions.
 
 Example request:
@@ -206,7 +205,7 @@ Possible errors:
 
 All `/users` endpoints require the matching `users` permission for the requested action.
 
-### GET /users
+#### GET /users
 Returns a paginated list of users.
 
 Query parameters:
@@ -246,10 +245,10 @@ Example response:
 }
 ```
 
-### GET /users/{id}
+#### GET /users/{id}
 Returns a single user.
 
-### POST /users
+#### POST /users
 Creates a user.
 
 Request body:
@@ -267,7 +266,7 @@ Example request:
 }
 ```
 
-### PATCH /users/{id}
+#### PATCH /users/{id}
 Updates a user.
 
 Request body fields are optional:
@@ -289,7 +288,7 @@ Example request:
 }
 ```
 
-### DELETE /users/{id}
+#### DELETE /users/{id}
 Soft-deletes a user by setting its status to `deleted`.
 
 Possible errors:
@@ -305,7 +304,7 @@ Possible errors:
 All `/roles` endpoints currently use the `users` permission resource for authorization.
 Role permissions may include the `nodes` resource with `read`, `create`, `update`, and `delete` actions.
 
-### GET /roles
+#### GET /roles
 Returns a paginated list of roles.
 
 Query parameters:
@@ -342,10 +341,10 @@ Example response:
 }
 ```
 
-### GET /roles/{id}
+#### GET /roles/{id}
 Returns a single role.
 
-### POST /roles
+#### POST /roles
 Creates a role.
 
 Request body:
@@ -372,7 +371,7 @@ Example request:
 }
 ```
 
-### PATCH /roles/{id}
+#### PATCH /roles/{id}
 Updates a role.
 
 Request body fields are optional:
@@ -383,7 +382,7 @@ Request body fields are optional:
 
 If `permissions` is provided, it replaces the current permissions.
 
-### DELETE /roles/{id}
+#### DELETE /roles/{id}
 Soft-deletes a role by setting its status to `deleted`.
 
 Possible errors:
@@ -405,7 +404,7 @@ Behavior:
 - node secrets are stored hashed and are never returned by the API
 - `DELETE /nodes/{id}` is a soft delete that sets node status to `revoked`
 
-### GET /nodes
+#### GET /nodes
 Returns a paginated list of nodes.
 
 Query parameters:
@@ -432,10 +431,10 @@ Example response:
 }
 ```
 
-### GET /nodes/{id}
+#### GET /nodes/{id}
 Returns a single node.
 
-### POST /nodes
+#### POST /nodes
 Creates a node.
 
 Request body:
@@ -468,7 +467,7 @@ Example response:
 }
 ```
 
-### PATCH /nodes/{id}
+#### PATCH /nodes/{id}
 Updates a node.
 
 Request body fields are optional:
@@ -485,7 +484,7 @@ Example request:
 }
 ```
 
-### DELETE /nodes/{id}
+#### DELETE /nodes/{id}
 Revokes a node by setting its status to `revoked`.
 
 Possible errors:
@@ -499,7 +498,7 @@ Possible errors:
 
 All `/inventories` and inventory file endpoints require the matching `inventories` permission for the requested action.
 
-### GET /inventories
+#### GET /inventories
 Returns a paginated list of inventories.
 
 Query parameters:
@@ -534,10 +533,10 @@ Example response:
 }
 ```
 
-### GET /inventories/{id}
+#### GET /inventories/{id}
 Returns a single inventory with its replicas.
 
-### POST /inventories
+#### POST /inventories
 Creates an inventory together with its default replica.
 
 Request body:
@@ -561,14 +560,14 @@ Example request:
 }
 ```
 
-### PATCH /inventories/{id}
+#### PATCH /inventories/{id}
 Updates an inventory.
 
 Request body fields are optional:
 - `name`
 - `status`
 
-### DELETE /inventories/{id}
+#### DELETE /inventories/{id}
 Soft-deletes an inventory by setting its status to `deleted`.
 
 Possible errors:
@@ -579,11 +578,11 @@ Possible errors:
 - `400` invalid inventory type
 - `400` invalid inventory uri
 
-## /inventories/{id}/files endpoint
+### /inventories/{id}/files endpoint
 
 This endpoint is read-only. Files are expected to be changed through replicas or shares.
 
-### GET /inventories/{id}/files
+#### GET /inventories/{id}/files
 Returns a paginated list of files belonging to the inventory.
 
 Query parameters:
@@ -613,7 +612,7 @@ Example response:
 }
 ```
 
-### GET /inventories/{id}/files/{file_id}
+#### GET /inventories/{id}/files/{file_id}
 Returns a single file belonging to the inventory.
 
 Possible errors:
@@ -622,13 +621,13 @@ Possible errors:
 - `404` inventory not found
 - `404` inventory file not found
 
-## /replica endpoint
+### /replicas endpoint
 
 Replica management is exposed as a top-level endpoint. Authorization uses `inventories` permissions:
 - `read` for reads
 - `update` for create, update, and delete
 
-### GET /replica
+#### GET /replicas
 Returns replicas filtered by optional query parameters:
 - `inventory_id`
 - `node_id`
@@ -649,10 +648,10 @@ Example response:
 ]
 ```
 
-### GET /replica/{id}
+#### GET /replicas/{id}
 Returns a single replica.
 
-### POST /replica
+#### POST /replicas
 Creates a replica.
 
 Request body:
@@ -672,14 +671,14 @@ Example request:
 }
 ```
 
-### PATCH /replica/{id}
+#### PATCH /replicas/{id}
 Updates a replica.
 
 Request body fields are optional:
 - `type`
 - `status`
 
-### DELETE /replica/{id}
+#### DELETE /replicas/{id}
 Soft-deletes a replica by setting its status to `deleted`.
 
 Possible errors:
@@ -689,6 +688,45 @@ Possible errors:
 - `400` invalid replica status
 - `400` invalid replica type
 - `400` invalid replica uri
+
+### /replicas/{id}/files endpoint
+
+This endpoint is read-only. Files are expected to be changed through replica synchronization flows.
+
+#### GET /replicas/{id}/files
+Returns a paginated list of files belonging to the replica.
+
+Query parameters:
+- `page` optional, default `1`
+- `count` optional, default `20`, maximum `100`
+
+Example response:
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "file_id": 10,
+      "replica_id": 1,
+      "version": 2,
+      "status": "synchronized"
+    }
+  ],
+  "page": 1,
+  "count": 20,
+  "total": 1
+}
+```
+
+#### GET /replicas/{id}/files/{file_id}
+Returns a single file belonging to the replica.
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `404` replica not found
+- `404` replica file not found
 
 ## Internal API
 
@@ -713,7 +751,7 @@ Node auth config:
 - `auth.node_secret`
   - plaintext node secret configured on the node side and verified against the hashed secret stored in the coordinator database
 
-### POST /auth/login
+#### POST /auth/login
 Authenticates a node and returns a new node token pair.
 
 Behavior:
@@ -756,7 +794,7 @@ Possible errors:
 - `403` disabled node
 - `403` revoked node
 
-### POST /auth/refresh
+#### POST /auth/refresh
 Exchanges a node refresh token for a new node token pair.
 The refresh token is rotated on success, so the old refresh token becomes invalid.
 
@@ -800,7 +838,7 @@ Possible errors:
 - `403` disabled node
 - `403` revoked node
 
-### GET /auth/me
+#### GET /auth/me
 Returns the currently authenticated node.
 
 Behavior:

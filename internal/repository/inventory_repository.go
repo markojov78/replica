@@ -101,6 +101,14 @@ func (r *InventoryRepository) FindReplicaByID(id uint) (*model.Replica, error) {
 	return &replica, nil
 }
 
+func (r *InventoryRepository) FindReplicaFileByID(replicaID, fileID uint) (*model.ReplicaFile, error) {
+	var file model.ReplicaFile
+	if err := r.db.Where("replica_id = ? AND id = ?", replicaID, fileID).First(&file).Error; err != nil {
+		return nil, err
+	}
+	return &file, nil
+}
+
 type ReplicaListFilter struct {
 	InventoryID *uint
 	NodeID      string
@@ -133,6 +141,26 @@ func (r *InventoryRepository) ListFiles(inventoryID uint, page, perPage int) ([]
 	var files []model.InventoryFile
 	err := r.db.
 		Where("inventory_id = ?", inventoryID).
+		Order("id asc").
+		Limit(perPage).
+		Offset((page - 1) * perPage).
+		Find(&files).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return files, total, nil
+}
+
+func (r *InventoryRepository) ListReplicaFiles(replicaID uint, page, perPage int) ([]model.ReplicaFile, int64, error) {
+	var total int64
+	if err := r.db.Model(&model.ReplicaFile{}).Where("replica_id = ?", replicaID).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var files []model.ReplicaFile
+	err := r.db.
+		Where("replica_id = ?", replicaID).
 		Order("id asc").
 		Limit(perPage).
 		Offset((page - 1) * perPage).

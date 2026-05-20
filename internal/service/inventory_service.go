@@ -22,6 +22,7 @@ var (
 	ErrInvalidInventoryType   = errors.New("invalid inventory type")
 	ErrInvalidInventoryURI    = errors.New("invalid inventory uri")
 	ErrInventoryFileNotFound  = errors.New("inventory file not found")
+	ErrReplicaFileNotFound    = errors.New("replica file not found")
 	ErrInvalidReplicaStatus   = errors.New("invalid replica status")
 	ErrInvalidReplicaType     = errors.New("invalid replica type")
 	ErrInvalidReplicaURI      = errors.New("invalid replica uri")
@@ -62,6 +63,21 @@ type InventoryFileList struct {
 	Page  int                    `json:"page"`
 	Count int                    `json:"count"`
 	Total int64                  `json:"total"`
+}
+
+type ReplicaFileDetails struct {
+	ID        uint   `json:"id"`
+	FileID    uint   `json:"file_id"`
+	ReplicaID uint   `json:"replica_id"`
+	Version   uint   `json:"version"`
+	Status    string `json:"status"`
+}
+
+type ReplicaFileList struct {
+	Items []ReplicaFileDetails `json:"items"`
+	Page  int                  `json:"page"`
+	Count int                  `json:"count"`
+	Total int64                `json:"total"`
 }
 
 type InventoryList struct {
@@ -254,6 +270,25 @@ func (s *InventoryService) GetReplica(replicaID uint) (*InventoryReplicaDetails,
 	return toInventoryReplicaDetails(replica), nil
 }
 
+func (s *InventoryService) GetReplicaFile(replicaID, fileID uint) (*ReplicaFileDetails, error) {
+	if _, err := s.repo.FindReplicaByID(replicaID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrReplicaNotFound
+		}
+		return nil, err
+	}
+
+	file, err := s.repo.FindReplicaFileByID(replicaID, fileID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrReplicaFileNotFound
+		}
+		return nil, err
+	}
+
+	return toReplicaFileDetails(file), nil
+}
+
 func (s *InventoryService) ListReplicas(filter ReplicaListFilter) ([]InventoryReplicaDetails, error) {
 	replicas, err := s.repo.ListReplicas(repository.ReplicaListFilter{
 		InventoryID: filter.InventoryID,
@@ -270,6 +305,42 @@ func (s *InventoryService) ListReplicas(filter ReplicaListFilter) ([]InventoryRe
 	}
 
 	return result, nil
+}
+
+func (s *InventoryService) ListReplicaFiles(replicaID uint, page, perPage int) (*ReplicaFileList, error) {
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 {
+		perPage = 20
+	}
+	if perPage > 100 {
+		perPage = 100
+	}
+
+	if _, err := s.repo.FindReplicaByID(replicaID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrReplicaNotFound
+		}
+		return nil, err
+	}
+
+	files, total, err := s.repo.ListReplicaFiles(replicaID, page, perPage)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]ReplicaFileDetails, 0, len(files))
+	for _, file := range files {
+		items = append(items, *toReplicaFileDetails(&file))
+	}
+
+	return &ReplicaFileList{
+		Items: items,
+		Page:  page,
+		Count: perPage,
+		Total: total,
+	}, nil
 }
 
 func (s *InventoryService) ListFiles(inventoryID uint, page, perPage int) (*InventoryFileList, error) {
@@ -418,6 +489,16 @@ func toInventoryFileDetails(file *model.InventoryFile) *InventoryFileDetails {
 		Version:     file.Version,
 		Created:     file.Created,
 		Modified:    file.Modified,
+	}
+}
+
+func toReplicaFileDetails(file *model.ReplicaFile) *ReplicaFileDetails {
+	return &ReplicaFileDetails{
+		ID:        file.ID,
+		FileID:    file.FileID,
+		ReplicaID: file.ReplicaID,
+		Version:   file.Version,
+		Status:    string(file.Status),
 	}
 }
 
