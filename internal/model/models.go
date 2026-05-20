@@ -45,6 +45,36 @@ func (FileJournal) TableName() string {
 	return "file_journal"
 }
 
+type Node struct {
+	ID                  string     `gorm:"primaryKey;size:255" json:"id"`
+	Status              NodeStatus `gorm:"size:32;not null" json:"status"`
+	Secret              string     `gorm:"size:255;not null" json:"-"`
+	Address             string     `gorm:"size:2048" json:"address"`
+	LastSeen            *time.Time `json:"last_seen"`
+	LastCallbackSuccess *time.Time `json:"last_callback_success"`
+	LastCallbackFailure *time.Time `json:"last_callback_failure"`
+	Token               *NodeToken `gorm:"foreignKey:NodeID;references:ID" json:"token,omitempty"`
+	Replicas            []Replica  `gorm:"foreignKey:NodeID;references:ID" json:"replicas,omitempty"`
+}
+
+func (Node) TableName() string {
+	return "nodes"
+}
+
+type NodeToken struct {
+	NodeID            string     `gorm:"primaryKey;size:255" json:"node_id"`
+	RefreshHash       string     `gorm:"column:refresh_hash;size:255;not null;uniqueIndex" json:"-"`
+	RefreshExpiration time.Time  `gorm:"column:refresh_expiration;not null;index" json:"refresh_expiration"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	RevokedAt         *time.Time `json:"revoked_at,omitempty"`
+	Node              Node       `gorm:"foreignKey:NodeID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
+}
+
+func (NodeToken) TableName() string {
+	return "node_tokens"
+}
+
 type Replica struct {
 	ID          uint          `gorm:"primaryKey" json:"id"`
 	InventoryID uint          `gorm:"index;not null" json:"inventory_id"`
@@ -53,6 +83,7 @@ type Replica struct {
 	Status      ReplicaStatus `gorm:"size:32;not null" json:"status"`
 	Type        ReplicaType   `gorm:"size:32;not null" json:"type"`
 	Inventory   Inventory     `gorm:"foreignKey:InventoryID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
+	Node        Node          `gorm:"foreignKey:NodeID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
 }
 
 func (Replica) TableName() string {
@@ -218,6 +249,8 @@ func AllModels() []any {
 		&Inventory{},
 		&InventoryFile{},
 		&FileJournal{},
+		&Node{},
+		&NodeToken{},
 		&Replica{},
 		&ReplicaFile{},
 		&ReplicationGroup{},

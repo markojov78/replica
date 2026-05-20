@@ -23,13 +23,16 @@ type Config struct {
 }
 
 type AppConfig struct {
-	NodeID      string
-	Coordinator bool
-	Storage     bool
+	NodeID         string
+	Coordinator    bool
+	Storage        bool
+	CoordinatorURL string
+	NodeAddress    string
 }
 
 type AuthConfig struct {
 	JWTSecret            string
+	NodeSecret           string
 	AccessTokenDuration  time.Duration
 	RefreshTokenDuration time.Duration
 }
@@ -58,13 +61,16 @@ type rawConfig struct {
 }
 
 type rawAppConfig struct {
-	NodeID      *string `json:"node_id" yaml:"node_id" toml:"node_id"`
-	Coordinator *bool   `json:"coordinator" yaml:"coordinator" toml:"coordinator"`
-	Storage     *bool   `json:"storage" yaml:"storage" toml:"storage"`
+	NodeID         *string `json:"node_id" yaml:"node_id" toml:"node_id"`
+	Coordinator    *bool   `json:"coordinator" yaml:"coordinator" toml:"coordinator"`
+	Storage        *bool   `json:"storage" yaml:"storage" toml:"storage"`
+	CoordinatorURL *string `json:"coordinator_url" yaml:"coordinator_url" toml:"coordinator_url"`
+	NodeAddress    *string `json:"node_address" yaml:"node_address" toml:"node_address"`
 }
 
 type rawAuthConfig struct {
 	JWTSecret            *string `json:"jwt_secret" yaml:"jwt_secret" toml:"jwt_secret"`
+	NodeSecret           *string `json:"node_secret" yaml:"node_secret" toml:"node_secret"`
 	AccessTokenDuration  *string `json:"access_token_duration" yaml:"access_token_duration" toml:"access_token_duration"`
 	RefreshTokenDuration *string `json:"refresh_token_duration" yaml:"refresh_token_duration" toml:"refresh_token_duration"`
 }
@@ -101,12 +107,15 @@ func Load() (Config, error) {
 
 	cfg := Config{
 		App: AppConfig{
-			NodeID:      resolveString("APP_NODE_ID", fileCfg.App.NodeID, "node-1"),
-			Coordinator: resolveBool("APP_COORDINATOR", fileCfg.App.Coordinator, true),
-			Storage:     resolveBool("APP_STORAGE", fileCfg.App.Storage, true),
+			NodeID:         resolveString("APP_NODE_ID", fileCfg.App.NodeID, "node-1"),
+			Coordinator:    resolveBool("APP_COORDINATOR", fileCfg.App.Coordinator, true),
+			Storage:        resolveBool("APP_STORAGE", fileCfg.App.Storage, true),
+			CoordinatorURL: resolveString("APP_COORDINATOR_URL", fileCfg.App.CoordinatorURL, ""),
+			NodeAddress:    resolveString("APP_NODE_ADDRESS", fileCfg.App.NodeAddress, ""),
 		},
 		Auth: AuthConfig{
 			JWTSecret:            resolveString("AUTH_JWT_SECRET", fileCfg.Auth.JWTSecret, "change-me"),
+			NodeSecret:           resolveString("AUTH_NODE_SECRET", fileCfg.Auth.NodeSecret, ""),
 			AccessTokenDuration:  resolveDuration("AUTH_ACCESS_TOKEN_DURATION", fileCfg.Auth.AccessTokenDuration, 30*time.Minute),
 			RefreshTokenDuration: resolveDuration("AUTH_REFRESH_TOKEN_DURATION", fileCfg.Auth.RefreshTokenDuration, 8*time.Hour),
 		},
@@ -259,6 +268,17 @@ func (c Config) Validate() error {
 	}
 	if !c.App.Coordinator && !c.App.Storage {
 		return errors.New("at least one of app.coordinator or app.storage must be true")
+	}
+	if c.App.Storage && !c.App.Coordinator {
+		if c.App.CoordinatorURL == "" {
+			return errors.New("app.coordinator_url is required when storage is enabled without coordinator mode")
+		}
+		if c.App.NodeAddress == "" {
+			return errors.New("app.node_address is required when storage is enabled without coordinator mode")
+		}
+		if c.Auth.NodeSecret == "" {
+			return errors.New("auth.node_secret is required when storage is enabled without coordinator mode")
+		}
 	}
 	if c.HTTP.Address == "" {
 		return errors.New("http.address is required")

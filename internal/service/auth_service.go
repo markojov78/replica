@@ -14,15 +14,27 @@ import (
 )
 
 var (
-	ErrInvalidCredentials = errors.New("invalid username or password")
-	ErrInactiveUser       = errors.New("inactive user")
-	ErrInvalidToken       = errors.New("invalid token")
-	ErrExpiredToken       = errors.New("expired token")
-	ErrForbidden          = errors.New("forbidden")
+	ErrInvalidCredentials     = errors.New("invalid username or password")
+	ErrInvalidNodeCredentials = errors.New("invalid node credentials")
+	ErrInactiveUser           = errors.New("inactive user")
+	ErrDisabledNode           = errors.New("disabled node")
+	ErrRevokedNode            = errors.New("revoked node")
+	ErrInvalidToken           = errors.New("invalid token")
+	ErrExpiredToken           = errors.New("expired token")
+	ErrRevokedToken           = errors.New("revoked token")
+	ErrForbidden              = errors.New("forbidden")
 )
 
 type TokenPair struct {
 	UserID                uint
+	AccessToken           string
+	RefreshToken          string
+	AccessTokenExpiresAt  time.Time
+	RefreshTokenExpiresAt time.Time
+}
+
+type NodeTokenPair struct {
+	NodeID                string
 	AccessToken           string
 	RefreshToken          string
 	AccessTokenExpiresAt  time.Time
@@ -34,6 +46,11 @@ type AuthenticatedUser struct {
 	Username string
 	Status   string
 	Roles    []RoleDetails
+}
+
+type AuthenticatedNode struct {
+	ID     string
+	Status string
 }
 
 type RoleDetails struct {
@@ -53,15 +70,26 @@ type PermissionDetail struct {
 type AuthService struct {
 	users           *repository.UserRepository
 	userTokens      *repository.UserTokenRepository
+	nodes           *repository.NodeRepository
+	nodeTokens      *repository.NodeTokenRepository
 	jwtSecret       []byte
 	accessTokenTTL  time.Duration
 	refreshTokenTTL time.Duration
 }
 
-func NewAuthService(users *repository.UserRepository, userTokens *repository.UserTokenRepository, jwtSecret string, accessTokenTTL, refreshTokenTTL time.Duration) *AuthService {
+func NewAuthService(
+	users *repository.UserRepository,
+	userTokens *repository.UserTokenRepository,
+	nodes *repository.NodeRepository,
+	nodeTokens *repository.NodeTokenRepository,
+	jwtSecret string,
+	accessTokenTTL, refreshTokenTTL time.Duration,
+) *AuthService {
 	return &AuthService{
 		users:           users,
 		userTokens:      userTokens,
+		nodes:           nodes,
+		nodeTokens:      nodeTokens,
 		jwtSecret:       []byte(jwtSecret),
 		accessTokenTTL:  accessTokenTTL,
 		refreshTokenTTL: refreshTokenTTL,
@@ -107,6 +135,55 @@ func (s *AuthService) Refresh(refreshToken string) (*TokenPair, error) {
 	}
 
 	return s.issueTokenPair(userToken.UserID)
+}
+
+func (s *AuthService) NodeLogin(nodeID, secret string) (*NodeTokenPair, error) {
+	node, err := s.nodes.FindByID(nodeID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrInvalidNodeCredentials
+		}
+		return nil, err
+	}
+
+	if err := validateNodeAuthStatus(node.Status); err != nil {
+		return nil, err
+	}
+
+	if err := security.CheckPassword(node.Secret, secret); err != nil {
+		return nil, ErrInvalidNodeCredentials
+	}
+
+	return s.issueNodeTokenPair(node.ID)
+}
+
+func (s *AuthService) NodeRefresh(refreshToken string) (*NodeTokenPair, error) {
+	nodeToken, err := s.nodeTokens.FindByRefreshHash(security.HashOpaqueToken(refreshToken))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrInvalidToken
+		}
+		return nil, err
+	}
+
+	if nodeToken.RevokedAt != nil {
+		return nil, ErrRevokedToken
+	}
+
+	now := time.Now().UTC()
+	if nodeToken.RefreshExpiration.Before(now) {
+		return nil, ErrExpiredToken
+	}
+
+	if err := validateNodeAuthStatus(nodeToken.Node.Status); err != nil {
+		return nil, err
+	}
+
+	if err := s.nodeTokens.DeleteByNodeID(nodeToken.NodeID); err != nil {
+		return nil, err
+	}
+
+	return s.issueNodeTokenPair(nodeToken.NodeID)
 }
 
 func (s *AuthService) Logout(accessToken string) error {
@@ -171,6 +248,30 @@ func (s *AuthService) Authorize(accessToken string, resource model.PermissionRes
 	return nil, ErrForbidden
 }
 
+func (s *AuthService) Node(accessToken string) (*AuthenticatedNode, error) {
+	claims, err := s.parseNodeAccessToken(accessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	node, err := s.nodes.FindByID(claims.Subject)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrInvalidToken
+		}
+		return nil, err
+	}
+
+	if err := validateNodeAuthStatus(node.Status); err != nil {
+		return nil, err
+	}
+
+	return &AuthenticatedNode{
+		ID:     node.ID,
+		Status: string(node.Status),
+	}, nil
+}
+
 func (s *AuthService) issueTokenPair(userID uint) (*TokenPair, error) {
 	refreshToken, err := security.NewOpaqueToken()
 	if err != nil {
@@ -203,8 +304,53 @@ func (s *AuthService) issueTokenPair(userID uint) (*TokenPair, error) {
 	return pair, nil
 }
 
+func (s *AuthService) issueNodeTokenPair(nodeID string) (*NodeTokenPair, error) {
+	refreshToken, err := security.NewOpaqueToken()
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	pair := &NodeTokenPair{
+		NodeID:                nodeID,
+		RefreshToken:          refreshToken,
+		AccessTokenExpiresAt:  now.Add(s.accessTokenTTL),
+		RefreshTokenExpiresAt: now.Add(s.refreshTokenTTL),
+	}
+
+	nodeToken := &model.NodeToken{
+		NodeID:            nodeID,
+		RefreshHash:       security.HashOpaqueToken(pair.RefreshToken),
+		RefreshExpiration: pair.RefreshTokenExpiresAt,
+		RevokedAt:         nil,
+	}
+
+	if err := s.nodeTokens.Save(nodeToken); err != nil {
+		return nil, err
+	}
+
+	pair.AccessToken, err = security.GenerateNodeAccessToken(s.jwtSecret, nodeID, pair.AccessTokenExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+
+	return pair, nil
+}
+
 func (s *AuthService) parseAccessToken(accessToken string) (*security.UserAccessClaims, error) {
 	claims, err := security.ParseUserAccessToken(s.jwtSecret, accessToken)
+	if err != nil {
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return nil, ErrExpiredToken
+		}
+		return nil, ErrInvalidToken
+	}
+
+	return claims, nil
+}
+
+func (s *AuthService) parseNodeAccessToken(accessToken string) (*security.NodeAccessClaims, error) {
+	claims, err := security.ParseNodeAccessToken(s.jwtSecret, accessToken)
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
 			return nil, ErrExpiredToken
@@ -221,6 +367,17 @@ func parseUintClaim(value string) (uint, error) {
 		return 0, err
 	}
 	return uint(parsed), nil
+}
+
+func validateNodeAuthStatus(status model.NodeStatus) error {
+	switch status {
+	case model.NodeStatusDisabled:
+		return ErrDisabledNode
+	case model.NodeStatusRevoked:
+		return ErrRevokedNode
+	default:
+		return nil
+	}
 }
 
 func mapRoles(roles []model.Role) []RoleDetails {

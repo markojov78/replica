@@ -20,6 +20,7 @@ type services struct {
 	auth        *service.AuthService
 	users       *service.UserService
 	roles       *service.RoleService
+	nodes       *service.NodeService
 	inventories *service.InventoryService
 }
 
@@ -29,23 +30,28 @@ func New(
 	authService *service.AuthService,
 	userService *service.UserService,
 	roleService *service.RoleService,
+	nodeService *service.NodeService,
 	inventoryService *service.InventoryService,
 ) http.Handler {
 	mux := http.NewServeMux()
 	api := humago.New(mux, huma.DefaultConfig(serviceName, info.Version))
 	apiGroup := huma.NewGroup(api, "/api")
+	internalGroup := huma.NewGroup(api, "/internal")
 
 	svc := services{
 		auth:        authService,
 		users:       userService,
 		roles:       roleService,
+		nodes:       nodeService,
 		inventories: inventoryService,
 	}
 
 	registerServiceInfoRoute(mux, cfg, info, svc)
-	registerAuthRoutes(apiGroup, svc)
+	registerPublicAuthRoutes(apiGroup, svc)
+	registerInternalAuthRoutes(internalGroup, svc)
 	registerUserRoutes(apiGroup, svc)
 	registerRoleRoutes(apiGroup, svc)
+	registerNodeRoutes(apiGroup, svc)
 	registerInventoryRoutes(apiGroup, svc)
 	registerReplicaRoutes(apiGroup, svc)
 
@@ -109,12 +115,20 @@ func mapAuthError(err error) error {
 	switch {
 	case errors.Is(err, service.ErrInvalidCredentials):
 		return huma.Error401Unauthorized("invalid username or password")
+	case errors.Is(err, service.ErrInvalidNodeCredentials):
+		return huma.Error401Unauthorized("invalid node credentials")
 	case errors.Is(err, service.ErrInactiveUser):
 		return huma.Error403Forbidden("inactive user")
+	case errors.Is(err, service.ErrDisabledNode):
+		return huma.Error403Forbidden("disabled node")
+	case errors.Is(err, service.ErrRevokedNode):
+		return huma.Error403Forbidden("revoked node")
 	case errors.Is(err, service.ErrInvalidToken):
 		return huma.Error401Unauthorized("invalid token")
 	case errors.Is(err, service.ErrExpiredToken):
 		return huma.Error401Unauthorized("expired token")
+	case errors.Is(err, service.ErrRevokedToken):
+		return huma.Error401Unauthorized("revoked token")
 	default:
 		return huma.Error500InternalServerError("auth request failed", err)
 	}
@@ -135,6 +149,19 @@ func mapMeHTTPError(err error) (int, string) {
 		return http.StatusUnauthorized, "missing authenticated user"
 	default:
 		return http.StatusInternalServerError, "failed to resolve current user"
+	}
+}
+
+func mapNodeMeError(err error) error {
+	switch {
+	case errors.Is(err, service.ErrInvalidToken), errors.Is(err, service.ErrExpiredToken):
+		return huma.Error401Unauthorized("missing authenticated node")
+	case errors.Is(err, service.ErrDisabledNode):
+		return huma.Error403Forbidden("disabled node")
+	case errors.Is(err, service.ErrRevokedNode):
+		return huma.Error403Forbidden("revoked node")
+	default:
+		return huma.Error500InternalServerError("failed to resolve current node", err)
 	}
 }
 
@@ -169,6 +196,21 @@ func mapRoleError(err error, roleService *service.RoleService) error {
 		return huma.Error409Conflict("role already exists")
 	default:
 		return huma.Error500InternalServerError("role request failed", err)
+	}
+}
+
+func mapNodeError(err error, nodeService *service.NodeService) error {
+	lower := strings.ToLower(err.Error())
+
+	switch {
+	case nodeService.IsNotFound(err):
+		return huma.Error404NotFound("node not found")
+	case errors.Is(err, service.ErrInvalidNodeStatus):
+		return huma.Error400BadRequest("invalid node status")
+	case strings.Contains(lower, "unique"):
+		return huma.Error409Conflict("node already exists")
+	default:
+		return huma.Error500InternalServerError("node request failed", err)
 	}
 }
 

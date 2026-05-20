@@ -10,7 +10,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 )
 
-func registerAuthRoutes(api huma.API, svc services) {
+func registerPublicAuthRoutes(api huma.API, svc services) {
 	huma.Post(api, "/auth/login", func(ctx context.Context, input *loginInput) (*tokenPairResponse, error) {
 		pair, err := svc.auth.Login(input.Body.Username, input.Body.Password)
 		if err != nil {
@@ -62,6 +62,43 @@ func registerAuthRoutes(api huma.API, svc services) {
 	})
 }
 
+func registerInternalAuthRoutes(api huma.API, svc services) {
+	huma.Post(api, "/auth/login", func(ctx context.Context, input *nodeLoginInput) (*nodeTokenPairResponse, error) {
+		pair, err := svc.auth.NodeLogin(input.Body.NodeID, input.Body.Secret)
+		if err != nil {
+			return nil, mapAuthError(err)
+		}
+		return nodeTokenPairFromService(pair), nil
+	})
+
+	huma.Post(api, "/auth/refresh", func(ctx context.Context, input *refreshInput) (*nodeTokenPairResponse, error) {
+		pair, err := svc.auth.NodeRefresh(input.Body.RefreshToken)
+		if err != nil {
+			return nil, mapAuthError(err)
+		}
+		return nodeTokenPairFromService(pair), nil
+	})
+
+	huma.Get(api, "/auth/me", func(ctx context.Context, input *nodeMeInput) (*nodeMeResponse, error) {
+		accessToken, err := bearerToken(input.Authorization)
+		if err != nil {
+			return nil, huma.Error401Unauthorized("missing authenticated node")
+		}
+
+		node, err := svc.auth.Node(accessToken)
+		if err != nil {
+			return nil, mapNodeMeError(err)
+		}
+
+		return &nodeMeResponse{
+			Body: nodeMeBody{
+				ID:     node.ID,
+				Status: node.Status,
+			},
+		}, nil
+	})
+}
+
 type loginInput struct {
 	versionHeader
 	Body struct {
@@ -77,12 +114,25 @@ type refreshInput struct {
 	}
 }
 
+type nodeLoginInput struct {
+	versionHeader
+	Body struct {
+		NodeID string `json:"node_id" minLength:"1"`
+		Secret string `json:"secret" minLength:"1"`
+	}
+}
+
 type logoutInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
 }
 
 type meInput struct {
+	versionHeader
+	Authorization string `header:"Authorization"`
+}
+
+type nodeMeInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
 }
@@ -99,6 +149,18 @@ type tokenPairResponse struct {
 	Body tokenPairBody
 }
 
+type nodeTokenPairBody struct {
+	NodeID                string    `json:"node_id"`
+	AccessToken           string    `json:"access_token"`
+	RefreshToken          string    `json:"refresh_token"`
+	AccessTokenExpiresAt  time.Time `json:"access_token_expires_at"`
+	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at"`
+}
+
+type nodeTokenPairResponse struct {
+	Body nodeTokenPairBody
+}
+
 type meBody struct {
 	ID       uint                  `json:"id"`
 	Username string                `json:"username"`
@@ -110,6 +172,15 @@ type meResponse struct {
 	Body meBody
 }
 
+type nodeMeBody struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+}
+
+type nodeMeResponse struct {
+	Body nodeMeBody
+}
+
 type logoutResponse struct {
 	Status int `status:"204"`
 }
@@ -118,6 +189,18 @@ func tokenPairFromService(pair *service.TokenPair) *tokenPairResponse {
 	return &tokenPairResponse{
 		Body: tokenPairBody{
 			UserID:                pair.UserID,
+			AccessToken:           pair.AccessToken,
+			RefreshToken:          pair.RefreshToken,
+			AccessTokenExpiresAt:  pair.AccessTokenExpiresAt,
+			RefreshTokenExpiresAt: pair.RefreshTokenExpiresAt,
+		},
+	}
+}
+
+func nodeTokenPairFromService(pair *service.NodeTokenPair) *nodeTokenPairResponse {
+	return &nodeTokenPairResponse{
+		Body: nodeTokenPairBody{
+			NodeID:                pair.NodeID,
 			AccessToken:           pair.AccessToken,
 			RefreshToken:          pair.RefreshToken,
 			AccessTokenExpiresAt:  pair.AccessTokenExpiresAt,

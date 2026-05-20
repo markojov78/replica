@@ -12,6 +12,7 @@ type ReplicationGroupStatus string
 type ShareStatus string
 type UserStatus string
 type RoleStatus string
+type NodeStatus string
 type PermissionResource string
 type PermissionAction string
 
@@ -83,9 +84,18 @@ const (
 )
 
 const (
+	NodeStatusOnline      NodeStatus = "online"
+	NodeStatusUnreachable NodeStatus = "unreachable"
+	NodeStatusOffline     NodeStatus = "offline"
+	NodeStatusDisabled    NodeStatus = "disabled"
+	NodeStatusRevoked     NodeStatus = "revoked"
+)
+
+const (
 	PermissionResourceUsers       PermissionResource = "users"
 	PermissionResourceShares      PermissionResource = "shares"
 	PermissionResourceInventories PermissionResource = "inventories"
+	PermissionResourceNodes       PermissionResource = "nodes"
 )
 
 const (
@@ -203,9 +213,18 @@ func (s RoleStatus) Valid() bool {
 	}
 }
 
+func (s NodeStatus) Valid() bool {
+	switch s {
+	case NodeStatusOnline, NodeStatusUnreachable, NodeStatusOffline, NodeStatusDisabled, NodeStatusRevoked:
+		return true
+	default:
+		return false
+	}
+}
+
 func (r PermissionResource) Valid() bool {
 	switch r {
-	case PermissionResourceUsers, PermissionResourceShares, PermissionResourceInventories:
+	case PermissionResourceUsers, PermissionResourceShares, PermissionResourceInventories, PermissionResourceNodes:
 		return true
 	default:
 		return false

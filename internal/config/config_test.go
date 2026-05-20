@@ -11,7 +11,10 @@ func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
 	t.Setenv("APP_NODE_ID", "")
 	t.Setenv("APP_COORDINATOR", "")
 	t.Setenv("APP_STORAGE", "")
+	t.Setenv("APP_COORDINATOR_URL", "")
+	t.Setenv("APP_NODE_ADDRESS", "")
 	t.Setenv("AUTH_JWT_SECRET", "")
+	t.Setenv("AUTH_NODE_SECRET", "")
 	t.Setenv("HTTP_ADDR", "")
 	t.Setenv("DB_DRIVER", "")
 	t.Setenv("DB_DSN", "")
@@ -65,8 +68,11 @@ app:
   node_id: coordinator-1
   coordinator: true
   storage: false
+  coordinator_url: "http://coordinator:8080"
+  node_address: "http://storage-1:8081"
 auth:
   jwt_secret: "file-secret"
+  node_secret: "node-file-secret"
   access_token_duration: "45m"
   refresh_token_duration: "10h"
 http:
@@ -97,6 +103,15 @@ seed:
 	if cfg.Auth.JWTSecret != "file-secret" {
 		t.Fatalf("Auth.JWTSecret = %q, want %q", cfg.Auth.JWTSecret, "file-secret")
 	}
+	if cfg.Auth.NodeSecret != "node-file-secret" {
+		t.Fatalf("Auth.NodeSecret = %q, want %q", cfg.Auth.NodeSecret, "node-file-secret")
+	}
+	if cfg.App.CoordinatorURL != "http://coordinator:8080" {
+		t.Fatalf("App.CoordinatorURL = %q, want %q", cfg.App.CoordinatorURL, "http://coordinator:8080")
+	}
+	if cfg.App.NodeAddress != "http://storage-1:8081" {
+		t.Fatalf("App.NodeAddress = %q, want %q", cfg.App.NodeAddress, "http://storage-1:8081")
+	}
 	if cfg.Database.Driver != "postgres" {
 		t.Fatalf("Database.Driver = %q, want %q", cfg.Database.Driver, "postgres")
 	}
@@ -119,9 +134,12 @@ func TestLoadFromExplicitTOMLConfigFile(t *testing.T) {
 node_id = "storage-1"
 coordinator = false
 storage = true
+coordinator_url = "http://coordinator:8080"
+node_address = "http://storage-1:8081"
 
 [auth]
 jwt_secret = "toml-secret"
+node_secret = "toml-node-secret"
 access_token_duration = "15m"
 refresh_token_duration = "6h"
 
@@ -147,6 +165,15 @@ auto_migrate = false
 	if cfg.Database.Driver != "sqlite" {
 		t.Fatalf("Database.Driver = %q, want %q", cfg.Database.Driver, "sqlite")
 	}
+	if cfg.App.CoordinatorURL != "http://coordinator:8080" {
+		t.Fatalf("App.CoordinatorURL = %q, want %q", cfg.App.CoordinatorURL, "http://coordinator:8080")
+	}
+	if cfg.App.NodeAddress != "http://storage-1:8081" {
+		t.Fatalf("App.NodeAddress = %q, want %q", cfg.App.NodeAddress, "http://storage-1:8081")
+	}
+	if cfg.Auth.NodeSecret != "toml-node-secret" {
+		t.Fatalf("Auth.NodeSecret = %q, want %q", cfg.Auth.NodeSecret, "toml-node-secret")
+	}
 	if cfg.Database.DSN != "custom.db" {
 		t.Fatalf("Database.DSN = %q, want %q", cfg.Database.DSN, "custom.db")
 	}
@@ -157,6 +184,18 @@ auto_migrate = false
 
 func TestLoadRejectsMissingExplicitConfigFile(t *testing.T) {
 	t.Setenv("CONFIG_FILE", filepath.Join(t.TempDir(), "missing.yaml"))
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want error")
+	}
+}
+
+func TestLoadRejectsMissingNodeCommunicationConfigForStorageOnlyMode(t *testing.T) {
+	t.Setenv("APP_COORDINATOR", "false")
+	t.Setenv("APP_STORAGE", "true")
+	t.Setenv("APP_COORDINATOR_URL", "")
+	t.Setenv("APP_NODE_ADDRESS", "")
+	t.Setenv("AUTH_NODE_SECRET", "")
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() error = nil, want error")

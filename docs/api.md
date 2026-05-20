@@ -1,6 +1,8 @@
 # API
 
-Base path for all documented endpoints is `/api/`.
+This document is split into:
+- public user-facing endpoints under `/api/`
+- internal endpoints under `/internal/`
 
 API versioning is implemented through the `X-API-Version` request header. Supported values are `1` and `v1`.
 
@@ -33,7 +35,11 @@ Example response:
 Possible errors:
 - `401` missing authenticated user
 
-## /auth endpoint
+## Public API
+
+Base path for the endpoints in this section is `/api/`.
+
+### /auth endpoint
 
 Authentication is token-based.
 
@@ -196,7 +202,7 @@ Example response:
 Possible errors:
 - `401` missing authenticated user
 
-## /users endpoint
+### /users endpoint
 
 All `/users` endpoints require the matching `users` permission for the requested action.
 
@@ -294,9 +300,10 @@ Possible errors:
 - `400` invalid roles
 - `409` user already exists
 
-## /roles endpoint
+### /roles endpoint
 
 All `/roles` endpoints currently use the `users` permission resource for authorization.
+Role permissions may include the `nodes` resource with `read`, `create`, `update`, and `delete` actions.
 
 ### GET /roles
 Returns a paginated list of roles.
@@ -387,7 +394,108 @@ Possible errors:
 - `400` invalid permissions
 - `409` role already exists
 
-## /inventories endpoint
+### /nodes endpoint
+
+All `/nodes` endpoints require the matching `nodes` permission for the requested action.
+
+Node management is user-facing and intended for administrative workflows such as creating and maintaining nodes from the admin panel.
+
+Behavior:
+- node secrets are accepted only on create or update
+- node secrets are stored hashed and are never returned by the API
+- `DELETE /nodes/{id}` is a soft delete that sets node status to `revoked`
+
+### GET /nodes
+Returns a paginated list of nodes.
+
+Query parameters:
+- `page` optional, default `1`
+- `count` optional, default `20`, maximum `100`
+
+Example response:
+
+```json
+{
+  "items": [
+    {
+      "id": "node-a",
+      "status": "offline",
+      "address": "http://node-a:8081",
+      "last_seen": "2026-05-20T12:00:00Z",
+      "last_callback_success": "2026-05-20T11:58:00Z",
+      "last_callback_failure": null
+    }
+  ],
+  "page": 1,
+  "count": 20,
+  "total": 1
+}
+```
+
+### GET /nodes/{id}
+Returns a single node.
+
+### POST /nodes
+Creates a node.
+
+Request body:
+- `id` required
+- `secret` required
+- `address` optional
+- `status` optional, defaults to `offline`
+
+Example request:
+
+```json
+{
+  "id": "node-a",
+  "secret": "plaintext-node-secret",
+  "address": "http://node-a:8081",
+  "status": "offline"
+}
+```
+
+Example response:
+
+```json
+{
+  "id": "node-a",
+  "status": "offline",
+  "address": "http://node-a:8081",
+  "last_seen": null,
+  "last_callback_success": null,
+  "last_callback_failure": null
+}
+```
+
+### PATCH /nodes/{id}
+Updates a node.
+
+Request body fields are optional:
+- `secret`
+- `address`
+- `status`
+
+Example request:
+
+```json
+{
+  "status": "disabled",
+  "address": "http://node-a-new:8081"
+}
+```
+
+### DELETE /nodes/{id}
+Revokes a node by setting its status to `revoked`.
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `404` node not found
+- `400` invalid node status
+- `409` node already exists
+
+### /inventories endpoint
 
 All `/inventories` and inventory file endpoints require the matching `inventories` permission for the requested action.
 
@@ -581,3 +689,145 @@ Possible errors:
 - `400` invalid replica status
 - `400` invalid replica type
 - `400` invalid replica uri
+
+## Internal API
+
+Base path for the endpoints in this section is `/internal/`.
+
+### /auth endpoint
+
+Node authentication model:
+- node `access_token` is a signed JWT with `token_type = "node"`
+- node `refresh_token` is an opaque random token
+- node refresh tokens are stored server-side only as a hash
+- node refresh tokens are rotated on successful refresh
+- `node_id` and `secret` are used only to obtain a node token pair
+- the node secret is stored hashed in the coordinator database and kept as plaintext only in node configuration
+- node authentication does not update node address
+- node authentication does not update node online/offline status
+- node runtime reporting will be handled later by separate internal endpoints
+
+Node auth config:
+- `app.coordinator_url`
+  - coordinator base URL used by storage nodes when authenticating with the coordinator
+- `auth.node_secret`
+  - plaintext node secret configured on the node side and verified against the hashed secret stored in the coordinator database
+
+### POST /auth/login
+Authenticates a node and returns a new node token pair.
+
+Behavior:
+- validates `node_id` and `secret`
+- verifies the provided node secret against the hashed secret stored in the coordinator database
+- returns a signed JWT node access token with `token_type = "node"`
+- returns a new opaque node refresh token
+- creates or replaces the node refresh-token session on the server
+- does not update node address
+- does not update node online/offline status
+
+Request body:
+- `node_id` required
+- `secret` required
+
+Example request:
+
+```json
+{
+  "node_id": "node-a",
+  "secret": "plaintext-node-secret-from-node-config"
+}
+```
+
+Example response:
+
+```json
+{
+  "node_id": "node-a",
+  "access_token": "node-access-token-value",
+  "refresh_token": "node-refresh-token-value",
+  "access_token_expires_at": "2026-05-20T12:30:00Z",
+  "refresh_token_expires_at": "2026-05-20T20:30:00Z"
+}
+```
+
+Possible errors:
+- `400` invalid JSON payload
+- `401` invalid node credentials
+- `403` disabled node
+- `403` revoked node
+
+### POST /auth/refresh
+Exchanges a node refresh token for a new node token pair.
+The refresh token is rotated on success, so the old refresh token becomes invalid.
+
+Behavior:
+- hashes the provided refresh token and looks up the matching server-side node session
+- rejects invalid, expired, revoked, disabled, or revoked-node sessions
+- revokes the old node refresh-token session
+- returns a new signed JWT node access token with `token_type = "node"`
+- returns a new opaque node refresh token
+- does not update node address
+- does not update node online/offline status
+
+Request body:
+- `refresh_token` required
+
+Example request:
+
+```json
+{
+  "refresh_token": "node-refresh-token-value"
+}
+```
+
+Example response:
+
+```json
+{
+  "node_id": "node-a",
+  "access_token": "new-node-access-token-value",
+  "refresh_token": "new-node-refresh-token-value",
+  "access_token_expires_at": "2026-05-20T13:00:00Z",
+  "refresh_token_expires_at": "2026-05-20T21:00:00Z"
+}
+```
+
+Possible errors:
+- `400` invalid JSON payload
+- `401` invalid token
+- `401` expired token
+- `401` revoked token
+- `403` disabled node
+- `403` revoked node
+
+### GET /auth/me
+Returns the currently authenticated node.
+
+Behavior:
+- validates the bearer node JWT
+- resolves the current node from the coordinator database
+- returns node identity and current status only
+- does not update node address
+- does not update node online/offline status
+
+Example request:
+
+```http
+GET /internal/auth/me
+Authorization: Bearer node-access-token-value
+X-API-Version: 1
+```
+
+Example response:
+
+```json
+{
+  "id": "node-a",
+  "status": "offline"
+}
+```
+
+Possible errors:
+- `401` missing authenticated node
+- `403` disabled node
+- `403` revoked node

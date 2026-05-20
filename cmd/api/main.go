@@ -31,18 +31,23 @@ func main() {
 
 	userRepo := repository.NewUserRepository(database)
 	userTokenRepo := repository.NewUserTokenRepository(database)
+	nodeRepo := repository.NewNodeRepository(database)
+	nodeTokenRepo := repository.NewNodeTokenRepository(database)
 	roleRepo := repository.NewRoleRepository(database)
 	inventoryRepo := repository.NewInventoryRepository(database)
 
 	authService := service.NewAuthService(
 		userRepo,
 		userTokenRepo,
+		nodeRepo,
+		nodeTokenRepo,
 		cfg.Auth.JWTSecret,
 		cfg.Auth.AccessTokenDuration,
 		cfg.Auth.RefreshTokenDuration,
 	)
 	userService := service.NewUserService(userRepo, roleRepo)
 	roleService := service.NewRoleService(roleRepo)
+	nodeService := service.NewNodeService(nodeRepo)
 	inventoryService := service.NewInventoryService(inventoryRepo)
 
 	handler := router.New(
@@ -51,6 +56,7 @@ func main() {
 		authService,
 		userService,
 		roleService,
+		nodeService,
 		inventoryService,
 	)
 

@@ -2,9 +2,12 @@ app:
   node_id: coordinator
   coordinator: true
   storage: true
+  coordinator_url: "http://coordinator:8080"
+  node_address: "http://coordinator:8081"
 
 auth:
   jwt_secret: "change-me"
+  node_secret: "change-me-node-secret"
   access_token_duration: "30m"
   refresh_token_duration: "8h"
 
