@@ -19,8 +19,13 @@ func registerReplicaRoutes(api huma.API, svc services) {
 			return nil, mapPermissionError(err)
 		}
 
+		var inventoryID *uint
+		if input.InventoryID > 0 {
+			inventoryID = &input.InventoryID
+		}
+
 		replicas, err := svc.inventories.ListReplicas(service.ReplicaListFilter{
-			InventoryID: input.InventoryID,
+			InventoryID: inventoryID,
 			NodeID:      input.NodeID,
 			URIPrefix:   input.URIPrefix,
 		})
@@ -106,7 +111,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 type listReplicasInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
-	InventoryID   *uint  `query:"inventory_id"`
+	InventoryID   uint   `query:"inventory_id"`
 	NodeID        string `query:"node_id"`
 	URIPrefix     string `query:"uri_prefix"`
 }

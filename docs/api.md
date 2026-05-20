@@ -35,10 +35,31 @@ Possible errors:
 
 ## /auth endpoint
 
-Authentication is token-based. Login returns an access token and a refresh token.
+Authentication is token-based.
+
+Current token model:
+- `access_token` is a signed JWT
+- `refresh_token` is an opaque random token
+- protected endpoints use `Authorization: Bearer <access_token>`
+- access tokens are validated by JWT signature and expiration
+- refresh tokens are stored server-side only as a hash
+- refresh tokens are rotated on successful refresh
+- logout revokes the current refresh-token session
+
+Expiration behavior:
+- `access_token_expires_at` is the JWT expiration time returned to the client
+- once the access token expires, protected endpoints return `401`
+- `refresh_token_expires_at` is the server-side refresh-session expiration
+- once the refresh token expires, `/auth/refresh` returns `401`
 
 ### POST /auth/login
 Authenticates a user and returns a new token pair.
+
+Behavior:
+- validates `username` and `password`
+- returns a signed JWT access token
+- returns a new opaque refresh token
+- creates a refresh-token session on the server
 
 Request body:
 - `username` required
@@ -72,6 +93,14 @@ Possible errors:
 
 ### POST /auth/refresh
 Exchanges a refresh token for a new token pair.
+The refresh token is rotated on success, so the old refresh token becomes invalid.
+
+Behavior:
+- hashes the provided refresh token and looks up the matching server-side session
+- rejects invalid, expired, or already revoked refresh tokens
+- revokes the old refresh-token session
+- returns a new JWT access token
+- returns a new opaque refresh token
 
 Request body:
 - `refresh_token` required
@@ -102,7 +131,17 @@ Possible errors:
 - `401` expired token
 
 ### POST /auth/logout
-Invalidates the current access token.
+Revokes the current authenticated session identified by the bearer access token.
+Because access tokens are stateless JWTs, logout revokes the corresponding refresh-token session in storage rather than deleting the access token itself.
+
+Request contract:
+- no request body
+- still uses `Authorization: Bearer <access_token>`
+
+Behavior:
+- parses and validates the bearer JWT
+- identifies the current refresh-token session from the JWT
+- revokes that session in server storage
 
 Example request:
 

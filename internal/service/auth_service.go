@@ -2,12 +2,14 @@ package service
 
 import (
 	"errors"
+	"strconv"
 	"time"
 
 	"dropoutbox/internal/model"
 	"dropoutbox/internal/repository"
 	"dropoutbox/internal/security"
 
+	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
 )
 
@@ -50,15 +52,17 @@ type PermissionDetail struct {
 
 type AuthService struct {
 	users           *repository.UserRepository
-	tokens          *repository.TokenRepository
+	userTokens      *repository.UserTokenRepository
+	jwtSecret       []byte
 	accessTokenTTL  time.Duration
 	refreshTokenTTL time.Duration
 }
 
-func NewAuthService(users *repository.UserRepository, tokens *repository.TokenRepository, accessTokenTTL, refreshTokenTTL time.Duration) *AuthService {
+func NewAuthService(users *repository.UserRepository, userTokens *repository.UserTokenRepository, jwtSecret string, accessTokenTTL, refreshTokenTTL time.Duration) *AuthService {
 	return &AuthService{
 		users:           users,
-		tokens:          tokens,
+		userTokens:      userTokens,
+		jwtSecret:       []byte(jwtSecret),
 		accessTokenTTL:  accessTokenTTL,
 		refreshTokenTTL: refreshTokenTTL,
 	}
@@ -85,7 +89,7 @@ func (s *AuthService) Login(username, password string) (*TokenPair, error) {
 }
 
 func (s *AuthService) Refresh(refreshToken string) (*TokenPair, error) {
-	token, err := s.tokens.FindByRefresh(refreshToken)
+	userToken, err := s.userTokens.FindByRefreshHash(security.HashOpaqueToken(refreshToken))
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrInvalidToken
@@ -94,39 +98,55 @@ func (s *AuthService) Refresh(refreshToken string) (*TokenPair, error) {
 	}
 
 	now := time.Now().UTC()
-	if token.RefreshExpiration.Before(now) {
+	if userToken.RefreshExpiration.Before(now) {
 		return nil, ErrExpiredToken
 	}
 
-	if err := s.tokens.DeleteByID(token.ID); err != nil {
+	if err := s.userTokens.DeleteByID(userToken.ID); err != nil {
 		return nil, err
 	}
 
-	return s.issueTokenPair(token.UserID)
+	return s.issueTokenPair(userToken.UserID)
 }
 
 func (s *AuthService) Logout(accessToken string) error {
-	token, err := s.tokens.FindByAccess(accessToken)
+	claims, err := s.parseAccessToken(accessToken)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrInvalidToken
-		}
 		return err
 	}
-	return s.tokens.DeleteByID(token.ID)
+
+	userTokenID, err := parseUintClaim(claims.ID)
+	if err != nil {
+		return ErrInvalidToken
+	}
+
+	return s.userTokens.DeleteByID(userTokenID)
 }
 
 func (s *AuthService) Me(accessToken string) (*AuthenticatedUser, error) {
-	token, err := s.validAccessToken(accessToken)
+	claims, err := s.parseAccessToken(accessToken)
 	if err != nil {
+		return nil, err
+	}
+
+	userID, err := parseUintClaim(claims.Subject)
+	if err != nil {
+		return nil, ErrInvalidToken
+	}
+
+	user, err := s.users.FindByID(userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrInvalidToken
+		}
 		return nil, err
 	}
 
 	return &AuthenticatedUser{
-		ID:       token.User.ID,
-		Username: token.User.Name,
-		Status:   string(token.User.Status),
-		Roles:    mapRoles(token.User.Roles),
+		ID:       user.ID,
+		Username: user.Name,
+		Status:   string(user.Status),
+		Roles:    mapRoles(user.Roles),
 	}, nil
 }
 
@@ -152,11 +172,6 @@ func (s *AuthService) Authorize(accessToken string, resource model.PermissionRes
 }
 
 func (s *AuthService) issueTokenPair(userID uint) (*TokenPair, error) {
-	accessToken, err := security.NewOpaqueToken()
-	if err != nil {
-		return nil, err
-	}
-
 	refreshToken, err := security.NewOpaqueToken()
 	if err != nil {
 		return nil, err
@@ -165,41 +180,47 @@ func (s *AuthService) issueTokenPair(userID uint) (*TokenPair, error) {
 	now := time.Now().UTC()
 	pair := &TokenPair{
 		UserID:                userID,
-		AccessToken:           accessToken,
 		RefreshToken:          refreshToken,
 		AccessTokenExpiresAt:  now.Add(s.accessTokenTTL),
 		RefreshTokenExpiresAt: now.Add(s.refreshTokenTTL),
 	}
 
-	token := &model.Token{
+	userToken := &model.UserToken{
 		UserID:            userID,
-		Access:            pair.AccessToken,
-		Refresh:           pair.RefreshToken,
-		AccessExpiration:  pair.AccessTokenExpiresAt,
+		RefreshHash:       security.HashOpaqueToken(pair.RefreshToken),
 		RefreshExpiration: pair.RefreshTokenExpiresAt,
 	}
 
-	if err := s.tokens.Create(token); err != nil {
+	if err := s.userTokens.Create(userToken); err != nil {
+		return nil, err
+	}
+
+	pair.AccessToken, err = security.NewUserAccessToken(s.jwtSecret, userID, userToken.ID, pair.AccessTokenExpiresAt)
+	if err != nil {
 		return nil, err
 	}
 
 	return pair, nil
 }
 
-func (s *AuthService) validAccessToken(accessToken string) (*model.Token, error) {
-	token, err := s.tokens.FindByAccess(accessToken)
+func (s *AuthService) parseAccessToken(accessToken string) (*security.UserAccessClaims, error) {
+	claims, err := security.ParseUserAccessToken(s.jwtSecret, accessToken)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrInvalidToken
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return nil, ErrExpiredToken
 		}
-		return nil, err
+		return nil, ErrInvalidToken
 	}
 
-	if token.AccessExpiration.Before(time.Now().UTC()) {
-		return nil, ErrExpiredToken
-	}
+	return claims, nil
+}
 
-	return token, nil
+func parseUintClaim(value string) (uint, error) {
+	parsed, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return uint(parsed), nil
 }
 
 func mapRoles(roles []model.Role) []RoleDetails {

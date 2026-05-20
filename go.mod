@@ -6,6 +6,7 @@ require (
 	github.com/danielgtaylor/huma/v2 v2.37.3
 	github.com/glebarez/sqlite v1.11.0
 	github.com/goccy/go-yaml v1.19.2
+	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/pelletier/go-toml/v2 v2.2.4
 	golang.org/x/crypto v0.48.0
 	gorm.io/driver/postgres v1.6.0

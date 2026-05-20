@@ -110,30 +110,28 @@ func (Share) TableName() string {
 }
 
 type User struct {
-	ID       uint       `gorm:"primaryKey" json:"id"`
-	Name     string     `gorm:"size:255;uniqueIndex;not null" json:"name"`
-	Status   UserStatus `gorm:"size:32;not null" json:"status"`
-	Password string     `gorm:"size:255;not null" json:"-"`
-	Tokens   []Token    `json:"tokens,omitempty"`
-	Roles    []Role     `gorm:"many2many:user_role;" json:"roles,omitempty"`
+	ID       uint        `gorm:"primaryKey" json:"id"`
+	Name     string      `gorm:"size:255;uniqueIndex;not null" json:"name"`
+	Status   UserStatus  `gorm:"size:32;not null" json:"status"`
+	Password string      `gorm:"size:255;not null" json:"-"`
+	Tokens   []UserToken `json:"tokens,omitempty"`
+	Roles    []Role      `gorm:"many2many:user_role;" json:"roles,omitempty"`
 }
 
 func (User) TableName() string {
 	return "users"
 }
 
-type Token struct {
+type UserToken struct {
 	ID                uint      `gorm:"primaryKey" json:"id"`
 	UserID            uint      `gorm:"not null;index" json:"user_id"`
-	Access            string    `gorm:"size:255;not null;uniqueIndex" json:"access"`
-	Refresh           string    `gorm:"size:255;not null;uniqueIndex" json:"refresh"`
-	AccessExpiration  time.Time `gorm:"column:access_expiration;not null;index" json:"access_expiration"`
+	RefreshHash       string    `gorm:"column:refresh_hash;size:255;not null;uniqueIndex" json:"-"`
 	RefreshExpiration time.Time `gorm:"column:refresh_expiration;not null;index" json:"refresh_expiration"`
 	User              User      `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
 }
 
-func (Token) TableName() string {
-	return "tokens"
+func (UserToken) TableName() string {
+	return "user_tokens"
 }
 
 type UserRole struct {
@@ -233,6 +231,6 @@ func AllModels() []any {
 		&InventoryUser{},
 		&SharePermission{},
 		&InventoryPermission{},
-		&Token{},
+		&UserToken{},
 	}
 }

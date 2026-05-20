@@ -29,6 +29,7 @@ type AppConfig struct {
 }
 
 type AuthConfig struct {
+	JWTSecret            string
 	AccessTokenDuration  time.Duration
 	RefreshTokenDuration time.Duration
 }
@@ -63,6 +64,7 @@ type rawAppConfig struct {
 }
 
 type rawAuthConfig struct {
+	JWTSecret            *string `json:"jwt_secret" yaml:"jwt_secret" toml:"jwt_secret"`
 	AccessTokenDuration  *string `json:"access_token_duration" yaml:"access_token_duration" toml:"access_token_duration"`
 	RefreshTokenDuration *string `json:"refresh_token_duration" yaml:"refresh_token_duration" toml:"refresh_token_duration"`
 }
@@ -104,6 +106,7 @@ func Load() (Config, error) {
 			Storage:     resolveBool("APP_STORAGE", fileCfg.App.Storage, true),
 		},
 		Auth: AuthConfig{
+			JWTSecret:            resolveString("AUTH_JWT_SECRET", fileCfg.Auth.JWTSecret, "change-me"),
 			AccessTokenDuration:  resolveDuration("AUTH_ACCESS_TOKEN_DURATION", fileCfg.Auth.AccessTokenDuration, 30*time.Minute),
 			RefreshTokenDuration: resolveDuration("AUTH_REFRESH_TOKEN_DURATION", fileCfg.Auth.RefreshTokenDuration, 8*time.Hour),
 		},
@@ -265,6 +268,9 @@ func (c Config) Validate() error {
 	}
 	if c.Auth.RefreshTokenDuration <= 0 {
 		return errors.New("auth.refresh_token_duration must be greater than 0")
+	}
+	if c.Auth.JWTSecret == "" {
+		return errors.New("auth.jwt_secret is required")
 	}
 	if c.Database.Driver == "" {
 		return errors.New("database.driver is required")

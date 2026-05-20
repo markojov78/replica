@@ -11,6 +11,7 @@ func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
 	t.Setenv("APP_NODE_ID", "")
 	t.Setenv("APP_COORDINATOR", "")
 	t.Setenv("APP_STORAGE", "")
+	t.Setenv("AUTH_JWT_SECRET", "")
 	t.Setenv("HTTP_ADDR", "")
 	t.Setenv("DB_DRIVER", "")
 	t.Setenv("DB_DSN", "")
@@ -64,6 +65,10 @@ app:
   node_id: coordinator-1
   coordinator: true
   storage: false
+auth:
+  jwt_secret: "file-secret"
+  access_token_duration: "45m"
+  refresh_token_duration: "10h"
 http:
   address: ":9090"
 database:
@@ -89,6 +94,9 @@ seed:
 	if cfg.HTTP.Address != ":8088" {
 		t.Fatalf("HTTP.Address = %q, want %q", cfg.HTTP.Address, ":8088")
 	}
+	if cfg.Auth.JWTSecret != "file-secret" {
+		t.Fatalf("Auth.JWTSecret = %q, want %q", cfg.Auth.JWTSecret, "file-secret")
+	}
 	if cfg.Database.Driver != "postgres" {
 		t.Fatalf("Database.Driver = %q, want %q", cfg.Database.Driver, "postgres")
 	}
@@ -111,6 +119,11 @@ func TestLoadFromExplicitTOMLConfigFile(t *testing.T) {
 node_id = "storage-1"
 coordinator = false
 storage = true
+
+[auth]
+jwt_secret = "toml-secret"
+access_token_duration = "15m"
+refresh_token_duration = "6h"
 
 [http]
 address = ":8181"

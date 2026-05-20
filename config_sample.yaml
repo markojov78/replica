@@ -1,9 +1,10 @@
 app:
-  node_id: coordinator-1
+  node_id: coordinator
   coordinator: true
   storage: true
 
 auth:
+  jwt_secret: "change-me"
   access_token_duration: "30m"
   refresh_token_duration: "8h"
 

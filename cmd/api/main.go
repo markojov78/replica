@@ -30,13 +30,14 @@ func main() {
 	}
 
 	userRepo := repository.NewUserRepository(database)
-	tokenRepo := repository.NewTokenRepository(database)
+	userTokenRepo := repository.NewUserTokenRepository(database)
 	roleRepo := repository.NewRoleRepository(database)
 	inventoryRepo := repository.NewInventoryRepository(database)
 
 	authService := service.NewAuthService(
 		userRepo,
-		tokenRepo,
+		userTokenRepo,
+		cfg.Auth.JWTSecret,
 		cfg.Auth.AccessTokenDuration,
 		cfg.Auth.RefreshTokenDuration,
 	)

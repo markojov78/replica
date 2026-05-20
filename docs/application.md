@@ -187,10 +187,10 @@ Each starts at version 1.
 For each discovered file, insert a creation event:  
 ```
 inventory_journal
-id   file_id  inventory_id  replica_id  action   timestamp  version
+id   file_id  inventory_id  replica_id  version  action   timestam
 --------------------------------------------------------------------
-101  10       1             A           created  time_1     0
-102  11       1             A           created  time_2     0
+101  10       1             A           0        created  time_1  
+102  11       1             A           0        created  time_2  
 ```
 Version in `inventory_journal` is the old version on which action has been performed, 
 and version 0 here means that the file did not exist before this creation event.  
@@ -269,7 +269,7 @@ Then reports this to coordinator.
 ```
 inventory_files
 file_id  version  status  modified  size      hash
--------------------------------------------------------
+------------------------------------------------------
 10        4       active  new_time  new_size  new_hash
 ```
 This says:  
@@ -278,9 +278,9 @@ The authoritative current version of this file is version 4.
 #### 4) Coordinator inserts `inventory_journal`
 ```
 inventory_journal
-id   file_id  inventory_id  action   timestamp  version
--------------------------------------------------------
-101  10       1             updated  new_time   3
+id   file_id  inventory_id  replica_id  version  action   timestamp
+-------------------------------------------------------------------
+101  10       1             A           3        updated  new_time 
 ```
 
 #### 5) Coordinator updates `replica_files`
