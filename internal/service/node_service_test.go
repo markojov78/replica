@@ -85,3 +85,57 @@ func TestNodeServiceDeleteRevokesNode(t *testing.T) {
 		t.Fatalf("node.Status = %q, want %q", node.Status, model.NodeStatusRevoked)
 	}
 }
+
+func TestNodeServiceReportAvailabilityUpdatesAddressAndLastSeen(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "node-report.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	hashedSecret, err := security.HashPassword("plain-secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+
+	if err := database.Create(&model.Node{
+		ID:      "node-a",
+		Status:  model.NodeStatusOffline,
+		Secret:  hashedSecret,
+		Address: "http://old-address:8081",
+	}).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+
+	nodeService := NewNodeService(repository.NewNodeRepository(database))
+
+	report, err := nodeService.ReportAvailability("node-a", "https://node-address:8081")
+	if err != nil {
+		t.Fatalf("ReportAvailability() error = %v", err)
+	}
+	if report.NodeID != "node-a" {
+		t.Fatalf("report.NodeID = %q, want %q", report.NodeID, "node-a")
+	}
+	if report.Address != "https://node-address:8081" {
+		t.Fatalf("report.Address = %q, want %q", report.Address, "https://node-address:8081")
+	}
+	if len(report.Tasks) != 0 {
+		t.Fatalf("len(report.Tasks) = %d, want 0", len(report.Tasks))
+	}
+
+	var stored model.Node
+	if err := database.First(&stored, "id = ?", "node-a").Error; err != nil {
+		t.Fatalf("First(node) error = %v", err)
+	}
+	if stored.Address != "https://node-address:8081" {
+		t.Fatalf("stored.Address = %q, want %q", stored.Address, "https://node-address:8081")
+	}
+	if stored.LastSeen == nil {
+		t.Fatal("stored.LastSeen = nil, want timestamp")
+	}
+}

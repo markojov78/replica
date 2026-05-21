@@ -49,6 +49,7 @@ func New(
 	registerServiceInfoRoute(mux, cfg, info, svc)
 	registerPublicAuthRoutes(apiGroup, svc)
 	registerInternalAuthRoutes(internalGroup, svc)
+	registerInternalNodeRoutes(internalGroup, svc)
 	registerUserRoutes(apiGroup, svc)
 	registerRoleRoutes(apiGroup, svc)
 	registerNodeRoutes(apiGroup, svc)

@@ -18,6 +18,16 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
+	if !cfg.App.Coordinator && cfg.App.Storage {
+		log.Fatalf(
+			"%s storage-only runtime is not implemented yet: node_id=%s coordinator=%t storage=%t api=disabled",
+			"DropOutBox",
+			cfg.App.NodeID,
+			cfg.App.Coordinator,
+			cfg.App.Storage,
+		)
+	}
+
 	database, err := db.Open(cfg.Database)
 	if err != nil {
 		log.Fatalf("open database: %v", err)

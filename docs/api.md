@@ -869,3 +869,45 @@ Possible errors:
 - `401` missing authenticated node
 - `403` disabled node
 - `403` revoked node
+
+### /nodes endpoint
+
+This endpoint is node-authenticated and does not require any explicit permission beyond a valid node access token.
+
+#### POST /nodes
+Reports node availability to the coordinator.
+
+Behavior:
+- validates the bearer node JWT
+- resolves the current node ID from the auth token
+- updates `nodes.address` from the request body
+- updates `nodes.last_seen` to the current coordinator time
+- returns a placeholder task list for future coordinator-to-node work distribution
+
+Request body:
+- `address` required
+
+Example request:
+
+```json
+{
+  "address": "https://node-address:8081"
+}
+```
+
+Example response:
+
+```json
+{
+  "node_id": "node-a",
+  "address": "https://node-address:8081",
+  "last_seen": "2026-05-21T12:00:00Z",
+  "tasks": []
+}
+```
+
+Possible errors:
+- `400` invalid JSON payload
+- `401` missing authenticated node
+- `403` disabled node
+- `403` revoked node

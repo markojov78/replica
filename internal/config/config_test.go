@@ -190,14 +190,30 @@ func TestLoadRejectsMissingExplicitConfigFile(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsMissingNodeCommunicationConfigForStorageOnlyMode(t *testing.T) {
+func TestLoadAllowsMinimalStorageOnlyMode(t *testing.T) {
+	t.Setenv("CONFIG_FILE", "")
+	t.Setenv("APP_NODE_ID", "node-a")
 	t.Setenv("APP_COORDINATOR", "false")
 	t.Setenv("APP_STORAGE", "true")
-	t.Setenv("APP_COORDINATOR_URL", "")
-	t.Setenv("APP_NODE_ADDRESS", "")
-	t.Setenv("AUTH_NODE_SECRET", "")
+	t.Setenv("APP_COORDINATOR_URL", "http://coordinator:8080")
+	t.Setenv("APP_NODE_ADDRESS", "http://node-a:8081")
+	t.Setenv("AUTH_JWT_SECRET", "")
+	t.Setenv("AUTH_NODE_SECRET", "node-secret")
+	t.Setenv("HTTP_ADDR", "")
+	t.Setenv("DB_DRIVER", "")
+	t.Setenv("DB_DSN", "")
 
-	if _, err := Load(); err == nil {
-		t.Fatal("Load() error = nil, want error")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.App.NodeID != "node-a" {
+		t.Fatalf("App.NodeID = %q, want %q", cfg.App.NodeID, "node-a")
+	}
+	if cfg.App.Coordinator {
+		t.Fatal("App.Coordinator = true, want false")
+	}
+	if !cfg.App.Storage {
+		t.Fatal("App.Storage = false, want true")
 	}
 }

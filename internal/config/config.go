@@ -269,7 +269,8 @@ func (c Config) Validate() error {
 	if !c.App.Coordinator && !c.App.Storage {
 		return errors.New("at least one of app.coordinator or app.storage must be true")
 	}
-	if c.App.Storage && !c.App.Coordinator {
+
+	if !c.App.Coordinator && c.App.Storage {
 		if c.App.CoordinatorURL == "" {
 			return errors.New("app.coordinator_url is required when storage is enabled without coordinator mode")
 		}
@@ -279,7 +280,9 @@ func (c Config) Validate() error {
 		if c.Auth.NodeSecret == "" {
 			return errors.New("auth.node_secret is required when storage is enabled without coordinator mode")
 		}
+		return nil
 	}
+
 	if c.HTTP.Address == "" {
 		return errors.New("http.address is required")
 	}

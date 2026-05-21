@@ -29,6 +29,18 @@ type NodeList struct {
 	Total int64         `json:"total"`
 }
 
+type NodeAvailabilityReport struct {
+	NodeID   string         `json:"node_id"`
+	Address  string         `json:"address"`
+	LastSeen string         `json:"last_seen"`
+	Tasks    []NodeTaskStub `json:"tasks"`
+}
+
+type NodeTaskStub struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+}
+
 type UpdateNodeInput struct {
 	Secret  *string
 	Address *string
@@ -146,6 +158,28 @@ func (s *NodeService) Delete(id string) (*NodeDetails, error) {
 	return s.Update(id, UpdateNodeInput{
 		Status: stringPtr(string(model.NodeStatusRevoked)),
 	})
+}
+
+func (s *NodeService) ReportAvailability(id, address string) (*NodeAvailabilityReport, error) {
+	node, err := s.nodes.FindByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	node.Address = address
+	node.LastSeen = &now
+
+	if err := s.nodes.Update(node); err != nil {
+		return nil, err
+	}
+
+	return &NodeAvailabilityReport{
+		NodeID:   node.ID,
+		Address:  node.Address,
+		LastSeen: now.Format(time.RFC3339),
+		Tasks:    []NodeTaskStub{},
+	}, nil
 }
 
 func (s *NodeService) IsNotFound(err error) bool {

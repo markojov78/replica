@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -194,6 +195,86 @@ func TestInternalAuthMeReturnsAuthenticatedNode(t *testing.T) {
 	}
 	if body.Status != string(model.NodeStatusOffline) {
 		t.Fatalf("body.Status = %q, want %q", body.Status, model.NodeStatusOffline)
+	}
+}
+
+func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
+	database := openRouterTestDB(t)
+
+	hashedSecret, err := security.HashPassword("node-secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+
+	node := &model.Node{
+		ID:      "node-a",
+		Status:  model.NodeStatusOffline,
+		Secret:  hashedSecret,
+		Address: "http://old-address:8081",
+	}
+	if err := database.Create(node).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+
+	authService := newRouterTestAuthService(database)
+	pair, err := authService.NodeLogin("node-a", "node-secret")
+	if err != nil {
+		t.Fatalf("NodeLogin() error = %v", err)
+	}
+
+	handler := New(
+		config.Config{},
+		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
+		authService,
+		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
+		service.NewRoleService(repository.NewRoleRepository(database)),
+		service.NewNodeService(repository.NewNodeRepository(database)),
+		service.NewInventoryService(repository.NewInventoryRepository(database)),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://node-address:8081"}`))
+	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
+	req.Header.Set("X-API-Version", "1")
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+
+	var body struct {
+		NodeID   string `json:"node_id"`
+		Address  string `json:"address"`
+		LastSeen string `json:"last_seen"`
+		Tasks    []any  `json:"tasks"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if body.NodeID != "node-a" {
+		t.Fatalf("body.NodeID = %q, want %q", body.NodeID, "node-a")
+	}
+	if body.Address != "https://node-address:8081" {
+		t.Fatalf("body.Address = %q, want %q", body.Address, "https://node-address:8081")
+	}
+	if body.LastSeen == "" {
+		t.Fatal("body.LastSeen is empty")
+	}
+	if len(body.Tasks) != 0 {
+		t.Fatalf("len(body.Tasks) = %d, want 0", len(body.Tasks))
+	}
+
+	var stored model.Node
+	if err := database.First(&stored, "id = ?", "node-a").Error; err != nil {
+		t.Fatalf("First(node) error = %v", err)
+	}
+	if stored.Address != "https://node-address:8081" {
+		t.Fatalf("stored.Address = %q, want %q", stored.Address, "https://node-address:8081")
+	}
+	if stored.LastSeen == nil {
+		t.Fatal("stored.LastSeen = nil, want timestamp")
 	}
 }
 

@@ -35,30 +35,34 @@ These are the main functionalities that the service offers:
 * Replicas do not have explicit user's permissions - what can be done to an replica depends on an inventory permissions and replica type
 
 ## Deployment model
-Even though this is a distributed service that works with the distributed data and scenarios of eventual consistency, it requires a designated main node that holds system state, assuming that the main node must be online and available for service to work.
+Even though this is a distributed service that works with the distributed data, the main design goal is data integrity 
+over availability, so it requires a designated coordinator node that holds the system state.  
+All other nodes need the coordinator to be online and available for service to work.
 
 ## System components
-
 ![System components](system_components.jpg)
 
-### Coordinator service + database + admin UI
-
-There is only one coordinator service main database holding system state, replication processes and sharing work when that service is online, otherwise everything waits
+### Coordinator service + database + API + admin UI
+There is only one coordinator service main database holding system state and exposing 
+[public API](api.md#public-api) for administration and [internal API](api.md#internal-api) for node coordination.
 
 ### Storage service
-
-Part of the system that handles replica(s) on the filesystem or cloud storage. Each replica is handled by one storage service. Even in the case of cloud storage like s3, there is one storage service responsible for the replica. One storage service instance can manage multiple replicas on multiple locations.  
-Storage service must have sufficient permissions and credentials to manage its replicas and must return appropriate error in case of permissions and/or credential problems.  
-To avoid a split state scenario, the storage service should have as little local state as possible: it should publish all changes on the local replicas to the coordinator and ask for instructions on how to proceed. In case of the  unavailable coordinator, it should halt all replication until coordinator becomes available again.  
-question: is it sufficient for storage service to have no persisted local state and maintain only in-memory state
+Part of the system that handles replica(s) on the filesystem or cloud storage. 
+Each replica is handled by one storage service. Even in the case of cloud storage like s3, there is one storage service 
+responsible for the replica. One storage service instance can manage multiple replicas on multiple locations.  
+Storage service must have sufficient permissions and credentials to manage its replicas and must return appropriate 
+error in case of permissions and/or credential problems.  
+To avoid a split state scenario, the storage service will have no persisted state: it will authenticate with the 
+coordinator, and then retrieve the state from the coordinator.
+IT will peridocialy scan replicas and report changes to the coordinator, and ask for instructions on how to proceed. 
+In case of the unavailable coordinator, it should halt all replication until the coordinator becomes available again.  
 
 ### Data bus
-
-This is maybe not an actual component but a set of connections established on demand between storage services to transfer data between storage services or between a storage service and a sharing service.  
-question: how to make a data bus really - one way is to use zerotier/tailscale to maintain virtual local network between nodes another is to use coordinator to establish direct connections
+This is maybe not an actual component but a set of connections established on demand between storage services to transfer 
+data between storage services or between a storage service and a sharing service.  
+question: how to really make a data bus:  one way is to use zerotier/tailscale to maintain virtual local network between nodes another is to use coordinator to establish direct connections
 
 ### Sharing service + sharing UI
-
 Sharing service is both a web app with UI with data presentation (previews for images, links for documents etc) and interface for data upload / replace / delete if share permissions allow it.  
 The sharing service uses the coordinator to resolve which replica to use and can even use local read-only replica for fast read and remote updateable replica for update.
 
@@ -68,15 +72,22 @@ The sharing service uses the coordinator to resolve which replica to use and can
 
 ### Tables and fields descriptions
 
-#### inventories
+#### nodes
+status - online, unreachable, offline, disabled, revoked
+secret - hashed secret for node to coordinator authentication 
+address - node address reported to the coordinator
+last_seen - last time the node reported to the coordinator
+last_callback_success - last time the node replied to the coordinator callback
+last_callback_failure - last time the node filed to reply to the coordinator callback
 
+#### inventories
 name - if not specified, will use folder or file name  
 status - online, offline, deleted  
 type - file, folder
 
 #### inventory_files
-relative\_uri - file uri from the inventory root. replica uri \+ relative\_uri make full file pathfile\_journal  
-version - version corresponds to the file\_journal id for this file, having journal entry for the file with the journal id above the version value means there are changes to the file not yet processed  
+relative_uri - file uri from the inventory root. replica uri + relative_uri make full file pathfile_journal  
+version - version corresponds to the file_journal id for this file, having journal entry for the file with the journal id above the version value means there are changes to the file not yet processed  
 status - active, deleted
 
 #### file_journal
@@ -127,7 +138,10 @@ resource - users, shares, inventories (permissions to manage inventories implies
 action - read, create, update delete
 
 ## Operation
-### Inventory creation
+### Communication between nodes
+TODO
+
+### Creating a new inventory
 When an inventory is created, the coordinator creates the logical inventory record and its first/default replica. 
 The default replica is the initial physical location from which the inventory content is discovered. 
 
@@ -239,15 +253,15 @@ It is the source from which the initial inventory state is built.
 So the default replica starts as `synchronized`, and additional replicas added later start as `pending` 
 because they need to receive the already-known inventory files.  
 
-### File update and replication
-When multiple replicas exit this is how replication works:  
+### File replication after update
+When multiple replicas exist, this is how replication works:  
 1. Detect local change on replica A
 2. Record authoritative logical change
 3. Mark other replicas as needing update
 4. Transfer file data
 5. Mark target replica synchronized
 
-Concrete table usage:
+Concrete table usage:  
 #### 1) Initial state
 ```
 inventory_files
