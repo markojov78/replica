@@ -699,6 +699,8 @@ Returns a paginated list of files belonging to the replica.
 Query parameters:
 - `page` optional, default `1`
 - `count` optional, default `20`, maximum `100`
+- `status` optional, filter by replica file status: `changed`, `pending`, `synchronized`, `conflict`, `error`
+- `version` optional, filter by exact replica file version
 
 Example response:
 
@@ -725,6 +727,7 @@ Returns a single file belonging to the replica.
 Possible errors:
 - `401` missing authenticated user
 - `403` missing required permission
+- `400` invalid replica file status
 - `404` replica not found
 - `404` replica file not found
 
@@ -911,3 +914,54 @@ Possible errors:
 - `401` missing authenticated node
 - `403` disabled node
 - `403` revoked node
+
+### /replicas/{id}/files endpoint
+
+This endpoint is node-authenticated and does not require any explicit permission beyond a valid node access token.
+
+#### POST /replica/{id}/files
+Reports one or more file changes detected on a specific replica.
+
+Behavior:
+- validates the bearer node JWT
+- resolves the current node from the auth token
+- verifies the replica belongs to the authenticated node
+- updates `inventory_files` metadata and increments file version
+- inserts a journal row for each changed file using the previous version and `updated` action
+- updates the reporting replica row in `replica_files` to the new version and `synchronized`
+- marks the same file on other existing replicas as `pending`
+
+Request body:
+- `files` required
+- each file entry contains:
+  - `file_id`
+  - `file_size`
+  - `file_hash`
+  - `modified_time`
+
+Example request:
+
+```json
+{
+  "files": [
+    {
+      "file_id": 10,
+      "file_size": 200,
+      "file_hash": "new-hash",
+      "modified_time": "2026-05-21T12:00:00Z"
+    }
+  ]
+}
+```
+
+Successful response:
+- `204 No Content`
+
+Possible errors:
+- `400` invalid JSON payload
+- `401` missing authenticated node
+- `403` disabled node
+- `403` revoked node
+- `403` replica does not belong to authenticated node
+- `404` replica not found
+- `404` inventory file not found

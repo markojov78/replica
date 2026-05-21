@@ -18,15 +18,16 @@ type InventoryService struct {
 }
 
 var (
-	ErrInvalidInventoryStatus = errors.New("invalid inventory status")
-	ErrInvalidInventoryType   = errors.New("invalid inventory type")
-	ErrInvalidInventoryURI    = errors.New("invalid inventory uri")
-	ErrInventoryFileNotFound  = errors.New("inventory file not found")
-	ErrReplicaFileNotFound    = errors.New("replica file not found")
-	ErrInvalidReplicaStatus   = errors.New("invalid replica status")
-	ErrInvalidReplicaType     = errors.New("invalid replica type")
-	ErrInvalidReplicaURI      = errors.New("invalid replica uri")
-	ErrReplicaNotFound        = errors.New("replica not found")
+	ErrInvalidInventoryStatus   = errors.New("invalid inventory status")
+	ErrInvalidInventoryType     = errors.New("invalid inventory type")
+	ErrInvalidInventoryURI      = errors.New("invalid inventory uri")
+	ErrInventoryFileNotFound    = errors.New("inventory file not found")
+	ErrReplicaFileNotFound      = errors.New("replica file not found")
+	ErrInvalidReplicaFileStatus = errors.New("invalid replica file status")
+	ErrInvalidReplicaStatus     = errors.New("invalid replica status")
+	ErrInvalidReplicaType       = errors.New("invalid replica type")
+	ErrInvalidReplicaURI        = errors.New("invalid replica uri")
+	ErrReplicaNotFound          = errors.New("replica not found")
 )
 
 type InventoryReplicaDetails struct {
@@ -80,6 +81,11 @@ type ReplicaFileList struct {
 	Total int64                `json:"total"`
 }
 
+type ReplicaFileListFilter struct {
+	Status  string
+	Version *uint
+}
+
 type InventoryList struct {
 	Items []InventoryDetails `json:"items"`
 	Page  int                `json:"page"`
@@ -116,6 +122,13 @@ type ReplicaListFilter struct {
 type UpdateReplicaInput struct {
 	Type   *string
 	Status *string
+}
+
+type ReplicaFileChangeInput struct {
+	FileID       uint
+	FileSize     int64
+	FileHash     string
+	ModifiedTime time.Time
 }
 
 func NewInventoryService(repo *repository.InventoryRepository) *InventoryService {
@@ -307,7 +320,7 @@ func (s *InventoryService) ListReplicas(filter ReplicaListFilter) ([]InventoryRe
 	return result, nil
 }
 
-func (s *InventoryService) ListReplicaFiles(replicaID uint, page, perPage int) (*ReplicaFileList, error) {
+func (s *InventoryService) ListReplicaFiles(replicaID uint, page, perPage int, filter ReplicaFileListFilter) (*ReplicaFileList, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -325,7 +338,18 @@ func (s *InventoryService) ListReplicaFiles(replicaID uint, page, perPage int) (
 		return nil, err
 	}
 
-	files, total, err := s.repo.ListReplicaFiles(replicaID, page, perPage)
+	if filter.Status != "" {
+		status := model.ReplicaFileStatus(strings.TrimSpace(filter.Status))
+		if !status.Valid() {
+			return nil, ErrInvalidReplicaFileStatus
+		}
+		filter.Status = string(status)
+	}
+
+	files, total, err := s.repo.ListReplicaFiles(replicaID, page, perPage, repository.ReplicaFileListFilter{
+		Status:  filter.Status,
+		Version: filter.Version,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -446,6 +470,43 @@ func (s *InventoryService) DeleteReplica(replicaID uint) (*InventoryReplicaDetai
 	return s.UpdateReplica(replicaID, UpdateReplicaInput{
 		Status: stringPtr(string(model.ReplicaStatusDeleted)),
 	})
+}
+
+func (s *InventoryService) ReportReplicaFileChanges(replicaID uint, nodeID string, changes []ReplicaFileChangeInput) error {
+	replica, err := s.repo.FindReplicaByID(replicaID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrReplicaNotFound
+		}
+		return err
+	}
+
+	if strings.TrimSpace(nodeID) == "" || replica.NodeID != strings.TrimSpace(nodeID) {
+		return ErrForbidden
+	}
+
+	updates := make([]repository.ReplicaFileUpdate, 0, len(changes))
+	for _, change := range changes {
+		updates = append(updates, repository.ReplicaFileUpdate{
+			FileID:       change.FileID,
+			FileSize:     change.FileSize,
+			FileHash:     strings.TrimSpace(change.FileHash),
+			ModifiedTime: change.ModifiedTime,
+		})
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	if err := s.repo.ReportReplicaFileChanges(replicaID, updates); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrInventoryFileNotFound
+		}
+		return err
+	}
+
+	return nil
 }
 
 func (s *InventoryService) IsNotFound(err error) bool {

@@ -61,7 +61,15 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		}
 
 		page, count := resolvePagination(input.Page, input.Count)
-		files, err := svc.inventories.ListReplicaFiles(input.ID, page, count)
+		var version *uint
+		if input.Version > 0 {
+			version = &input.Version
+		}
+
+		files, err := svc.inventories.ListReplicaFiles(input.ID, page, count, service.ReplicaFileListFilter{
+			Status:  input.Status,
+			Version: version,
+		})
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
 		}
@@ -172,6 +180,8 @@ type listReplicaFilesInput struct {
 	ID            uint   `path:"id"`
 	Page          int    `query:"page"`
 	Count         int    `query:"count"`
+	Status        string `query:"status"`
+	Version       uint   `query:"version"`
 }
 
 type getReplicaFileInput struct {

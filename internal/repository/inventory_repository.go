@@ -2,13 +2,22 @@ package repository
 
 import (
 	"dropoutbox/internal/model"
+	"errors"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
 
 type InventoryRepository struct {
 	db *gorm.DB
+}
+
+type ReplicaFileUpdate struct {
+	FileID       uint
+	FileSize     int64
+	FileHash     string
+	ModifiedTime time.Time
 }
 
 func NewInventoryRepository(db *gorm.DB) *InventoryRepository {
@@ -115,6 +124,11 @@ type ReplicaListFilter struct {
 	URIPrefix   string
 }
 
+type ReplicaFileListFilter struct {
+	Status  string
+	Version *uint
+}
+
 func (r *InventoryRepository) ListReplicas(filter ReplicaListFilter) ([]model.Replica, error) {
 	var replicas []model.Replica
 	query := r.db.Order("id asc")
@@ -152,15 +166,32 @@ func (r *InventoryRepository) ListFiles(inventoryID uint, page, perPage int) ([]
 	return files, total, nil
 }
 
-func (r *InventoryRepository) ListReplicaFiles(replicaID uint, page, perPage int) ([]model.ReplicaFile, int64, error) {
+func (r *InventoryRepository) ListReplicaFiles(replicaID uint, page, perPage int, filter ReplicaFileListFilter) ([]model.ReplicaFile, int64, error) {
+	query := r.db.Model(&model.ReplicaFile{}).Where("replica_id = ?", replicaID)
+	if filter.Status != "" {
+		query = query.Where("status = ?", filter.Status)
+	}
+	if filter.Version != nil {
+		query = query.Where("version = ?", *filter.Version)
+	}
+
 	var total int64
-	if err := r.db.Model(&model.ReplicaFile{}).Where("replica_id = ?", replicaID).Count(&total).Error; err != nil {
+	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
 	var files []model.ReplicaFile
 	err := r.db.
 		Where("replica_id = ?", replicaID).
+		Scopes(func(tx *gorm.DB) *gorm.DB {
+			if filter.Status != "" {
+				tx = tx.Where("status = ?", filter.Status)
+			}
+			if filter.Version != nil {
+				tx = tx.Where("version = ?", *filter.Version)
+			}
+			return tx
+		}).
 		Order("id asc").
 		Limit(perPage).
 		Offset((page - 1) * perPage).
@@ -174,6 +205,75 @@ func (r *InventoryRepository) ListReplicaFiles(replicaID uint, page, perPage int
 
 func (r *InventoryRepository) UpdateReplica(replica *model.Replica) error {
 	return r.db.Save(replica).Error
+}
+
+func (r *InventoryRepository) ReportReplicaFileChanges(replicaID uint, updates []ReplicaFileUpdate) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var replica model.Replica
+		if err := tx.First(&replica, replicaID).Error; err != nil {
+			return err
+		}
+
+		for _, update := range updates {
+			var file model.InventoryFile
+			if err := tx.Where("inventory_id = ? AND id = ?", replica.InventoryID, update.FileID).First(&file).Error; err != nil {
+				return err
+			}
+
+			oldVersion := file.Version
+			file.Version++
+			file.Status = model.InventoryFileStatusActive
+			file.Modified = update.ModifiedTime
+			file.Size = update.FileSize
+			file.Hash = update.FileHash
+			if err := tx.Save(&file).Error; err != nil {
+				return err
+			}
+
+			journal := model.FileJournal{
+				FileID:      file.ID,
+				InventoryID: file.InventoryID,
+				ReplicaID:   replica.ID,
+				Version:     oldVersion,
+				Action:      model.FileJournalActionUpdated,
+				Timestamp:   update.ModifiedTime,
+			}
+			if err := tx.Create(&journal).Error; err != nil {
+				return err
+			}
+
+			var sourceReplicaFile model.ReplicaFile
+			err := tx.Where("file_id = ? AND replica_id = ?", file.ID, replica.ID).First(&sourceReplicaFile).Error
+			switch {
+			case err == nil:
+				sourceReplicaFile.Version = file.Version
+				sourceReplicaFile.Status = model.ReplicaFileStatusSynchronized
+				if err := tx.Save(&sourceReplicaFile).Error; err != nil {
+					return err
+				}
+			case errors.Is(err, gorm.ErrRecordNotFound):
+				sourceReplicaFile = model.ReplicaFile{
+					FileID:    file.ID,
+					ReplicaID: replica.ID,
+					Version:   file.Version,
+					Status:    model.ReplicaFileStatusSynchronized,
+				}
+				if err := tx.Create(&sourceReplicaFile).Error; err != nil {
+					return err
+				}
+			default:
+				return err
+			}
+
+			if err := tx.Model(&model.ReplicaFile{}).
+				Where("file_id = ? AND replica_id <> ?", file.ID, replica.ID).
+				Update("status", model.ReplicaFileStatusPending).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }
 
 func (r *InventoryRepository) preloadDetails(db *gorm.DB) *gorm.DB {

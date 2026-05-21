@@ -50,6 +50,7 @@ func New(
 	registerPublicAuthRoutes(apiGroup, svc)
 	registerInternalAuthRoutes(internalGroup, svc)
 	registerInternalNodeRoutes(internalGroup, svc)
+	registerInternalReplicaRoutes(internalGroup, svc)
 	registerUserRoutes(apiGroup, svc)
 	registerRoleRoutes(apiGroup, svc)
 	registerNodeRoutes(apiGroup, svc)
@@ -229,6 +230,8 @@ func mapInventoryError(err error, inventoryService *service.InventoryService) er
 		return huma.Error404NotFound("inventory file not found")
 	case errors.Is(err, service.ErrReplicaFileNotFound):
 		return huma.Error404NotFound("replica file not found")
+	case errors.Is(err, service.ErrInvalidReplicaFileStatus):
+		return huma.Error400BadRequest("invalid replica file status")
 	case errors.Is(err, service.ErrInvalidReplicaStatus):
 		return huma.Error400BadRequest("invalid replica status")
 	case errors.Is(err, service.ErrInvalidReplicaType):

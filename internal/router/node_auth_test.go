@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -275,6 +276,129 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 	}
 	if stored.LastSeen == nil {
 		t.Fatal("stored.LastSeen = nil, want timestamp")
+	}
+}
+
+func TestInternalReplicaFilesReportUpdatesCoordinatorState(t *testing.T) {
+	database := openRouterTestDB(t)
+
+	hashedSecret, err := security.HashPassword("node-secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+
+	node := &model.Node{
+		ID:     "node-a",
+		Status: model.NodeStatusOffline,
+		Secret: hashedSecret,
+	}
+	if err := database.Create(node).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+
+	inventory := &model.Inventory{
+		Name:   "photos",
+		Status: model.InventoryStatusOnline,
+		Type:   model.InventoryTypeFolder,
+	}
+	if err := database.Create(inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+
+	file := &model.InventoryFile{
+		InventoryID: inventory.ID,
+		RelativeURI: "album/img.jpg",
+		Status:      model.InventoryFileStatusActive,
+		Size:        100,
+		Hash:        "old-hash",
+		Version:     3,
+		Created:     time.Now().UTC().Add(-time.Hour),
+		Modified:    time.Now().UTC().Add(-time.Minute),
+	}
+	if err := database.Create(file).Error; err != nil {
+		t.Fatalf("Create(file) error = %v", err)
+	}
+
+	replicaA := &model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-a",
+		URI:         "/data/a",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	replicaB := &model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-b",
+		URI:         "/data/b",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(replicaA).Error; err != nil {
+		t.Fatalf("Create(replicaA) error = %v", err)
+	}
+	if err := database.Create(replicaB).Error; err != nil {
+		t.Fatalf("Create(replicaB) error = %v", err)
+	}
+
+	if err := database.Create(&model.ReplicaFile{
+		FileID:    file.ID,
+		ReplicaID: replicaA.ID,
+		Version:   3,
+		Status:    model.ReplicaFileStatusSynchronized,
+	}).Error; err != nil {
+		t.Fatalf("Create(replicaFileA) error = %v", err)
+	}
+	if err := database.Create(&model.ReplicaFile{
+		FileID:    file.ID,
+		ReplicaID: replicaB.ID,
+		Version:   3,
+		Status:    model.ReplicaFileStatusSynchronized,
+	}).Error; err != nil {
+		t.Fatalf("Create(replicaFileB) error = %v", err)
+	}
+
+	authService := newRouterTestAuthService(database)
+	pair, err := authService.NodeLogin("node-a", "node-secret")
+	if err != nil {
+		t.Fatalf("NodeLogin() error = %v", err)
+	}
+
+	handler := New(
+		config.Config{},
+		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
+		authService,
+		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
+		service.NewRoleService(repository.NewRoleRepository(database)),
+		service.NewNodeService(repository.NewNodeRepository(database)),
+		service.NewInventoryService(repository.NewInventoryRepository(database)),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/replica/"+strconv.FormatUint(uint64(replicaA.ID), 10)+"/files", strings.NewReader(`{"files":[{"file_id":`+strconv.FormatUint(uint64(file.ID), 10)+`,"file_size":200,"file_hash":"new-hash","modified_time":"2026-05-21T12:00:00Z"}]}`))
+	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
+	req.Header.Set("X-API-Version", "1")
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusNoContent, recorder.Body.String())
+	}
+
+	var updatedFile model.InventoryFile
+	if err := database.First(&updatedFile, file.ID).Error; err != nil {
+		t.Fatalf("First(updatedFile) error = %v", err)
+	}
+	if updatedFile.Version != 4 {
+		t.Fatalf("updatedFile.Version = %d, want 4", updatedFile.Version)
+	}
+
+	var pendingReplica model.ReplicaFile
+	if err := database.Where("file_id = ? AND replica_id = ?", file.ID, replicaB.ID).First(&pendingReplica).Error; err != nil {
+		t.Fatalf("First(pendingReplica) error = %v", err)
+	}
+	if pendingReplica.Status != model.ReplicaFileStatusPending {
+		t.Fatalf("pendingReplica.Status = %q, want %q", pendingReplica.Status, model.ReplicaFileStatusPending)
 	}
 }
 
