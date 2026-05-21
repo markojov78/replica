@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
@@ -70,6 +71,7 @@ app:
   storage: false
   coordinator_url: "http://coordinator:8080"
   node_address: "http://storage-1:8081"
+  heartbeat_interval: "7m"
 auth:
   jwt_secret: "file-secret"
   node_secret: "node-file-secret"
@@ -112,6 +114,9 @@ seed:
 	if cfg.App.NodeAddress != "http://storage-1:8081" {
 		t.Fatalf("App.NodeAddress = %q, want %q", cfg.App.NodeAddress, "http://storage-1:8081")
 	}
+	if cfg.App.HeartbeatInterval != 7*time.Minute {
+		t.Fatalf("App.HeartbeatInterval = %s, want %s", cfg.App.HeartbeatInterval, 7*time.Minute)
+	}
 	if cfg.Database.Driver != "postgres" {
 		t.Fatalf("Database.Driver = %q, want %q", cfg.Database.Driver, "postgres")
 	}
@@ -136,6 +141,7 @@ coordinator = false
 storage = true
 coordinator_url = "http://coordinator:8080"
 node_address = "http://storage-1:8081"
+heartbeat_interval = "3m"
 
 [auth]
 jwt_secret = "toml-secret"
@@ -171,6 +177,9 @@ auto_migrate = false
 	if cfg.App.NodeAddress != "http://storage-1:8081" {
 		t.Fatalf("App.NodeAddress = %q, want %q", cfg.App.NodeAddress, "http://storage-1:8081")
 	}
+	if cfg.App.HeartbeatInterval != 3*time.Minute {
+		t.Fatalf("App.HeartbeatInterval = %s, want %s", cfg.App.HeartbeatInterval, 3*time.Minute)
+	}
 	if cfg.Auth.NodeSecret != "toml-node-secret" {
 		t.Fatalf("Auth.NodeSecret = %q, want %q", cfg.Auth.NodeSecret, "toml-node-secret")
 	}
@@ -197,6 +206,7 @@ func TestLoadAllowsMinimalStorageOnlyMode(t *testing.T) {
 	t.Setenv("APP_STORAGE", "true")
 	t.Setenv("APP_COORDINATOR_URL", "http://coordinator:8080")
 	t.Setenv("APP_NODE_ADDRESS", "http://node-a:8081")
+	t.Setenv("APP_HEARTBEAT_INTERVAL", "5m")
 	t.Setenv("AUTH_JWT_SECRET", "")
 	t.Setenv("AUTH_NODE_SECRET", "node-secret")
 	t.Setenv("HTTP_ADDR", "")
@@ -215,5 +225,8 @@ func TestLoadAllowsMinimalStorageOnlyMode(t *testing.T) {
 	}
 	if !cfg.App.Storage {
 		t.Fatal("App.Storage = false, want true")
+	}
+	if cfg.App.HeartbeatInterval != 5*time.Minute {
+		t.Fatalf("App.HeartbeatInterval = %s, want %s", cfg.App.HeartbeatInterval, 5*time.Minute)
 	}
 }

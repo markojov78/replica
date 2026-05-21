@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 
@@ -10,6 +11,7 @@ import (
 	"dropoutbox/internal/repository"
 	"dropoutbox/internal/router"
 	"dropoutbox/internal/service"
+	"dropoutbox/internal/storage"
 )
 
 func main() {
@@ -18,14 +20,26 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	if !cfg.App.Coordinator && cfg.App.Storage {
-		log.Fatalf(
-			"%s storage-only runtime is not implemented yet: node_id=%s coordinator=%t storage=%t api=disabled",
+	ctx := context.Background()
+
+	if cfg.App.Storage {
+		storageRuntime, err := storage.NewRuntime(cfg)
+		if err != nil {
+			log.Fatalf("init storage runtime: %v", err)
+		}
+		storageRuntime.Start(ctx)
+	}
+
+	if !cfg.App.Coordinator {
+		log.Printf(
+			"starting %s version=%s node_id=%s coordinator=%t storage=%t api=disabled",
 			"DropOutBox",
+			buildinfo.Version,
 			cfg.App.NodeID,
 			cfg.App.Coordinator,
 			cfg.App.Storage,
 		)
+		select {}
 	}
 
 	database, err := db.Open(cfg.Database)

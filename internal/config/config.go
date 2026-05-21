@@ -23,11 +23,12 @@ type Config struct {
 }
 
 type AppConfig struct {
-	NodeID         string
-	Coordinator    bool
-	Storage        bool
-	CoordinatorURL string
-	NodeAddress    string
+	NodeID            string
+	Coordinator       bool
+	Storage           bool
+	CoordinatorURL    string
+	NodeAddress       string
+	HeartbeatInterval time.Duration
 }
 
 type AuthConfig struct {
@@ -61,11 +62,12 @@ type rawConfig struct {
 }
 
 type rawAppConfig struct {
-	NodeID         *string `json:"node_id" yaml:"node_id" toml:"node_id"`
-	Coordinator    *bool   `json:"coordinator" yaml:"coordinator" toml:"coordinator"`
-	Storage        *bool   `json:"storage" yaml:"storage" toml:"storage"`
-	CoordinatorURL *string `json:"coordinator_url" yaml:"coordinator_url" toml:"coordinator_url"`
-	NodeAddress    *string `json:"node_address" yaml:"node_address" toml:"node_address"`
+	NodeID            *string `json:"node_id" yaml:"node_id" toml:"node_id"`
+	Coordinator       *bool   `json:"coordinator" yaml:"coordinator" toml:"coordinator"`
+	Storage           *bool   `json:"storage" yaml:"storage" toml:"storage"`
+	CoordinatorURL    *string `json:"coordinator_url" yaml:"coordinator_url" toml:"coordinator_url"`
+	NodeAddress       *string `json:"node_address" yaml:"node_address" toml:"node_address"`
+	HeartbeatInterval *string `json:"heartbeat_interval" yaml:"heartbeat_interval" toml:"heartbeat_interval"`
 }
 
 type rawAuthConfig struct {
@@ -107,11 +109,12 @@ func Load() (Config, error) {
 
 	cfg := Config{
 		App: AppConfig{
-			NodeID:         resolveString("APP_NODE_ID", fileCfg.App.NodeID, "node-1"),
-			Coordinator:    resolveBool("APP_COORDINATOR", fileCfg.App.Coordinator, true),
-			Storage:        resolveBool("APP_STORAGE", fileCfg.App.Storage, true),
-			CoordinatorURL: resolveString("APP_COORDINATOR_URL", fileCfg.App.CoordinatorURL, ""),
-			NodeAddress:    resolveString("APP_NODE_ADDRESS", fileCfg.App.NodeAddress, ""),
+			NodeID:            resolveString("APP_NODE_ID", fileCfg.App.NodeID, "node-1"),
+			Coordinator:       resolveBool("APP_COORDINATOR", fileCfg.App.Coordinator, true),
+			Storage:           resolveBool("APP_STORAGE", fileCfg.App.Storage, true),
+			CoordinatorURL:    resolveString("APP_COORDINATOR_URL", fileCfg.App.CoordinatorURL, ""),
+			NodeAddress:       resolveString("APP_NODE_ADDRESS", fileCfg.App.NodeAddress, ""),
+			HeartbeatInterval: resolveDuration("APP_HEARTBEAT_INTERVAL", fileCfg.App.HeartbeatInterval, 10*time.Minute),
 		},
 		Auth: AuthConfig{
 			JWTSecret:            resolveString("AUTH_JWT_SECRET", fileCfg.Auth.JWTSecret, "change-me"),
@@ -268,6 +271,9 @@ func (c Config) Validate() error {
 	}
 	if !c.App.Coordinator && !c.App.Storage {
 		return errors.New("at least one of app.coordinator or app.storage must be true")
+	}
+	if c.App.Storage && c.App.HeartbeatInterval <= 0 {
+		return errors.New("app.heartbeat_interval must be greater than 0 when storage is enabled")
 	}
 
 	if !c.App.Coordinator && c.App.Storage {
