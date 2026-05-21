@@ -139,7 +139,109 @@ action - read, create, update delete
 
 ## Operation
 ### Communication between nodes
-TODO
+
+All node communication is coordinator-centric.  
+Storage nodes do not directly coordinate replication state between themselves.  
+The coordinator is the authoritative source of inventory state, replica state and replication decisions.
+
+Storage nodes initiate all coordinator communication themselves, which allows nodes to operate behind NAT or private networks without requiring inbound connectivity from the coordinator.
+
+#### Node startup
+When a storage service starts, it:
+1. Reads coordinator URL, node ID and node secret from configuration
+2. Authenticates against the coordinator internal API
+3. Retrieves assigned replicas and required runtime state from the coordinator
+4. Starts monitoring local replicas
+5. Establishes a WebSocket connection to the coordinator
+6. Starts sending periodic heartbeat requests
+
+The storage service does not persist authoritative replication state locally.  
+After restart, all required runtime state is rebuilt from the coordinator.
+
+#### Heartbeat
+Storage services periodically report heartbeat information to the coordinator using 
+[/nodes endpoint of the internal API](api.md#nodes-endpoint-1)
+
+The coordinator updates node runtime state such as:
+- last_seen
+- current node address
+- online/offline status
+
+Heartbeat response can also contain pending orchestration tasks.
+
+The tasks field acts as a fallback delivery mechanism when the WebSocket connection is unavailable.
+
+#### WebSocket orchestration channel
+After authentication, the storage service establishes a WebSocket connection to the coordinator.
+
+The WebSocket connection is initiated by the storage service, so it can be maintained even when the node is behind NAT.
+
+The coordinator uses the WebSocket to send command to the storage service, such as:
+
+- start replica scan
+- refresh replica state
+- start replication task
+- cancel replication task
+- request detailed status
+
+Data from storage node to the coordinator, such as:
+
+- heartbeat
+- replica scan results
+- local replica file change reports
+- task progress
+- task completion
+
+Continues to use the HTTP API.
+
+#### Replica change reporting
+Storage services periodically scan assigned replicas.
+
+When local file changes are detected, the storage service reports:
+- file path
+- operation type
+- hash
+- size
+- modification timestamp
+to the coordinator.
+
+The coordinator validates the reported change, updates authoritative inventory state and determines whether replication actions are required on other replicas.
+
+Storage services do not independently decide global synchronization state.
+
+#### Data transfer between nodes
+The coordinator orchestrates replication, but actual file transfer is performed between storage services.
+
+When replica B requires a newer file version from replica A:
+1. Replica A reports updated file state to coordinator
+2. Coordinator updates authoritative inventory state
+3. Coordinator marks replica B as pending
+4. Coordinator assigns replication task to replica B
+5. Replica B retrieves file data from replica A or another synchronized replica
+6. Replica B verifies transferred file hash and size
+7. Replica B reports successful synchronization to coordinator
+
+Depending on deployment topology, file transfer can happen:
+- directly between storage node
+- through VPN or overlay network such as Tailscale or ZeroTier
+- through temporary relay or shared storage
+
+The coordinator is responsible only for orchestration and authoritative state management, not for transferring the actual file contents.
+#### Coordinator + storage mode
+In coordinator + storage mode, coordinator and storage service run inside the same application process.
+
+The storage component still behaves like a normal storage node:
+
+- authenticates through the internal API
+- retrieves state from the coordinator
+- reports heartbeat
+- establishes WebSocket connection
+- receives orchestration tasks from the coordinator
+
+This keeps storage-node behavior consistent between:
+
+- storage-only deployments
+- coordinator + storage deployments
 
 ### Creating a new inventory
 When an inventory is created, the coordinator creates the logical inventory record and its first/default replica. 
