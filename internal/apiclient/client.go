@@ -85,16 +85,22 @@ type ReplicaFileList struct {
 	Total int64         `json:"total"`
 }
 
-type Task struct {
-	ID   string `json:"id"`
-	Type string `json:"type"`
+type Command struct {
+	ID        uint            `json:"id"`
+	NodeID    string          `json:"node_id"`
+	Type      string          `json:"type"`
+	Status    string          `json:"status"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
+	CreatedAt string          `json:"created_at"`
+	UpdatedAt string          `json:"updated_at"`
+	LastError *string         `json:"last_error,omitempty"`
 }
 
 type AvailabilityReport struct {
-	NodeID   string `json:"node_id"`
-	Address  string `json:"address"`
-	LastSeen string `json:"last_seen"`
-	Tasks    []Task `json:"tasks"`
+	NodeID   string    `json:"node_id"`
+	Address  string    `json:"address"`
+	LastSeen string    `json:"last_seen"`
+	Commands []Command `json:"commands"`
 }
 
 func New(cfg config.Config) (*Client, error) {
@@ -256,6 +262,32 @@ func (c *Client) ListReplicaFiles(ctx context.Context, replicaID uint, page, cou
 	}
 
 	return &files, nil
+}
+
+func (c *Client) CompleteCommand(ctx context.Context, commandID uint) (*Command, error) {
+	accessToken, err := c.ensureAccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	path := fmt.Sprintf("/internal/commands/%d/complete", commandID)
+
+	var command Command
+	if err := c.doAuthenticatedJSON(ctx, http.MethodPost, path, nil, accessToken, &command); err != nil {
+		if apiErr, ok := err.(*APIError); ok && apiErr.StatusCode == http.StatusUnauthorized {
+			accessToken, err = c.refreshOrAuthenticate(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.doAuthenticatedJSON(ctx, http.MethodPost, path, nil, accessToken, &command); err != nil {
+				return nil, err
+			}
+			return &command, nil
+		}
+		return nil, err
+	}
+
+	return &command, nil
 }
 
 func (c *Client) ensureAccessToken(ctx context.Context) (string, error) {

@@ -47,7 +47,7 @@ func TestClientAuthenticateAndReportAvailability(t *testing.T) {
 				NodeID:   "node-a",
 				Address:  gotAvailability.Address,
 				LastSeen: "2026-05-21T12:00:00Z",
-				Tasks:    []Task{},
+				Commands: []Command{},
 			})
 		default:
 			t.Fatalf("unexpected path %q", r.URL.Path)
@@ -85,6 +85,65 @@ func TestClientAuthenticateAndReportAvailability(t *testing.T) {
 	}
 	if report.NodeID != "node-a" {
 		t.Fatalf("report.NodeID = %q, want %q", report.NodeID, "node-a")
+	}
+}
+
+func TestClientCompleteCommandUsesInternalEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/auth/login":
+			_ = json.NewEncoder(w).Encode(NodeTokenPair{
+				NodeID:                "node-a",
+				AccessToken:           "access-token",
+				RefreshToken:          "refresh-token",
+				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
+				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
+			})
+		case "/internal/commands/7/complete":
+			if r.Method != http.MethodPost {
+				t.Fatalf("method = %s, want POST", r.Method)
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
+				t.Fatalf("Authorization = %q, want %q", got, "Bearer access-token")
+			}
+			_ = json.NewEncoder(w).Encode(Command{
+				ID:        7,
+				NodeID:    "node-a",
+				Type:      "refresh_state",
+				Status:    "completed",
+				Payload:   json.RawMessage(`{"placeholder":true}`),
+				CreatedAt: "2026-05-21T12:00:00Z",
+				UpdatedAt: "2026-05-21T12:01:00Z",
+			})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(config.Config{
+		App: config.AppConfig{
+			NodeID:         "node-a",
+			CoordinatorURL: server.URL,
+			NodeAddress:    "https://node-address:8081",
+		},
+		Auth: config.AuthConfig{
+			NodeSecret: "node-secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	command, err := client.CompleteCommand(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("CompleteCommand() error = %v", err)
+	}
+	if command.ID != 7 {
+		t.Fatalf("command.ID = %d, want %d", command.ID, 7)
+	}
+	if command.Status != "completed" {
+		t.Fatalf("command.Status = %q, want %q", command.Status, "completed")
 	}
 }
 

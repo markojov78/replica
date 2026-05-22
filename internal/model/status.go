@@ -13,6 +13,8 @@ type ShareStatus string
 type UserStatus string
 type RoleStatus string
 type NodeStatus string
+type NodeCommandStatus string
+type NodeCommandType string
 type PermissionResource string
 type PermissionAction string
 
@@ -89,6 +91,19 @@ const (
 	NodeStatusOffline     NodeStatus = "offline"
 	NodeStatusDisabled    NodeStatus = "disabled"
 	NodeStatusRevoked     NodeStatus = "revoked"
+)
+
+const (
+	NodeCommandStatusPending   NodeCommandStatus = "pending"
+	NodeCommandStatusCompleted NodeCommandStatus = "completed"
+	NodeCommandStatusFailed    NodeCommandStatus = "failed"
+	NodeCommandStatusCanceled  NodeCommandStatus = "canceled"
+)
+
+const (
+	NodeCommandTypeReconcileReplica NodeCommandType = "reconcile_replica"
+	NodeCommandTypeScanReplica      NodeCommandType = "scan_replica"
+	NodeCommandTypeRefreshState     NodeCommandType = "refresh_state"
 )
 
 const (
@@ -216,6 +231,24 @@ func (s RoleStatus) Valid() bool {
 func (s NodeStatus) Valid() bool {
 	switch s {
 	case NodeStatusOnline, NodeStatusUnreachable, NodeStatusOffline, NodeStatusDisabled, NodeStatusRevoked:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s NodeCommandStatus) Valid() bool {
+	switch s {
+	case NodeCommandStatusPending, NodeCommandStatusCompleted, NodeCommandStatusFailed, NodeCommandStatusCanceled:
+		return true
+	default:
+		return false
+	}
+}
+
+func (t NodeCommandType) Valid() bool {
+	switch t {
+	case NodeCommandTypeReconcileReplica, NodeCommandTypeScanReplica, NodeCommandTypeRefreshState:
 		return true
 	default:
 		return false

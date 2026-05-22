@@ -50,6 +50,7 @@ func New(
 	registerPublicAuthRoutes(apiGroup, svc)
 	registerInternalAuthRoutes(internalGroup, svc)
 	registerInternalNodeRoutes(internalGroup, svc)
+	registerInternalCommandRoutes(internalGroup, svc)
 	registerInternalReplicaRoutes(internalGroup, svc)
 	registerUserRoutes(apiGroup, svc)
 	registerRoleRoutes(apiGroup, svc)
@@ -207,6 +208,10 @@ func mapNodeError(err error, nodeService *service.NodeService) error {
 	switch {
 	case nodeService.IsNotFound(err):
 		return huma.Error404NotFound("node not found")
+	case errors.Is(err, service.ErrNodeCommandNotFound):
+		return huma.Error404NotFound("node command not found")
+	case errors.Is(err, service.ErrNodeCommandOwnership):
+		return huma.Error403Forbidden("node command belongs to another node")
 	case errors.Is(err, service.ErrInvalidNodeStatus):
 		return huma.Error400BadRequest("invalid node status")
 	case strings.Contains(lower, "unique"):

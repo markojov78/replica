@@ -18,6 +18,8 @@ func TestDocumentedEnumsAreValid(t *testing.T) {
 		{name: string(ReplicationGroupStatusDeleted), valid: ReplicationGroupStatusDeleted.Valid()},
 		{name: string(ShareStatusActive), valid: ShareStatusActive.Valid()},
 		{name: string(NodeStatusOnline), valid: NodeStatusOnline.Valid()},
+		{name: string(NodeCommandStatusPending), valid: NodeCommandStatusPending.Valid()},
+		{name: string(NodeCommandTypeRefreshState), valid: NodeCommandTypeRefreshState.Valid()},
 		{name: string(PermissionResourceNodes), valid: PermissionResourceNodes.Valid()},
 	}
 
@@ -40,6 +42,12 @@ func TestInvalidStatusesFailValidation(t *testing.T) {
 	}
 	if NodeStatus("invalid").Valid() {
 		t.Fatal("invalid node status should fail")
+	}
+	if NodeCommandStatus("invalid").Valid() {
+		t.Fatal("invalid node command status should fail")
+	}
+	if NodeCommandType("invalid").Valid() {
+		t.Fatal("invalid node command type should fail")
 	}
 	if PermissionResource("invalid").Valid() {
 		t.Fatal("invalid permission resource should fail")

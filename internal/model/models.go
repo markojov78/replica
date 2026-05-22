@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type Inventory struct {
 	ID       uint            `gorm:"primaryKey" json:"id"`
@@ -46,15 +49,16 @@ func (FileJournal) TableName() string {
 }
 
 type Node struct {
-	ID                  string     `gorm:"primaryKey;size:255" json:"id"`
-	Status              NodeStatus `gorm:"size:32;not null" json:"status"`
-	Secret              string     `gorm:"size:255;not null" json:"-"`
-	Address             string     `gorm:"size:2048" json:"address"`
-	LastSeen            *time.Time `json:"last_seen"`
-	LastCallbackSuccess *time.Time `json:"last_callback_success"`
-	LastCallbackFailure *time.Time `json:"last_callback_failure"`
-	Token               *NodeToken `gorm:"foreignKey:NodeID;references:ID" json:"token,omitempty"`
-	Replicas            []Replica  `gorm:"foreignKey:NodeID;references:ID" json:"replicas,omitempty"`
+	ID                  string        `gorm:"primaryKey;size:255" json:"id"`
+	Status              NodeStatus    `gorm:"size:32;not null" json:"status"`
+	Secret              string        `gorm:"size:255;not null" json:"-"`
+	Address             string        `gorm:"size:2048" json:"address"`
+	LastSeen            *time.Time    `json:"last_seen"`
+	LastCallbackSuccess *time.Time    `json:"last_callback_success"`
+	LastCallbackFailure *time.Time    `json:"last_callback_failure"`
+	Token               *NodeToken    `gorm:"foreignKey:NodeID;references:ID" json:"token,omitempty"`
+	Commands            []NodeCommand `gorm:"foreignKey:NodeID;references:ID" json:"commands,omitempty"`
+	Replicas            []Replica     `gorm:"foreignKey:NodeID;references:ID" json:"replicas,omitempty"`
 }
 
 func (Node) TableName() string {
@@ -73,6 +77,22 @@ type NodeToken struct {
 
 func (NodeToken) TableName() string {
 	return "node_tokens"
+}
+
+type NodeCommand struct {
+	ID        uint              `gorm:"primaryKey" json:"id"`
+	NodeID    string            `gorm:"size:255;index;not null" json:"node_id"`
+	Type      NodeCommandType   `gorm:"size:64;not null" json:"type"`
+	Status    NodeCommandStatus `gorm:"size:32;not null;index" json:"status"`
+	Payload   json.RawMessage   `gorm:"type:json" json:"payload"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+	LastError *string           `gorm:"size:2048" json:"last_error,omitempty"`
+	Node      Node              `gorm:"foreignKey:NodeID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
+}
+
+func (NodeCommand) TableName() string {
+	return "node_commands"
 }
 
 type Replica struct {
@@ -251,6 +271,7 @@ func AllModels() []any {
 		&FileJournal{},
 		&Node{},
 		&NodeToken{},
+		&NodeCommand{},
 		&Replica{},
 		&ReplicaFile{},
 		&ReplicationGroup{},

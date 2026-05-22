@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 )
 
 var ErrInvalidNodeStatus = errors.New("invalid node status")
+var ErrNodeCommandNotFound = errors.New("node command not found")
+var ErrNodeCommandOwnership = errors.New("node command ownership mismatch")
 
 type NodeDetails struct {
 	ID                  string  `json:"id"`
@@ -30,15 +33,21 @@ type NodeList struct {
 }
 
 type NodeAvailabilityReport struct {
-	NodeID   string         `json:"node_id"`
-	Address  string         `json:"address"`
-	LastSeen string         `json:"last_seen"`
-	Tasks    []NodeTaskStub `json:"tasks"`
+	NodeID   string        `json:"node_id"`
+	Address  string        `json:"address"`
+	LastSeen string        `json:"last_seen"`
+	Commands []NodeCommand `json:"commands"`
 }
 
-type NodeTaskStub struct {
-	ID   string `json:"id"`
-	Type string `json:"type"`
+type NodeCommand struct {
+	ID        uint            `json:"id"`
+	NodeID    string          `json:"node_id"`
+	Type      string          `json:"type"`
+	Status    string          `json:"status"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
+	CreatedAt string          `json:"created_at"`
+	UpdatedAt string          `json:"updated_at"`
+	LastError *string         `json:"last_error,omitempty"`
 }
 
 type UpdateNodeInput struct {
@@ -48,11 +57,12 @@ type UpdateNodeInput struct {
 }
 
 type NodeService struct {
-	nodes *repository.NodeRepository
+	nodes    *repository.NodeRepository
+	commands *repository.NodeCommandRepository
 }
 
-func NewNodeService(nodes *repository.NodeRepository) *NodeService {
-	return &NodeService{nodes: nodes}
+func NewNodeService(nodes *repository.NodeRepository, commands *repository.NodeCommandRepository) *NodeService {
+	return &NodeService{nodes: nodes, commands: commands}
 }
 
 func (s *NodeService) Create(id, secret, address string, status *string) (*NodeDetails, error) {
@@ -174,12 +184,37 @@ func (s *NodeService) ReportAvailability(id, address string) (*NodeAvailabilityR
 		return nil, err
 	}
 
+	commands, err := s.commands.ListPendingByNodeID(node.ID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &NodeAvailabilityReport{
 		NodeID:   node.ID,
 		Address:  node.Address,
 		LastSeen: now.Format(time.RFC3339),
-		Tasks:    []NodeTaskStub{},
+		Commands: toNodeCommands(commands),
 	}, nil
+}
+
+func (s *NodeService) CompleteCommand(nodeID string, commandID uint) (*NodeCommand, error) {
+	command, err := s.commands.FindByID(commandID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNodeCommandNotFound
+		}
+		return nil, err
+	}
+	if command.NodeID != nodeID {
+		return nil, ErrNodeCommandOwnership
+	}
+	if command.Status != model.NodeCommandStatusCompleted {
+		command.Status = model.NodeCommandStatusCompleted
+		if err := s.commands.Update(command); err != nil {
+			return nil, err
+		}
+	}
+	return toNodeCommand(command), nil
 }
 
 func (s *NodeService) IsNotFound(err error) bool {
@@ -204,4 +239,29 @@ func timePtr(value *time.Time) *string {
 
 	formatted := value.UTC().Format(time.RFC3339)
 	return &formatted
+}
+
+func toNodeCommands(commands []model.NodeCommand) []NodeCommand {
+	if len(commands) == 0 {
+		return []NodeCommand{}
+	}
+
+	result := make([]NodeCommand, 0, len(commands))
+	for _, command := range commands {
+		result = append(result, *toNodeCommand(&command))
+	}
+	return result
+}
+
+func toNodeCommand(command *model.NodeCommand) *NodeCommand {
+	return &NodeCommand{
+		ID:        command.ID,
+		NodeID:    command.NodeID,
+		Type:      string(command.Type),
+		Status:    string(command.Status),
+		Payload:   command.Payload,
+		CreatedAt: command.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt: command.UpdatedAt.UTC().Format(time.RFC3339),
+		LastError: command.LastError,
+	}
 }

@@ -169,7 +169,7 @@ func TestInternalAuthMeReturnsAuthenticatedNode(t *testing.T) {
 		authService,
 		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
 		service.NewRoleService(repository.NewRoleRepository(database)),
-		service.NewNodeService(repository.NewNodeRepository(database)),
+		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
 	)
 
@@ -229,7 +229,7 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 		authService,
 		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
 		service.NewRoleService(repository.NewRoleRepository(database)),
-		service.NewNodeService(repository.NewNodeRepository(database)),
+		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
 	)
 
@@ -249,7 +249,7 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 		NodeID   string `json:"node_id"`
 		Address  string `json:"address"`
 		LastSeen string `json:"last_seen"`
-		Tasks    []any  `json:"tasks"`
+		Commands []any  `json:"commands"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
@@ -263,8 +263,8 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 	if body.LastSeen == "" {
 		t.Fatal("body.LastSeen is empty")
 	}
-	if len(body.Tasks) != 0 {
-		t.Fatalf("len(body.Tasks) = %d, want 0", len(body.Tasks))
+	if len(body.Commands) != 0 {
+		t.Fatalf("len(body.Commands) = %d, want 0", len(body.Commands))
 	}
 
 	var stored model.Node
@@ -276,6 +276,147 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 	}
 	if stored.LastSeen == nil {
 		t.Fatal("stored.LastSeen = nil, want timestamp")
+	}
+}
+
+func TestInternalNodesReportAvailabilityReturnsPendingCommands(t *testing.T) {
+	database := openRouterTestDB(t)
+
+	hashedSecret, err := security.HashPassword("node-secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+
+	node := &model.Node{
+		ID:     "node-a",
+		Status: model.NodeStatusOffline,
+		Secret: hashedSecret,
+	}
+	if err := database.Create(node).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+	if err := database.Create(&model.NodeCommand{
+		NodeID:  "node-a",
+		Type:    model.NodeCommandTypeRefreshState,
+		Status:  model.NodeCommandStatusPending,
+		Payload: []byte(`{"placeholder":true}`),
+	}).Error; err != nil {
+		t.Fatalf("Create(node command) error = %v", err)
+	}
+
+	authService := newRouterTestAuthService(database)
+	pair, err := authService.NodeLogin("node-a", "node-secret")
+	if err != nil {
+		t.Fatalf("NodeLogin() error = %v", err)
+	}
+
+	handler := New(
+		config.Config{},
+		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
+		authService,
+		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
+		service.NewRoleService(repository.NewRoleRepository(database)),
+		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
+		service.NewInventoryService(repository.NewInventoryRepository(database)),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://node-address:8081"}`))
+	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
+	req.Header.Set("X-API-Version", "1")
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+
+	var body struct {
+		Commands []struct {
+			ID     uint   `json:"id"`
+			Status string `json:"status"`
+			Type   string `json:"type"`
+		} `json:"commands"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(body.Commands) != 1 {
+		t.Fatalf("len(body.Commands) = %d, want 1", len(body.Commands))
+	}
+	if body.Commands[0].Type != string(model.NodeCommandTypeRefreshState) {
+		t.Fatalf("body.Commands[0].Type = %q, want %q", body.Commands[0].Type, model.NodeCommandTypeRefreshState)
+	}
+	if body.Commands[0].Status != string(model.NodeCommandStatusPending) {
+		t.Fatalf("body.Commands[0].Status = %q, want %q", body.Commands[0].Status, model.NodeCommandStatusPending)
+	}
+}
+
+func TestInternalCommandsCompleteMarksOwnedCommandCompleted(t *testing.T) {
+	database := openRouterTestDB(t)
+
+	hashedSecret, err := security.HashPassword("node-secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+
+	if err := database.Create(&model.Node{
+		ID:     "node-a",
+		Status: model.NodeStatusOffline,
+		Secret: hashedSecret,
+	}).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+	command := &model.NodeCommand{
+		NodeID:  "node-a",
+		Type:    model.NodeCommandTypeRefreshState,
+		Status:  model.NodeCommandStatusPending,
+		Payload: []byte(`{"placeholder":true}`),
+	}
+	if err := database.Create(command).Error; err != nil {
+		t.Fatalf("Create(command) error = %v", err)
+	}
+
+	authService := newRouterTestAuthService(database)
+	pair, err := authService.NodeLogin("node-a", "node-secret")
+	if err != nil {
+		t.Fatalf("NodeLogin() error = %v", err)
+	}
+
+	handler := New(
+		config.Config{},
+		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
+		authService,
+		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
+		service.NewRoleService(repository.NewRoleRepository(database)),
+		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
+		service.NewInventoryService(repository.NewInventoryRepository(database)),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/commands/"+strconv.FormatUint(uint64(command.ID), 10)+"/complete", nil)
+	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+
+	var body struct {
+		ID     uint   `json:"id"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if body.ID != command.ID {
+		t.Fatalf("body.ID = %d, want %d", body.ID, command.ID)
+	}
+	if body.Status != string(model.NodeCommandStatusCompleted) {
+		t.Fatalf("body.Status = %q, want %q", body.Status, model.NodeCommandStatusCompleted)
 	}
 }
 
@@ -369,7 +510,7 @@ func TestInternalReplicaFilesReportUpdatesCoordinatorState(t *testing.T) {
 		authService,
 		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
 		service.NewRoleService(repository.NewRoleRepository(database)),
-		service.NewNodeService(repository.NewNodeRepository(database)),
+		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
 	)
 

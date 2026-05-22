@@ -56,6 +56,7 @@ func main() {
 	userRepo := repository.NewUserRepository(database)
 	userTokenRepo := repository.NewUserTokenRepository(database)
 	nodeRepo := repository.NewNodeRepository(database)
+	nodeCommandRepo := repository.NewNodeCommandRepository(database)
 	nodeTokenRepo := repository.NewNodeTokenRepository(database)
 	roleRepo := repository.NewRoleRepository(database)
 	inventoryRepo := repository.NewInventoryRepository(database)
@@ -71,7 +72,7 @@ func main() {
 	)
 	userService := service.NewUserService(userRepo, roleRepo)
 	roleService := service.NewRoleService(roleRepo)
-	nodeService := service.NewNodeService(nodeRepo)
+	nodeService := service.NewNodeService(nodeRepo, nodeCommandRepo)
 	inventoryService := service.NewInventoryService(inventoryRepo)
 
 	handler := router.New(

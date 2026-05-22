@@ -47,7 +47,7 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 				"node_id":   "node-a",
 				"address":   "http://node-a:8081",
 				"last_seen": time.Now().UTC().Format(time.RFC3339),
-				"tasks":     []any{},
+				"commands":  []any{},
 			})
 		default:
 			t.Fatalf("unexpected path %q", r.URL.Path)

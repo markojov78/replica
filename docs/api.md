@@ -885,7 +885,8 @@ Behavior:
 - resolves the current node ID from the auth token
 - updates `nodes.address` from the request body
 - updates `nodes.last_seen` to the current coordinator time
-- returns a placeholder task list for future coordinator-to-node work distribution
+- returns pending durable coordinator commands for that node
+- does not delete or mutate commands as part of delivery
 
 Request body:
 - `address` required
@@ -905,7 +906,19 @@ Example response:
   "node_id": "node-a",
   "address": "https://node-address:8081",
   "last_seen": "2026-05-21T12:00:00Z",
-  "tasks": []
+  "commands": [
+    {
+      "id": 7,
+      "node_id": "node-a",
+      "type": "refresh_state",
+      "status": "pending",
+      "payload": {
+        "placeholder": true
+      },
+      "created_at": "2026-05-21T11:59:00Z",
+      "updated_at": "2026-05-21T11:59:00Z"
+    }
+  ]
 }
 ```
 
@@ -914,6 +927,52 @@ Possible errors:
 - `401` missing authenticated node
 - `403` disabled node
 - `403` revoked node
+
+### /commands endpoint
+
+This endpoint is node-authenticated and does not require any explicit permission beyond a valid node access token.
+
+#### POST /commands/{command_id}/complete
+Marks a durable coordinator command as completed for the authenticated node.
+
+Behavior:
+- validates the bearer node JWT
+- resolves the current node from the auth token
+- loads the command from coordinator storage
+- rejects attempts to complete commands owned by another node
+- if the command is already completed, returns success idempotently
+- otherwise updates command status to `completed` and updates `updated_at`
+
+Example request:
+
+```http
+POST /internal/commands/7/complete
+Authorization: Bearer node-access-token-value
+X-API-Version: 1
+```
+
+Example response:
+
+```json
+{
+  "id": 7,
+  "node_id": "node-a",
+  "type": "refresh_state",
+  "status": "completed",
+  "payload": {
+    "placeholder": true
+  },
+  "created_at": "2026-05-21T11:59:00Z",
+  "updated_at": "2026-05-21T12:05:00Z"
+}
+```
+
+Possible errors:
+- `401` missing authenticated node
+- `403` disabled node
+- `403` revoked node
+- `403` node command belongs to another node
+- `404` node command not found
 
 ### /replicas/{id}/files endpoint
 
