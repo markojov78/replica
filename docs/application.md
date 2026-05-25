@@ -265,7 +265,7 @@ id  name    type    status
 This says:  
 Inventory 1 exists as a logical dataset.  
 
-#### 3) Coordinator inserts default replicas
+#### 3) Coordinator creates default replica
 ```
 replicas
 id  inventory_id  node_id  uri           type        status
@@ -355,8 +355,78 @@ It is the source from which the initial inventory state is built.
 So the default replica starts as `synchronized`, and additional replicas added later start as `pending` 
 because they need to receive the already-known inventory files.  
 
-### File replication after update
-When multiple replicas exist, this is how replication works:  
+### Creating a new replica
+#### 1) Initial state
+```
+inventory_files
+file_id  version  status  modified  size  hash
+----------------------------------------------
+10       3        active  time      size  hash
+11       3        active  time      size  hash
+
+replicas
+id  inventory_id  node_id  uri           type        status
+------------------------------------------------------------
+A   1             node-1   /data/photos  filesystem  active
+
+replica_files
+file_id  replica_id  version  status
+------------------------------------------
+10       A           3        synchronized
+11       A           3        synchronized
+```
+#### 2) Coordinator create new replica
+```
+replicas
+id  inventory_id  node_id  uri                 type     status
+--------------------------------------------------------------
+B   1             node-2   s3://bucket/photos  storage  active
+```
+#### 3) Coordinator populates `replica_files` for the new replica
+```
+replica_files
+file_id  replica_id  version  status
+------------------------------------------
+10       A           3        synchronized
+11       A           3        synchronized
+10       B           0        pending
+11       B           0        pending
+```
+This says:  
+A replica is up to date.  
+B replica needs update.  
+
+#### 4) Replication worker finds pending target
+It queries:  
+`replica_files where status = pending`  
+Then compares:  
+`replica_files.version < inventory_files.version`  
+So it knows:  
+`copy file_id=10 version=3 to replica B`  
+`copy file_id=11 version=3 to replica B`  
+Source can be replica A, or any synchronized replica with version 3.
+
+#### 5) File data is transferred
+Storage service copies actual data:  
+replica A path -> replica B path
+
+Then verifies:  
+`hash == inventory_files.hash && size == inventory_files.size`
+
+#### 6) Coordinator marks replica B synchronized
+Final state after successful transfer:
+```
+replica_files
+file_id  replica_id  version  status
+------------------------------------------
+10       A           3        synchronized
+11       A           3        synchronized
+10       B           3        synchronized
+11       B           3        synchronized
+```
+
+### File replication between replicas
+When multiple replicas exist, this is what happens if you update file on one replica:  
 1. Detect local change on replica A
 2. Record authoritative logical change
 3. Mark other replicas as needing update

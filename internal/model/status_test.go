@@ -43,10 +43,10 @@ func TestInvalidStatusesFailValidation(t *testing.T) {
 	if NodeStatus("invalid").Valid() {
 		t.Fatal("invalid node status should fail")
 	}
-	if NodeCommandStatus("invalid").Valid() {
+	if CommandStatus("invalid").Valid() {
 		t.Fatal("invalid node command status should fail")
 	}
-	if NodeCommandType("invalid").Valid() {
+	if CommandType("invalid").Valid() {
 		t.Fatal("invalid node command type should fail")
 	}
 	if PermissionResource("invalid").Valid() {

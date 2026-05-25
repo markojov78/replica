@@ -164,7 +164,7 @@ func TestNodeServiceReportAvailabilityIncludesPendingCommands(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("Create(node) error = %v", err)
 	}
-	if err := database.Create(&model.NodeCommand{
+	if err := database.Create(&model.Command{
 		NodeID:  "node-a",
 		Type:    model.NodeCommandTypeRefreshState,
 		Status:  model.NodeCommandStatusPending,
@@ -172,7 +172,7 @@ func TestNodeServiceReportAvailabilityIncludesPendingCommands(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("Create(pending command) error = %v", err)
 	}
-	if err := database.Create(&model.NodeCommand{
+	if err := database.Create(&model.Command{
 		NodeID:  "node-a",
 		Type:    model.NodeCommandTypeScanReplica,
 		Status:  model.NodeCommandStatusCompleted,
@@ -218,7 +218,7 @@ func TestNodeServiceCompleteCommandIsIdempotentAndScopedToNode(t *testing.T) {
 	if err := database.Create(&model.Node{ID: "node-b", Status: model.NodeStatusOffline, Secret: "ignored"}).Error; err != nil {
 		t.Fatalf("Create(node-b) error = %v", err)
 	}
-	command := &model.NodeCommand{
+	command := &model.Command{
 		NodeID:  "node-a",
 		Type:    model.NodeCommandTypeRefreshState,
 		Status:  model.NodeCommandStatusPending,

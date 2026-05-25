@@ -13,8 +13,8 @@ type ShareStatus string
 type UserStatus string
 type RoleStatus string
 type NodeStatus string
-type NodeCommandStatus string
-type NodeCommandType string
+type CommandStatus string
+type CommandType string
 type PermissionResource string
 type PermissionAction string
 
@@ -94,16 +94,16 @@ const (
 )
 
 const (
-	NodeCommandStatusPending   NodeCommandStatus = "pending"
-	NodeCommandStatusCompleted NodeCommandStatus = "completed"
-	NodeCommandStatusFailed    NodeCommandStatus = "failed"
-	NodeCommandStatusCanceled  NodeCommandStatus = "canceled"
+	NodeCommandStatusPending   CommandStatus = "pending"
+	NodeCommandStatusCompleted CommandStatus = "completed"
+	NodeCommandStatusFailed    CommandStatus = "failed"
+	NodeCommandStatusCanceled  CommandStatus = "canceled"
 )
 
 const (
-	NodeCommandTypeReconcileReplica NodeCommandType = "reconcile_replica"
-	NodeCommandTypeScanReplica      NodeCommandType = "scan_replica"
-	NodeCommandTypeRefreshState     NodeCommandType = "refresh_state"
+	NodeCommandTypeReconcileReplica CommandType = "reconcile_replica"
+	NodeCommandTypeScanReplica      CommandType = "scan_replica"
+	NodeCommandTypeRefreshState     CommandType = "refresh_state"
 )
 
 const (
@@ -237,7 +237,7 @@ func (s NodeStatus) Valid() bool {
 	}
 }
 
-func (s NodeCommandStatus) Valid() bool {
+func (s CommandStatus) Valid() bool {
 	switch s {
 	case NodeCommandStatusPending, NodeCommandStatusCompleted, NodeCommandStatusFailed, NodeCommandStatusCanceled:
 		return true
@@ -246,7 +246,7 @@ func (s NodeCommandStatus) Valid() bool {
 	}
 }
 
-func (t NodeCommandType) Valid() bool {
+func (t CommandType) Valid() bool {
 	switch t {
 	case NodeCommandTypeReconcileReplica, NodeCommandTypeScanReplica, NodeCommandTypeRefreshState:
 		return true

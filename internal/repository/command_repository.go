@@ -7,15 +7,15 @@ import (
 	"gorm.io/gorm"
 )
 
-type NodeCommandRepository struct {
+type CommandRepository struct {
 	db *gorm.DB
 }
 
-func NewNodeCommandRepository(db *gorm.DB) *NodeCommandRepository {
-	return &NodeCommandRepository{db: db}
+func NewNodeCommandRepository(db *gorm.DB) *CommandRepository {
+	return &CommandRepository{db: db}
 }
 
-func (r *NodeCommandRepository) Create(command *model.NodeCommand) error {
+func (r *CommandRepository) Create(command *model.Command) error {
 	now := time.Now().UTC()
 	if command.CreatedAt.IsZero() {
 		command.CreatedAt = now
@@ -24,16 +24,16 @@ func (r *NodeCommandRepository) Create(command *model.NodeCommand) error {
 	return r.db.Create(command).Error
 }
 
-func (r *NodeCommandRepository) FindByID(id uint) (*model.NodeCommand, error) {
-	var command model.NodeCommand
+func (r *CommandRepository) FindByID(id uint) (*model.Command, error) {
+	var command model.Command
 	if err := r.db.First(&command, id).Error; err != nil {
 		return nil, err
 	}
 	return &command, nil
 }
 
-func (r *NodeCommandRepository) ListPendingByNodeID(nodeID string) ([]model.NodeCommand, error) {
-	var commands []model.NodeCommand
+func (r *CommandRepository) ListPendingByNodeID(nodeID string) ([]model.Command, error) {
+	var commands []model.Command
 	err := r.db.
 		Where("node_id = ? AND status = ?", nodeID, model.NodeCommandStatusPending).
 		Order("id asc").
@@ -44,7 +44,7 @@ func (r *NodeCommandRepository) ListPendingByNodeID(nodeID string) ([]model.Node
 	return commands, nil
 }
 
-func (r *NodeCommandRepository) Update(command *model.NodeCommand) error {
+func (r *CommandRepository) Update(command *model.Command) error {
 	command.UpdatedAt = time.Now().UTC()
 	return r.db.Save(command).Error
 }

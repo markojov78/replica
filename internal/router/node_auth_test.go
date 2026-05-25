@@ -295,7 +295,7 @@ func TestInternalNodesReportAvailabilityReturnsPendingCommands(t *testing.T) {
 	if err := database.Create(node).Error; err != nil {
 		t.Fatalf("Create(node) error = %v", err)
 	}
-	if err := database.Create(&model.NodeCommand{
+	if err := database.Create(&model.Command{
 		NodeID:  "node-a",
 		Type:    model.NodeCommandTypeRefreshState,
 		Status:  model.NodeCommandStatusPending,
@@ -368,7 +368,7 @@ func TestInternalCommandsCompleteMarksOwnedCommandCompleted(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("Create(node) error = %v", err)
 	}
-	command := &model.NodeCommand{
+	command := &model.Command{
 		NodeID:  "node-a",
 		Type:    model.NodeCommandTypeRefreshState,
 		Status:  model.NodeCommandStatusPending,

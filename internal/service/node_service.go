@@ -58,10 +58,10 @@ type UpdateNodeInput struct {
 
 type NodeService struct {
 	nodes    *repository.NodeRepository
-	commands *repository.NodeCommandRepository
+	commands *repository.CommandRepository
 }
 
-func NewNodeService(nodes *repository.NodeRepository, commands *repository.NodeCommandRepository) *NodeService {
+func NewNodeService(nodes *repository.NodeRepository, commands *repository.CommandRepository) *NodeService {
 	return &NodeService{nodes: nodes, commands: commands}
 }
 
@@ -241,7 +241,7 @@ func timePtr(value *time.Time) *string {
 	return &formatted
 }
 
-func toNodeCommands(commands []model.NodeCommand) []NodeCommand {
+func toNodeCommands(commands []model.Command) []NodeCommand {
 	if len(commands) == 0 {
 		return []NodeCommand{}
 	}
@@ -253,7 +253,7 @@ func toNodeCommands(commands []model.NodeCommand) []NodeCommand {
 	return result
 }
 
-func toNodeCommand(command *model.NodeCommand) *NodeCommand {
+func toNodeCommand(command *model.Command) *NodeCommand {
 	return &NodeCommand{
 		ID:        command.ID,
 		NodeID:    command.NodeID,
