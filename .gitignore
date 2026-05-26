@@ -13,7 +13,6 @@
 *.out
 
 # Go workspace files
-go.sum
 go.work
 go.work.sum
 
@@ -51,4 +50,3 @@ dropoutbox-seed.exe
 .claude/
 .codex
 .aider
-

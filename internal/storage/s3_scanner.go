@@ -1,0 +1,195 @@
+package storage
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/url"
+	"path"
+	"strings"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+)
+
+type s3ListObjectsV2API interface {
+	ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
+}
+
+type s3HeadObjectAPI interface {
+	HeadObject(ctx context.Context, params *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
+}
+
+type S3Scanner struct {
+	listClient s3ListObjectsV2API
+	headClient s3HeadObjectAPI
+}
+
+func NewS3Scanner(client *s3.Client) *S3Scanner {
+	return &S3Scanner{
+		listClient: client,
+		headClient: client,
+	}
+}
+
+func NewS3ScannerWithClients(listClient s3ListObjectsV2API, headClient s3HeadObjectAPI) *S3Scanner {
+	return &S3Scanner{
+		listClient: listClient,
+		headClient: headClient,
+	}
+}
+
+func (s *S3Scanner) Scan(ctx context.Context, rootURI string) ([]FileState, error) {
+	location, err := parseS3URI(rootURI)
+	if err != nil {
+		return nil, err
+	}
+
+	states := make([]FileState, 0)
+	var continuation *string
+	for {
+		output, err := s.listClient.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            aws.String(location.Bucket),
+			Prefix:            aws.String(location.ListPrefix()),
+			ContinuationToken: continuation,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		for _, object := range output.Contents {
+			state, err := s.fileStateFromObject(ctx, location, object)
+			if err != nil {
+				return nil, err
+			}
+			if state == nil {
+				continue
+			}
+			states = append(states, *state)
+		}
+
+		if !aws.ToBool(output.IsTruncated) || output.NextContinuationToken == nil {
+			break
+		}
+		continuation = output.NextContinuationToken
+	}
+
+	sortFileStates(states)
+	return states, nil
+}
+
+func (s *S3Scanner) fileStateFromObject(ctx context.Context, location s3Location, object types.Object) (*FileState, error) {
+	key := aws.ToString(object.Key)
+	if key == "" {
+		return nil, nil
+	}
+
+	relativeURI, ok := location.RelativeKey(key)
+	if !ok || relativeURI == "" {
+		return nil, nil
+	}
+
+	hash, algorithm := s3ETagFingerprint(object.ETag)
+	if s.headClient != nil {
+		headOutput, err := s.headClient.HeadObject(ctx, &s3.HeadObjectInput{
+			Bucket:       aws.String(location.Bucket),
+			Key:          aws.String(key),
+			ChecksumMode: types.ChecksumModeEnabled,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if checksumHash, checksumAlgorithm := s3ChecksumFromHeadObject(headOutput); checksumHash != "" {
+			hash = checksumHash
+			algorithm = checksumAlgorithm
+		}
+	}
+
+	modified := time.Time{}
+	if object.LastModified != nil {
+		modified = object.LastModified.UTC()
+	}
+
+	return &FileState{
+		RelativeURI:   normalizeRelativeURI(relativeURI),
+		Size:          aws.ToInt64(object.Size),
+		Hash:          hash,
+		HashAlgorithm: algorithm,
+		Created:       modified,
+		Modified:      modified,
+	}, nil
+}
+
+type s3Location struct {
+	Bucket string
+	Prefix string
+}
+
+func (l s3Location) ListPrefix() string {
+	if l.Prefix == "" {
+		return ""
+	}
+	return l.Prefix + "/"
+}
+
+func (l s3Location) RelativeKey(key string) (string, bool) {
+	if l.Prefix == "" {
+		return strings.TrimPrefix(key, "/"), true
+	}
+	prefix := l.Prefix + "/"
+	if !strings.HasPrefix(key, prefix) {
+		return "", false
+	}
+	return strings.TrimPrefix(key, prefix), true
+}
+
+func parseS3URI(rawURI string) (s3Location, error) {
+	parsed, err := url.Parse(rawURI)
+	if err != nil {
+		return s3Location{}, err
+	}
+	if parsed.Scheme != "s3" {
+		return s3Location{}, fmt.Errorf("unsupported scheme %q", parsed.Scheme)
+	}
+	if parsed.Host == "" {
+		return s3Location{}, errors.New("s3 URI bucket is required")
+	}
+
+	prefix := strings.Trim(path.Clean(strings.TrimPrefix(parsed.Path, "/")), ".")
+	if prefix == "/" {
+		prefix = ""
+	}
+
+	return s3Location{
+		Bucket: parsed.Host,
+		Prefix: strings.Trim(prefix, "/"),
+	}, nil
+}
+
+func s3ETagFingerprint(etag *string) (string, string) {
+	if etag == nil {
+		return "", ""
+	}
+	return strings.Trim(*etag, `"`), HashAlgorithmS3ETag
+}
+
+func s3ChecksumFromHeadObject(output *s3.HeadObjectOutput) (string, string) {
+	switch {
+	case output == nil:
+		return "", ""
+	case output.ChecksumSHA256 != nil:
+		return aws.ToString(output.ChecksumSHA256), "sha256"
+	case output.ChecksumSHA1 != nil:
+		return aws.ToString(output.ChecksumSHA1), "sha1"
+	case output.ChecksumCRC32C != nil:
+		return aws.ToString(output.ChecksumCRC32C), "crc32c"
+	case output.ChecksumCRC32 != nil:
+		return aws.ToString(output.ChecksumCRC32), "crc32"
+	case output.ChecksumCRC64NVME != nil:
+		return aws.ToString(output.ChecksumCRC64NVME), "crc64nvme"
+	default:
+		return "", ""
+	}
+}
