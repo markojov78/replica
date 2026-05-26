@@ -135,6 +135,31 @@ func (c *Client) NodeID() string {
 	return c.nodeID
 }
 
+func (c *Client) AccessToken(ctx context.Context) (string, error) {
+	return c.ensureAccessToken(ctx)
+}
+
+func (c *Client) WebSocketURL(path string) (string, error) {
+	base, err := url.Parse(c.coordinatorURL)
+	if err != nil {
+		return "", err
+	}
+
+	switch base.Scheme {
+	case "http":
+		base.Scheme = "ws"
+	case "https":
+		base.Scheme = "wss"
+	default:
+		return "", fmt.Errorf("unsupported coordinator url scheme %q", base.Scheme)
+	}
+
+	base.Path = path
+	base.RawQuery = ""
+	base.Fragment = ""
+	return base.String(), nil
+}
+
 func (c *Client) Authenticate(ctx context.Context) (*NodeTokenPair, error) {
 	reqBody := map[string]string{
 		"node_id": c.nodeID,

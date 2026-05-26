@@ -887,6 +887,7 @@ Behavior:
 - updates `nodes.last_seen` to the current coordinator time
 - returns pending durable coordinator commands for that node
 - does not delete or mutate commands as part of delivery
+- acts as fallback command delivery when the websocket command channel is unavailable
 
 Request body:
 - `address` required
@@ -927,6 +928,52 @@ Possible errors:
 - `401` missing authenticated node
 - `403` disabled node
 - `403` revoked node
+
+#### GET /nodes/ws
+Establishes the node websocket command channel.
+
+Behavior:
+- validates the bearer node JWT from the websocket handshake request
+- upgrades the connection to websocket
+- keeps the connection open for coordinator-to-node command delivery
+- sends messages in the `NodeCommand` format
+- does not replace heartbeat reporting; `POST /internal/nodes` is still required for node availability updates
+
+Handshake headers:
+- `Authorization: Bearer <node-access-token>`
+- `X-API-Version: 1`
+
+Example request:
+
+```http
+GET /internal/nodes/ws
+Authorization: Bearer node-access-token-value
+X-API-Version: 1
+Upgrade: websocket
+Connection: Upgrade
+```
+
+Example message:
+
+```json
+{
+  "id": 7,
+  "node_id": "node-a",
+  "type": "refresh_state",
+  "status": "pending",
+  "payload": {
+    "placeholder": true
+  },
+  "created_at": "2026-05-21T11:59:00Z",
+  "updated_at": "2026-05-21T11:59:00Z"
+}
+```
+
+Possible errors:
+- `401` missing authenticated node
+- `403` disabled node
+- `403` revoked node
+- `426` upgrade required
 
 ### /commands endpoint
 

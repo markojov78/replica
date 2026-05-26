@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"dropoutbox/internal/security"
 	"dropoutbox/internal/service"
 
+	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
 )
 
@@ -350,6 +352,66 @@ func TestInternalNodesReportAvailabilityReturnsPendingCommands(t *testing.T) {
 	}
 	if body.Commands[0].Status != string(model.NodeCommandStatusPending) {
 		t.Fatalf("body.Commands[0].Status = %q, want %q", body.Commands[0].Status, model.NodeCommandStatusPending)
+	}
+}
+
+func TestInternalNodesWebSocketAcceptsAuthenticatedNode(t *testing.T) {
+	database := openRouterTestDB(t)
+
+	hashedSecret, err := security.HashPassword("node-secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+
+	node := &model.Node{
+		ID:     "node-a",
+		Status: model.NodeStatusOffline,
+		Secret: hashedSecret,
+	}
+	if err := database.Create(node).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+
+	authService := newRouterTestAuthService(database)
+	pair, err := authService.NodeLogin("node-a", "node-secret")
+	if err != nil {
+		t.Fatalf("NodeLogin() error = %v", err)
+	}
+
+	handler := New(
+		config.Config{},
+		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
+		authService,
+		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
+		service.NewRoleService(repository.NewRoleRepository(database)),
+		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
+		service.NewInventoryService(repository.NewInventoryRepository(database)),
+	)
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	wsURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+	wsURL.Scheme = "ws"
+	wsURL.Path = "/internal/nodes/ws"
+
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer "+pair.AccessToken)
+
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL.String(), headers)
+	if err != nil {
+		if resp != nil {
+			t.Fatalf("Dial() error = %v; status=%d", err, resp.StatusCode)
+		}
+		t.Fatalf("Dial() error = %v", err)
+	}
+	defer conn.Close()
+
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusSwitchingProtocols)
 	}
 }
 
