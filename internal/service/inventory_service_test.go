@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
@@ -26,6 +27,54 @@ func TestInventoryNameFromURI(t *testing.T) {
 		if got := inventoryNameFromURI(test.uri); got != test.want {
 			t.Fatalf("inventoryNameFromURI(%q) = %q, want %q", test.uri, got, test.want)
 		}
+	}
+}
+
+func TestInventoryServiceCreateCreatesPendingScanReplicaCommand(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "inventory-create-command.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	svc := NewInventoryService(repository.NewInventoryRepository(database), nodeService)
+
+	inventory, err := svc.Create(CreateInventoryInput{
+		Name:   "Photos",
+		Type:   string(model.InventoryTypeFolder),
+		NodeID: "node-a",
+		URI:    "/data/photos",
+		UserID: 7,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if len(inventory.Replicas) != 1 {
+		t.Fatalf("len(inventory.Replicas) = %d, want 1", len(inventory.Replicas))
+	}
+
+	var command model.Command
+	if err := database.First(&command, "node_id = ? AND type = ?", "node-a", model.NodeCommandTypeScanReplica).Error; err != nil {
+		t.Fatalf("First(command) error = %v", err)
+	}
+	if command.Status != model.NodeCommandStatusPending {
+		t.Fatalf("command.Status = %q, want %q", command.Status, model.NodeCommandStatusPending)
+	}
+
+	var payload struct {
+		ReplicaID uint `json:"replica_id"`
+	}
+	if err := json.Unmarshal(command.Payload, &payload); err != nil {
+		t.Fatalf("Unmarshal(command.Payload) error = %v", err)
+	}
+	if payload.ReplicaID != inventory.Replicas[0].ID {
+		t.Fatalf("payload.ReplicaID = %d, want %d", payload.ReplicaID, inventory.Replicas[0].ID)
 	}
 }
 

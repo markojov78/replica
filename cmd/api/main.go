@@ -73,7 +73,7 @@ func main() {
 	userService := service.NewUserService(userRepo, roleRepo)
 	roleService := service.NewRoleService(roleRepo)
 	nodeService := service.NewNodeService(nodeRepo, nodeCommandRepo)
-	inventoryService := service.NewInventoryService(inventoryRepo)
+	inventoryService := service.NewInventoryService(inventoryRepo, nodeService)
 
 	handler := router.New(
 		cfg,

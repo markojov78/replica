@@ -628,7 +628,11 @@ Replica management is exposed as a top-level endpoint. Authorization uses `inven
 - `update` for create, update, and delete
 
 #### GET /replicas
-Returns replicas filtered by optional query parameters:
+Returns a paginated list of replicas filtered by optional query parameters.
+
+Query parameters:
+- `page` optional, default `1`
+- `count` optional, default `20`, maximum `100`
 - `inventory_id`
 - `node_id`
 - `uri_prefix`
@@ -636,16 +640,21 @@ Returns replicas filtered by optional query parameters:
 Example response:
 
 ```json
-[
-  {
-    "id": 1,
-    "inventory_id": 1,
-    "node_id": "node-1",
-    "uri": "/home/username/images/Vacation March 2026",
-    "status": "active",
-    "type": "filesystem"
-  }
-]
+{
+  "items": [
+    {
+      "id": 1,
+      "inventory_id": 1,
+      "node_id": "node-1",
+      "uri": "/home/username/images/Vacation March 2026",
+      "status": "active",
+      "type": "filesystem"
+    }
+  ],
+  "page": 1,
+  "count": 20,
+  "total": 1
+}
 ```
 
 #### GET /replicas/{id}
@@ -1020,6 +1029,39 @@ Possible errors:
 - `403` revoked node
 - `403` node command belongs to another node
 - `404` node command not found
+
+### /replicas endpoint
+
+This endpoint is node-authenticated and returns replicas assigned to the authenticated node only.
+
+#### GET /replicas
+Returns the current replica assignments for the authenticated node.
+
+Behavior:
+- validates the bearer node JWT
+- resolves the current node from the auth token
+- returns only replicas whose `node_id` matches the authenticated node
+- does not support user-style filtering or pagination
+
+Example response:
+
+```json
+[
+  {
+    "id": 1,
+    "inventory_id": 1,
+    "node_id": "node-a",
+    "uri": "/data/photos",
+    "status": "active",
+    "type": "filesystem"
+  }
+]
+```
+
+Possible errors:
+- `401` missing authenticated node
+- `403` disabled node
+- `403` revoked node
 
 ### /replicas/{id}/files endpoint
 

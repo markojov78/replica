@@ -24,7 +24,8 @@ func registerReplicaRoutes(api huma.API, svc services) {
 			inventoryID = &input.InventoryID
 		}
 
-		replicas, err := svc.inventories.ListReplicas(service.ReplicaListFilter{
+		page, count := resolvePagination(input.Page, input.Count)
+		replicas, err := svc.inventories.ListReplicasPage(page, count, service.ReplicaListFilter{
 			InventoryID: inventoryID,
 			NodeID:      input.NodeID,
 			URIPrefix:   input.URIPrefix,
@@ -32,7 +33,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
 		}
-		return &replicaListResponse{Body: replicas}, nil
+		return &replicaListResponse{Body: *replicas}, nil
 	})
 
 	huma.Get(api, "/replicas/{id}", func(ctx context.Context, input *getReplicaInput) (*replicaResponse, error) {
@@ -152,6 +153,8 @@ func registerReplicaRoutes(api huma.API, svc services) {
 type listReplicasInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
+	Page          int    `query:"page"`
+	Count         int    `query:"count"`
 	InventoryID   uint   `query:"inventory_id"`
 	NodeID        string `query:"node_id"`
 	URIPrefix     string `query:"uri_prefix"`
@@ -212,7 +215,7 @@ type replicaResponse struct {
 }
 
 type replicaListResponse struct {
-	Body []service.InventoryReplicaDetails
+	Body service.ReplicaList
 }
 
 type replicaFileResponse struct {

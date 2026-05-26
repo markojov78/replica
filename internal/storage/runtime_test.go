@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +24,7 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 	loginCalls := 0
 	refreshCalls := 0
 	heartbeatCalls := 0
+	replicaCalls := 0
 	wsConnections := 0
 
 	logOutput := captureLogs(t)
@@ -59,6 +62,9 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 				"last_seen": time.Now().UTC().Format(time.RFC3339),
 				"commands":  []any{},
 			})
+		case "/internal/replicas":
+			replicaCalls++
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/internal/nodes/ws":
 			if got := r.Header.Get("Authorization"); got == "" {
 				t.Fatalf("Authorization header missing for websocket request")
@@ -111,7 +117,7 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 	deadline := time.Now().Add(1800 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		mu.Lock()
-		done := loginCalls >= 1 && refreshCalls >= 1 && heartbeatCalls >= 2 && wsConnections >= 1
+		done := loginCalls >= 1 && refreshCalls >= 1 && heartbeatCalls >= 2 && replicaCalls >= 1 && wsConnections >= 1
 		mu.Unlock()
 		if done && strings.Contains(logOutput.String(), "got command id=7 type=refresh_state status=pending") {
 			return
@@ -121,7 +127,7 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	t.Fatalf("loginCalls=%d refreshCalls=%d heartbeatCalls=%d wsConnections=%d logs=%q", loginCalls, refreshCalls, heartbeatCalls, wsConnections, logOutput.String())
+	t.Fatalf("loginCalls=%d refreshCalls=%d heartbeatCalls=%d replicaCalls=%d wsConnections=%d logs=%q", loginCalls, refreshCalls, heartbeatCalls, replicaCalls, wsConnections, logOutput.String())
 }
 
 func TestRuntimeProcessesFallbackCommandsWhenWebSocketUnavailable(t *testing.T) {
@@ -154,6 +160,8 @@ func TestRuntimeProcessesFallbackCommandsWhenWebSocketUnavailable(t *testing.T) 
 					},
 				},
 			})
+		case "/internal/replicas":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		default:
 			http.NotFound(w, r)
 		}
@@ -189,6 +197,89 @@ func TestRuntimeProcessesFallbackCommandsWhenWebSocketUnavailable(t *testing.T) 
 	}
 
 	t.Fatalf("fallback command log missing, logs=%q", logOutput.String())
+}
+
+func TestRuntimeStartsReplicaWatcherAndLogsChanges(t *testing.T) {
+	logOutput := captureLogs(t)
+	replicaRoot := t.TempDir()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":                  "node-a",
+				"access_token":             "access-token",
+				"refresh_token":            "refresh-token",
+				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
+				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/internal/nodes":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":   "node-a",
+				"address":   "http://node-a:8081",
+				"last_seen": time.Now().UTC().Format(time.RFC3339),
+				"commands":  []any{},
+			})
+		case "/internal/replicas":
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"id":           3,
+					"inventory_id": 2,
+					"node_id":      "node-a",
+					"uri":          replicaRoot,
+					"status":       "active",
+					"type":         "filesystem",
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	runtime, err := NewRuntime(config.Config{
+		App: config.AppConfig{
+			NodeID:            "node-a",
+			CoordinatorURL:    server.URL,
+			NodeAddress:       "http://node-a:8081",
+			HeartbeatInterval: 200 * time.Millisecond,
+		},
+		Auth: config.AuthConfig{
+			NodeSecret: "node-secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	runtime.Start(ctx)
+
+	startDeadline := time.Now().Add(1200 * time.Millisecond)
+	for time.Now().Before(startDeadline) {
+		if strings.Contains(logOutput.String(), "storage runtime watcher started replica_id=3") {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	if err := os.WriteFile(filepath.Join(replicaRoot, "new.txt"), []byte("content"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	changeDeadline := time.Now().Add(1200 * time.Millisecond)
+	for time.Now().Before(changeDeadline) {
+		logs := logOutput.String()
+		if strings.Contains(logs, "storage runtime replica change replica_id=3") &&
+			strings.Contains(logs, "relative_uri=new.txt") {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	t.Fatalf("replica change log missing, logs=%q", logOutput.String())
 }
 
 func captureLogs(t *testing.T) *bytes.Buffer {

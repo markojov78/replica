@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,6 +23,9 @@ type Runtime struct {
 	heartbeatInterval time.Duration
 	wsConnected       atomic.Bool
 	wsDialer          *websocket.Dialer
+
+	replicasMu sync.RWMutex
+	replicas   []apiclient.Replica
 }
 
 func NewRuntime(cfg config.Config) (*Runtime, error) {
@@ -42,22 +46,24 @@ func (r *Runtime) Start(ctx context.Context) {
 }
 
 func (r *Runtime) run(ctx context.Context) {
-	pair, ok := r.bootstrap(ctx)
+	pair, replicas, ok := r.bootstrap(ctx)
 	if !ok {
 		return
 	}
 
+	r.setReplicas(replicas)
+	r.startReplicaWatchers(ctx, replicas)
 	go r.refreshLoop(ctx, pair)
 	go r.commandLoop(ctx)
 	go r.heartbeatLoop(ctx)
 }
 
-func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, bool) {
+func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []apiclient.Replica, bool) {
 	for {
 		pair, err := r.client.Authenticate(ctx)
 		if err != nil {
 			if !sleepContext(ctx, bootstrapRetryInterval) {
-				return nil, false
+				return nil, nil, false
 			}
 			log.Printf("storage runtime authenticate failed: %v", err)
 			continue
@@ -66,15 +72,77 @@ func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, bool
 		report, err := r.client.ReportAvailability(ctx)
 		if err != nil {
 			if !sleepContext(ctx, bootstrapRetryInterval) {
-				return nil, false
+				return nil, nil, false
 			}
 			log.Printf("storage runtime initial heartbeat failed: %v", err)
 			continue
 		}
 
+		replicas, err := r.client.ListOwnReplicas(ctx)
+		if err != nil {
+			if !sleepContext(ctx, bootstrapRetryInterval) {
+				return nil, nil, false
+			}
+			log.Printf("storage runtime replica bootstrap failed: %v", err)
+			continue
+		}
+
 		r.processFallbackCommands(report.Commands)
-		log.Printf("storage runtime connected to coordinator as node_id=%s", r.client.NodeID())
-		return pair, true
+		log.Printf("storage runtime connected to coordinator as node_id=%s replicas=%d", r.client.NodeID(), len(replicas))
+		return pair, replicas, true
+	}
+}
+
+func (r *Runtime) setReplicas(replicas []apiclient.Replica) {
+	r.replicasMu.Lock()
+	defer r.replicasMu.Unlock()
+
+	r.replicas = append([]apiclient.Replica(nil), replicas...)
+}
+
+func (r *Runtime) startReplicaWatchers(ctx context.Context, replicas []apiclient.Replica) {
+	for _, replica := range replicas {
+		watcher, err := GetWatcher(ctx, replica.URI)
+		if err != nil {
+			log.Printf("storage runtime watcher setup skipped replica_id=%d uri=%s error=%v", replica.ID, replica.URI, err)
+			continue
+		}
+
+		changeCh, errCh, err := watcher.Watch(ctx, replica.URI)
+		if err != nil {
+			log.Printf("storage runtime watcher start failed replica_id=%d uri=%s error=%v", replica.ID, replica.URI, err)
+			continue
+		}
+
+		log.Printf("storage runtime watcher started replica_id=%d uri=%s", replica.ID, replica.URI)
+
+		go func(replica apiclient.Replica, changeCh <-chan FileChange, errCh <-chan error) {
+			for changeCh != nil || errCh != nil {
+				select {
+				case <-ctx.Done():
+					return
+				case err, ok := <-errCh:
+					if !ok {
+						errCh = nil
+						continue
+					}
+					log.Printf("storage runtime watcher error replica_id=%d uri=%s error=%v", replica.ID, replica.URI, err)
+				case change, ok := <-changeCh:
+					if !ok {
+						changeCh = nil
+						continue
+					}
+					log.Printf("storage runtime replica change replica_id=%d uri=%s change_type=%s relative_uri=%s previous_relative_uri=%s state=%s",
+						replica.ID,
+						replica.URI,
+						change.ChangeType,
+						change.RelativeURI,
+						optionalString(change.PreviousRelativeURI),
+						formatFileState(change.State),
+					)
+				}
+			}
+		}(replica, changeCh, errCh)
 	}
 }
 
@@ -204,6 +272,25 @@ func formatPayload(payload json.RawMessage) string {
 		return "{}"
 	}
 	return string(payload)
+}
+
+func formatFileState(state *FileState) string {
+	if state == nil {
+		return "{}"
+	}
+
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return "{}"
+	}
+	return string(payload)
+}
+
+func optionalString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func refreshDelay(now, expiresAt time.Time) time.Duration {

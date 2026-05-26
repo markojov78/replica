@@ -2,6 +2,7 @@ package repository
 
 import (
 	"dropoutbox/internal/model"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -24,7 +25,7 @@ func NewInventoryRepository(db *gorm.DB) *InventoryRepository {
 	return &InventoryRepository{db: db}
 }
 
-func (r *InventoryRepository) CreateWithDefaultReplica(inventory *model.Inventory, replica *model.Replica, creatorUserID uint, permissions []string) error {
+func (r *InventoryRepository) CreateWithDefaultReplica(inventory *model.Inventory, replica *model.Replica, command *model.Command, creatorUserID uint, permissions []string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(inventory).Error; err != nil {
 			return err
@@ -55,7 +56,27 @@ func (r *InventoryRepository) CreateWithDefaultReplica(inventory *model.Inventor
 			})
 		}
 
-		return tx.Create(&rows).Error
+		if err := tx.Create(&rows).Error; err != nil {
+			return err
+		}
+
+		if command == nil {
+			return nil
+		}
+
+		command.NodeID = replica.NodeID
+		if command.Type == model.NodeCommandTypeScanReplica {
+			payload, err := json.Marshal(map[string]uint{
+				"replica_id": replica.ID,
+			})
+			if err != nil {
+				return err
+			}
+			command.Payload = payload
+		} else if len(command.Payload) == 0 {
+			command.Payload = []byte("{}")
+		}
+		return tx.Create(command).Error
 	})
 }
 
@@ -144,6 +165,48 @@ func (r *InventoryRepository) ListReplicas(filter ReplicaListFilter) ([]model.Re
 
 	err := query.Find(&replicas).Error
 	return replicas, err
+}
+
+func (r *InventoryRepository) ListReplicasPage(page, perPage int, filter ReplicaListFilter) ([]model.Replica, int64, error) {
+	query := r.db.Model(&model.Replica{})
+	if filter.InventoryID != nil {
+		query = query.Where("inventory_id = ?", *filter.InventoryID)
+	}
+	if strings.TrimSpace(filter.NodeID) != "" {
+		query = query.Where("node_id = ?", strings.TrimSpace(filter.NodeID))
+	}
+	if strings.TrimSpace(filter.URIPrefix) != "" {
+		query = query.Where("uri LIKE ?", strings.TrimSpace(filter.URIPrefix)+"%")
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var replicas []model.Replica
+	err := r.db.
+		Scopes(func(tx *gorm.DB) *gorm.DB {
+			if filter.InventoryID != nil {
+				tx = tx.Where("inventory_id = ?", *filter.InventoryID)
+			}
+			if strings.TrimSpace(filter.NodeID) != "" {
+				tx = tx.Where("node_id = ?", strings.TrimSpace(filter.NodeID))
+			}
+			if strings.TrimSpace(filter.URIPrefix) != "" {
+				tx = tx.Where("uri LIKE ?", strings.TrimSpace(filter.URIPrefix)+"%")
+			}
+			return tx
+		}).
+		Order("id asc").
+		Limit(perPage).
+		Offset((page - 1) * perPage).
+		Find(&replicas).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return replicas, total, nil
 }
 
 func (r *InventoryRepository) ListFiles(inventoryID uint, page, perPage int) ([]model.InventoryFile, int64, error) {

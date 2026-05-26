@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"net/url"
 	"path"
@@ -14,7 +15,8 @@ import (
 )
 
 type InventoryService struct {
-	repo *repository.InventoryRepository
+	repo  *repository.InventoryRepository
+	nodes *NodeService
 }
 
 var (
@@ -93,6 +95,13 @@ type InventoryList struct {
 	Total int64              `json:"total"`
 }
 
+type ReplicaList struct {
+	Items []InventoryReplicaDetails `json:"items"`
+	Page  int                       `json:"page"`
+	Count int                       `json:"count"`
+	Total int64                     `json:"total"`
+}
+
 type CreateInventoryInput struct {
 	Name   string
 	Type   string
@@ -131,8 +140,12 @@ type ReplicaFileChangeInput struct {
 	ModifiedTime time.Time
 }
 
-func NewInventoryService(repo *repository.InventoryRepository) *InventoryService {
-	return &InventoryService{repo: repo}
+func NewInventoryService(repo *repository.InventoryRepository, nodeServices ...*NodeService) *InventoryService {
+	service := &InventoryService{repo: repo}
+	if len(nodeServices) > 0 {
+		service.nodes = nodeServices[0]
+	}
+	return service
 }
 
 func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails, error) {
@@ -169,6 +182,11 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 		Status: model.ReplicaStatusActive,
 		Type:   model.ReplicaTypeFilesystem,
 	}
+	command := &model.Command{
+		NodeID: nodeID,
+		Type:   model.NodeCommandTypeScanReplica,
+		Status: model.NodeCommandStatusPending,
+	}
 
 	permissions := []string{
 		string(model.PermissionActionRead),
@@ -176,11 +194,22 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 		string(model.PermissionActionUpdate),
 		string(model.PermissionActionDelete),
 	}
-	if err := s.repo.CreateWithDefaultReplica(inventory, replica, input.UserID, permissions); err != nil {
+	if err := s.repo.CreateWithDefaultReplica(inventory, replica, command, input.UserID, permissions); err != nil {
 		return nil, err
 	}
 
-	inventory, err := s.repo.FindByID(inventory.ID)
+	commandPayload, err := json.Marshal(map[string]uint{
+		"replica_id": replica.ID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	command.Payload = commandPayload
+	if s.nodes != nil {
+		s.nodes.PublishCommand(command)
+	}
+
+	inventory, err = s.repo.FindByID(inventory.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -318,6 +347,39 @@ func (s *InventoryService) ListReplicas(filter ReplicaListFilter) ([]InventoryRe
 	}
 
 	return result, nil
+}
+
+func (s *InventoryService) ListReplicasPage(page, perPage int, filter ReplicaListFilter) (*ReplicaList, error) {
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 {
+		perPage = 20
+	}
+	if perPage > 100 {
+		perPage = 100
+	}
+
+	replicas, total, err := s.repo.ListReplicasPage(page, perPage, repository.ReplicaListFilter{
+		InventoryID: filter.InventoryID,
+		NodeID:      filter.NodeID,
+		URIPrefix:   filter.URIPrefix,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]InventoryReplicaDetails, 0, len(replicas))
+	for _, replica := range replicas {
+		items = append(items, *toInventoryReplicaDetails(&replica))
+	}
+
+	return &ReplicaList{
+		Items: items,
+		Page:  page,
+		Count: perPage,
+		Total: total,
+	}, nil
 }
 
 func (s *InventoryService) ListReplicaFiles(replicaID uint, page, perPage int, filter ReplicaFileListFilter) (*ReplicaFileList, error) {

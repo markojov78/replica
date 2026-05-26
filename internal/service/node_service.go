@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"sync"
 	"time"
 
 	"dropoutbox/internal/model"
@@ -59,10 +60,16 @@ type UpdateNodeInput struct {
 type NodeService struct {
 	nodes    *repository.NodeRepository
 	commands *repository.CommandRepository
+	mu       sync.RWMutex
+	subs     map[string]map[chan NodeCommand]struct{}
 }
 
 func NewNodeService(nodes *repository.NodeRepository, commands *repository.CommandRepository) *NodeService {
-	return &NodeService{nodes: nodes, commands: commands}
+	return &NodeService{
+		nodes:    nodes,
+		commands: commands,
+		subs:     make(map[string]map[chan NodeCommand]struct{}),
+	}
 }
 
 func (s *NodeService) Create(id, secret, address string, status *string) (*NodeDetails, error) {
@@ -215,6 +222,51 @@ func (s *NodeService) CompleteCommand(nodeID string, commandID uint) (*NodeComma
 		}
 	}
 	return toNodeCommand(command), nil
+}
+
+func (s *NodeService) Subscribe(nodeID string) (<-chan NodeCommand, func()) {
+	ch := make(chan NodeCommand, 8)
+
+	s.mu.Lock()
+	if s.subs[nodeID] == nil {
+		s.subs[nodeID] = make(map[chan NodeCommand]struct{})
+	}
+	s.subs[nodeID][ch] = struct{}{}
+	s.mu.Unlock()
+
+	return ch, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		if subscribers, ok := s.subs[nodeID]; ok {
+			delete(subscribers, ch)
+			if len(subscribers) == 0 {
+				delete(s.subs, nodeID)
+			}
+		}
+		close(ch)
+	}
+}
+
+func (s *NodeService) PublishCommand(command *model.Command) {
+	nodeCommand := toNodeCommand(command)
+	if nodeCommand == nil {
+		return
+	}
+
+	s.mu.RLock()
+	subscribers := make([]chan NodeCommand, 0, len(s.subs[command.NodeID]))
+	for ch := range s.subs[command.NodeID] {
+		subscribers = append(subscribers, ch)
+	}
+	s.mu.RUnlock()
+
+	for _, ch := range subscribers {
+		select {
+		case ch <- *nodeCommand:
+		default:
+		}
+	}
 }
 
 func (s *NodeService) IsNotFound(err error) bool {

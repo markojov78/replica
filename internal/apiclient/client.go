@@ -231,17 +231,14 @@ func (c *Client) ListOwnReplicas(ctx context.Context) ([]Replica, error) {
 		return nil, err
 	}
 
-	query := url.Values{}
-	query.Set("node_id", c.nodeID)
-
 	var replicas []Replica
-	if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/api/replicas?"+query.Encode(), nil, accessToken, &replicas); err != nil {
+	if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/internal/replicas", nil, accessToken, &replicas); err != nil {
 		if apiErr, ok := err.(*APIError); ok && apiErr.StatusCode == http.StatusUnauthorized {
 			accessToken, err = c.refreshOrAuthenticate(ctx)
 			if err != nil {
 				return nil, err
 			}
-			if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/api/replicas?"+query.Encode(), nil, accessToken, &replicas); err != nil {
+			if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/internal/replicas", nil, accessToken, &replicas); err != nil {
 				return nil, err
 			}
 			return replicas, nil

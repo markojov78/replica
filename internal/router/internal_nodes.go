@@ -36,6 +36,12 @@ func registerInternalNodeWebSocketRoute(mux *http.ServeMux, svc services) {
 	upgrader := websocket.Upgrader{}
 
 	mux.Handle("/internal/nodes/ws", requireAuthenticatedNode(svc.auth, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nodeID, ok := authenticatedNodeIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "missing authenticated node", http.StatusUnauthorized)
+			return
+		}
+
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Printf("internal node websocket upgrade failed: %v", err)
@@ -43,9 +49,34 @@ func registerInternalNodeWebSocketRoute(mux *http.ServeMux, svc services) {
 		}
 		defer conn.Close()
 
+		commandCh, unsubscribe := svc.nodes.Subscribe(nodeID)
+		defer unsubscribe()
+
+		done := make(chan struct{})
+
+		go func() {
+			defer close(done)
+			for {
+				if _, _, err := conn.ReadMessage(); err != nil {
+					return
+				}
+			}
+		}()
+
 		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
+			select {
+			case <-r.Context().Done():
+				<-done
 				return
+			case <-done:
+				return
+			case command, ok := <-commandCh:
+				if !ok {
+					return
+				}
+				if err := conn.WriteJSON(command); err != nil {
+					return
+				}
 			}
 		}
 	})))

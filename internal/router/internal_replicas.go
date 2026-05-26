@@ -10,6 +10,27 @@ import (
 )
 
 func registerInternalReplicaRoutes(api huma.API, svc services) {
+	huma.Get(api, "/replicas", func(ctx context.Context, input *listOwnReplicasInput) (*listOwnReplicasResponse, error) {
+		accessToken, err := bearerToken(input.Authorization)
+		if err != nil {
+			return nil, huma.Error401Unauthorized("missing authenticated node")
+		}
+
+		node, err := svc.auth.Node(accessToken)
+		if err != nil {
+			return nil, mapNodeMeError(err)
+		}
+
+		replicas, err := svc.inventories.ListReplicas(service.ReplicaListFilter{
+			NodeID: node.ID,
+		})
+		if err != nil {
+			return nil, mapInventoryError(err, svc.inventories)
+		}
+
+		return &listOwnReplicasResponse{Body: replicas}, nil
+	})
+
 	huma.Post(api, "/replica/{replica_id}/files", func(ctx context.Context, input *reportReplicaFilesInput) (*reportReplicaFilesResponse, error) {
 		accessToken, err := bearerToken(input.Authorization)
 		if err != nil {
@@ -40,6 +61,15 @@ func registerInternalReplicaRoutes(api huma.API, svc services) {
 
 		return &reportReplicaFilesResponse{Status: 204}, nil
 	})
+}
+
+type listOwnReplicasInput struct {
+	versionHeader
+	Authorization string `header:"Authorization"`
+}
+
+type listOwnReplicasResponse struct {
+	Body []service.InventoryReplicaDetails
 }
 
 type reportReplicaFilesInput struct {

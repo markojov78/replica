@@ -147,7 +147,7 @@ func TestClientCompleteCommandUsesInternalEndpoint(t *testing.T) {
 	}
 }
 
-func TestClientListOwnReplicasUsesNodeIDFilter(t *testing.T) {
+func TestClientListOwnReplicasUsesInternalReplicaEndpoint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/internal/auth/login":
@@ -158,10 +158,7 @@ func TestClientListOwnReplicasUsesNodeIDFilter(t *testing.T) {
 				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
 				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
 			})
-		case "/api/replicas":
-			if got := r.URL.Query().Get("node_id"); got != "node-a" {
-				t.Fatalf("node_id query = %q, want %q", got, "node-a")
-			}
+		case "/internal/replicas":
 			if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
 				t.Fatalf("Authorization = %q, want %q", got, "Bearer access-token")
 			}
