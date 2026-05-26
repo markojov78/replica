@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"fmt"
+	"net/url"
 	"sort"
 	"time"
 )
@@ -102,4 +104,52 @@ func compareSnapshots(previous, current []FileState) []FileChange {
 	})
 
 	return changes
+}
+
+var s3Provider = &S3ClientProvider{}
+
+// Scanner factory to resolve scanner implementation from uri scheme
+func GetScanner(ctx context.Context, uri string) (Scanner, error) {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return nil, err
+	}
+
+	switch u.Scheme {
+	case "s3":
+		s3client, err := s3Provider.Client(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return NewS3Scanner(s3client), nil
+	case "file", "": // plain local path
+		return NewFilesystemScanner(), nil
+	default:
+		return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)
+	}
+}
+
+func GetWatcher(ctx context.Context, uri string) (Watcher, error) {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return nil, err
+	}
+
+	switch u.Scheme {
+	case "s3":
+		client, err := s3Provider.Client(ctx)
+		if err != nil {
+			return nil, err
+		}
+		interval := 5 * time.Minute // TODO make configurable per-replica with reasonable default in config
+
+		scanner := NewS3Scanner(client)
+		return NewS3Watcher(scanner, interval), nil
+
+	case "file", "":
+		return NewFilesystemWatcher(), nil
+
+	default:
+		return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)
+	}
 }
