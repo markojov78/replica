@@ -168,6 +168,27 @@ The S3 implementation lives in:
 - `internal/storage/s3_scanner.go`
 - `internal/storage/s3_watcher.go`
 
+For the S3 scanner and watcher to work, the caller must provide an already-configured AWS SDK v2 S3 client.
+
+The storage package does not authenticate to AWS by itself. `S3Scanner` accepts an injected `*s3.Client`, so authentication and AWS configuration are handled by the code that constructs that client.
+
+In practice, this means the later integration layer will need to:
+
+- load AWS SDK configuration
+- construct an authenticated S3 client
+- pass that client into `NewS3Scanner`
+- pass the scanner into `NewS3Watcher` when polling is needed
+
+Typical AWS SDK v2 authentication sources include:
+
+- environment variables such as `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optional session token
+- shared AWS config or credentials files
+- profile-based configuration such as `AWS_PROFILE`
+- IAM role credentials in AWS runtime environments such as EC2, ECS, or EKS
+- an explicitly configured credentials provider
+
+The scanner and watcher only assume that the supplied client has enough permissions to list objects and read object metadata for the target bucket and prefix.
+
 ### S3 scanner
 
 `S3Scanner` scans an S3 prefix rather than a local directory.
