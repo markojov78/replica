@@ -15,11 +15,15 @@ type InventoryRepository struct {
 }
 
 type ReplicaFileUpdate struct {
-	FileID       uint
+	FileID       *uint
+	RelativeURI  string
 	FileSize     int64
 	FileHash     string
+	CreatedTime  time.Time
 	ModifiedTime time.Time
 }
+
+var ErrInvalidReplicaFileUpdate = errors.New("invalid replica file update")
 
 type ReplicaInventoryFile struct {
 	FileID           uint
@@ -321,27 +325,38 @@ func (r *InventoryRepository) ReportReplicaFileChanges(replicaID uint, updates [
 		}
 
 		for _, update := range updates {
-			var file model.InventoryFile
-			if err := tx.Where("inventory_id = ? AND id = ?", replica.InventoryID, update.FileID).First(&file).Error; err != nil {
+			file, created, restored, err := r.resolveReportedInventoryFile(tx, replica.InventoryID, update)
+			if err != nil {
 				return err
 			}
 
 			oldVersion := file.Version
-			file.Version++
+			if created {
+				file.Version = 1
+			} else {
+				file.Version++
+			}
 			file.Status = model.InventoryFileStatusActive
+			file.Created = update.CreatedTime
 			file.Modified = update.ModifiedTime
 			file.Size = update.FileSize
 			file.Hash = update.FileHash
-			if err := tx.Save(&file).Error; err != nil {
+			if err := tx.Save(file).Error; err != nil {
 				return err
 			}
 
+			action := model.FileJournalActionUpdated
+			if created {
+				action = model.FileJournalActionCreated
+			} else if restored {
+				action = model.FileJournalActionRestored
+			}
 			journal := model.FileJournal{
 				FileID:      file.ID,
 				InventoryID: file.InventoryID,
 				ReplicaID:   replica.ID,
 				Version:     oldVersion,
-				Action:      model.FileJournalActionUpdated,
+				Action:      action,
 				Timestamp:   update.ModifiedTime,
 			}
 			if err := tx.Create(&journal).Error; err != nil {
@@ -349,7 +364,7 @@ func (r *InventoryRepository) ReportReplicaFileChanges(replicaID uint, updates [
 			}
 
 			var sourceReplicaFile model.ReplicaFile
-			err := tx.Where("file_id = ? AND replica_id = ?", file.ID, replica.ID).First(&sourceReplicaFile).Error
+			err = tx.Where("file_id = ? AND replica_id = ?", file.ID, replica.ID).First(&sourceReplicaFile).Error
 			switch {
 			case err == nil:
 				sourceReplicaFile.Version = file.Version
@@ -380,6 +395,39 @@ func (r *InventoryRepository) ReportReplicaFileChanges(replicaID uint, updates [
 
 		return nil
 	})
+}
+
+func (r *InventoryRepository) resolveReportedInventoryFile(tx *gorm.DB, inventoryID uint, update ReplicaFileUpdate) (*model.InventoryFile, bool, bool, error) {
+	if update.FileID != nil {
+		var file model.InventoryFile
+		if err := tx.First(&file, *update.FileID).Error; err != nil {
+			return nil, false, false, err
+		}
+		if file.InventoryID != inventoryID || file.RelativeURI != update.RelativeURI {
+			return nil, false, false, ErrInvalidReplicaFileUpdate
+		}
+		return &file, false, file.Status == model.InventoryFileStatusDeleted, nil
+	}
+
+	var existing model.InventoryFile
+	err := tx.
+		Where("inventory_id = ? AND relative_uri = ?", inventoryID, update.RelativeURI).
+		First(&existing).Error
+	switch {
+	case err == nil:
+		if existing.Status == model.InventoryFileStatusDeleted {
+			return &existing, false, true, nil
+		}
+		return nil, false, false, ErrInvalidReplicaFileUpdate
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return &model.InventoryFile{
+			InventoryID: inventoryID,
+			RelativeURI: update.RelativeURI,
+			Status:      model.InventoryFileStatusActive,
+		}, true, false, nil
+	default:
+		return nil, false, false, err
+	}
 }
 
 func (r *InventoryRepository) preloadDetails(db *gorm.DB) *gorm.DB {

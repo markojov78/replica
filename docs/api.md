@@ -1119,21 +1119,29 @@ Possible errors:
 - `404` replica not found
 
 #### POST /replica/{id}/files
-Reports one or more file changes detected on a specific replica.
+Reports one or more file states detected on a specific replica.
 
 Behavior:
 - validates the bearer node JWT
 - resolves the current node from the auth token
 - verifies the replica belongs to the authenticated node
-- updates `inventory_files` metadata and increments file version
-- inserts a journal row for each changed file using the previous version and `updated` action
+- if `file_id` is provided, treats the entry as an update for an existing `inventory_files` row
+- if `file_id` is omitted, creates a new `inventory_files` row unless a deleted row with the same `relative_uri` can be restored
+- restores a deleted `inventory_files` row to `active` when the reported `file_id` and `relative_uri` match it
+- restores a deleted `inventory_files` row to `active` when a new-file report omits `file_id` but matches its `relative_uri`
+- updates `inventory_files` metadata and increments file version for existing/restored files
+- creates new `inventory_files` rows at version `1`
+- inserts a journal row for each changed file using the previous version and `updated` action, `restored` action for deleted-to-active files, or version `0` and `created` action for newly created files
 - updates the reporting replica row in `replica_files` to the new version and `synchronized`
 - marks the same file on other existing replicas as `pending`
+- rejects a provided `file_id` that belongs to a different inventory
+- rejects a provided `file_id` when its current `relative_uri` differs from the reported `relative_uri`
+- rejects a new-file report when another active file in the same inventory already has the same `relative_uri`
 
 Request body:
 - `files` required
 - each file entry contains:
-  - `file_id` optional, new file id means new file
+  - `file_id` optional; omitted means a new file unless a deleted file with the same `relative_uri` is restored
   - `relative_uri`
   - `file_size`
   - `file_hash`
@@ -1166,5 +1174,6 @@ Possible errors:
 - `403` disabled node
 - `403` revoked node
 - `403` replica does not belong to authenticated node
+- `400` invalid replica file update
 - `404` replica not found
 - `404` inventory file not found

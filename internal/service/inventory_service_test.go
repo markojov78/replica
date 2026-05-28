@@ -366,13 +366,17 @@ func TestInventoryServiceReportReplicaFileChanges(t *testing.T) {
 	}
 
 	svc := NewInventoryService(repository.NewInventoryRepository(database))
+	fileID := file.ID
+	created := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
 	modified := time.Now().UTC().Truncate(time.Second)
 
 	if err := svc.ReportReplicaFileChanges(replicaA.ID, "node-a", []ReplicaFileChangeInput{
 		{
-			FileID:       file.ID,
+			FileID:       &fileID,
+			RelativeURI:  "album/img.jpg",
 			FileSize:     200,
 			FileHash:     "new-hash",
+			CreatedTime:  created,
 			ModifiedTime: modified,
 		},
 	}); err != nil {
@@ -391,6 +395,9 @@ func TestInventoryServiceReportReplicaFileChanges(t *testing.T) {
 	}
 	if updatedFile.Hash != "new-hash" {
 		t.Fatalf("updatedFile.Hash = %q, want %q", updatedFile.Hash, "new-hash")
+	}
+	if !updatedFile.Created.Equal(created) {
+		t.Fatalf("updatedFile.Created = %s, want %s", updatedFile.Created, created)
 	}
 
 	var journal model.FileJournal
@@ -424,5 +431,216 @@ func TestInventoryServiceReportReplicaFileChanges(t *testing.T) {
 	}
 	if updatedReplicaB.Status != model.ReplicaFileStatusPending {
 		t.Fatalf("updatedReplicaB.Status = %q, want %q", updatedReplicaB.Status, model.ReplicaFileStatusPending)
+	}
+}
+
+func TestInventoryServiceReportReplicaFileChangesCreatesNewFile(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "replica-file-report-create.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	inventory := &model.Inventory{Name: "photos", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	replica := &model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-a",
+		URI:         "/data/a",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(replica).Error; err != nil {
+		t.Fatalf("Create(replica) error = %v", err)
+	}
+
+	svc := NewInventoryService(repository.NewInventoryRepository(database))
+	created := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	modified := time.Now().UTC().Truncate(time.Second)
+
+	if err := svc.ReportReplicaFileChanges(replica.ID, "node-a", []ReplicaFileChangeInput{
+		{
+			RelativeURI:  "album/new.jpg",
+			FileSize:     123,
+			FileHash:     "new-hash",
+			CreatedTime:  created,
+			ModifiedTime: modified,
+		},
+	}); err != nil {
+		t.Fatalf("ReportReplicaFileChanges() error = %v", err)
+	}
+
+	var file model.InventoryFile
+	if err := database.Where("inventory_id = ? AND relative_uri = ?", inventory.ID, "album/new.jpg").First(&file).Error; err != nil {
+		t.Fatalf("First(file) error = %v", err)
+	}
+	if file.Version != 1 || file.Status != model.InventoryFileStatusActive || file.Size != 123 || file.Hash != "new-hash" {
+		t.Fatalf("file = %+v, want version=1 active size=123 hash=new-hash", file)
+	}
+
+	var replicaFile model.ReplicaFile
+	if err := database.Where("file_id = ? AND replica_id = ?", file.ID, replica.ID).First(&replicaFile).Error; err != nil {
+		t.Fatalf("First(replicaFile) error = %v", err)
+	}
+	if replicaFile.Version != 1 || replicaFile.Status != model.ReplicaFileStatusSynchronized {
+		t.Fatalf("replicaFile = %+v, want version=1 synchronized", replicaFile)
+	}
+
+	var journal model.FileJournal
+	if err := database.First(&journal).Error; err != nil {
+		t.Fatalf("First(journal) error = %v", err)
+	}
+	if journal.FileID != file.ID || journal.Version != 0 || journal.Action != model.FileJournalActionCreated {
+		t.Fatalf("journal = %+v, want file_id=%d version=0 action=created", journal, file.ID)
+	}
+}
+
+func TestInventoryServiceReportReplicaFileChangesRestoresDeletedFileByRelativeURI(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "replica-file-report-restore.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	inventory := &model.Inventory{Name: "photos", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	file := &model.InventoryFile{
+		InventoryID: inventory.ID,
+		RelativeURI: "album/restored.jpg",
+		Status:      model.InventoryFileStatusDeleted,
+		Size:        10,
+		Hash:        "old-hash",
+		Version:     5,
+		Created:     time.Now().UTC().Add(-time.Hour),
+		Modified:    time.Now().UTC().Add(-time.Minute),
+	}
+	if err := database.Create(file).Error; err != nil {
+		t.Fatalf("Create(file) error = %v", err)
+	}
+	replica := &model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-a",
+		URI:         "/data/a",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(replica).Error; err != nil {
+		t.Fatalf("Create(replica) error = %v", err)
+	}
+
+	svc := NewInventoryService(repository.NewInventoryRepository(database))
+	if err := svc.ReportReplicaFileChanges(replica.ID, "node-a", []ReplicaFileChangeInput{
+		{
+			RelativeURI:  "album/restored.jpg",
+			FileSize:     20,
+			FileHash:     "restored-hash",
+			CreatedTime:  time.Now().UTC().Add(-time.Hour),
+			ModifiedTime: time.Now().UTC(),
+		},
+	}); err != nil {
+		t.Fatalf("ReportReplicaFileChanges() error = %v", err)
+	}
+
+	var updatedFile model.InventoryFile
+	if err := database.First(&updatedFile, file.ID).Error; err != nil {
+		t.Fatalf("First(updatedFile) error = %v", err)
+	}
+	if updatedFile.Status != model.InventoryFileStatusActive || updatedFile.Version != 6 {
+		t.Fatalf("updatedFile status/version = %s/%d, want active/6", updatedFile.Status, updatedFile.Version)
+	}
+
+	var journal model.FileJournal
+	if err := database.First(&journal).Error; err != nil {
+		t.Fatalf("First(journal) error = %v", err)
+	}
+	if journal.FileID != file.ID || journal.Version != 5 || journal.Action != model.FileJournalActionRestored {
+		t.Fatalf("journal = %+v, want file_id=%d version=5 action=restored", journal, file.ID)
+	}
+}
+
+func TestInventoryServiceReportReplicaFileChangesRejectsInvalidFileReferences(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "replica-file-report-invalid.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	inventoryA := &model.Inventory{Name: "a", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	inventoryB := &model.Inventory{Name: "b", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(inventoryA).Error; err != nil {
+		t.Fatalf("Create(inventoryA) error = %v", err)
+	}
+	if err := database.Create(inventoryB).Error; err != nil {
+		t.Fatalf("Create(inventoryB) error = %v", err)
+	}
+	fileA := &model.InventoryFile{
+		InventoryID: inventoryA.ID,
+		RelativeURI: "same.jpg",
+		Status:      model.InventoryFileStatusActive,
+		Version:     1,
+	}
+	fileB := &model.InventoryFile{
+		InventoryID: inventoryB.ID,
+		RelativeURI: "foreign.jpg",
+		Status:      model.InventoryFileStatusActive,
+		Version:     1,
+	}
+	if err := database.Create(fileA).Error; err != nil {
+		t.Fatalf("Create(fileA) error = %v", err)
+	}
+	if err := database.Create(fileB).Error; err != nil {
+		t.Fatalf("Create(fileB) error = %v", err)
+	}
+	replica := &model.Replica{
+		InventoryID: inventoryA.ID,
+		NodeID:      "node-a",
+		URI:         "/data/a",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(replica).Error; err != nil {
+		t.Fatalf("Create(replica) error = %v", err)
+	}
+
+	svc := NewInventoryService(repository.NewInventoryRepository(database))
+	now := time.Now().UTC()
+
+	foreignID := fileB.ID
+	if err := svc.ReportReplicaFileChanges(replica.ID, "node-a", []ReplicaFileChangeInput{
+		{FileID: &foreignID, RelativeURI: "foreign.jpg", FileSize: 1, FileHash: "hash", CreatedTime: now, ModifiedTime: now},
+	}); err != ErrInvalidReplicaFileUpdate {
+		t.Fatalf("ReportReplicaFileChanges(foreign file) error = %v, want %v", err, ErrInvalidReplicaFileUpdate)
+	}
+
+	fileAID := fileA.ID
+	if err := svc.ReportReplicaFileChanges(replica.ID, "node-a", []ReplicaFileChangeInput{
+		{FileID: &fileAID, RelativeURI: "different.jpg", FileSize: 1, FileHash: "hash", CreatedTime: now, ModifiedTime: now},
+	}); err != ErrInvalidReplicaFileUpdate {
+		t.Fatalf("ReportReplicaFileChanges(uri mismatch) error = %v, want %v", err, ErrInvalidReplicaFileUpdate)
+	}
+
+	if err := svc.ReportReplicaFileChanges(replica.ID, "node-a", []ReplicaFileChangeInput{
+		{RelativeURI: "same.jpg", FileSize: 1, FileHash: "hash", CreatedTime: now, ModifiedTime: now},
+	}); err != ErrInvalidReplicaFileUpdate {
+		t.Fatalf("ReportReplicaFileChanges(active duplicate) error = %v, want %v", err, ErrInvalidReplicaFileUpdate)
 	}
 }

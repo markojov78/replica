@@ -97,6 +97,15 @@ type ReplicaInventoryFileList struct {
 	Files []ReplicaInventoryFile `json:"files"`
 }
 
+type ReplicaFileReport struct {
+	FileID       *uint     `json:"file_id,omitempty"`
+	RelativeURI  string    `json:"relative_uri"`
+	FileSize     int64     `json:"file_size"`
+	FileHash     string    `json:"file_hash"`
+	CreatedTime  time.Time `json:"created_time"`
+	ModifiedTime time.Time `json:"modified_time"`
+}
+
 type ReplicaFileList struct {
 	Items []ReplicaFile `json:"items"`
 	Page  int           `json:"page"`
@@ -329,6 +338,36 @@ func (c *Client) ListReplicaInventoryFiles(ctx context.Context, replicaID uint) 
 	}
 
 	return fileList.Files, nil
+}
+
+func (c *Client) ReportReplicaFiles(ctx context.Context, replicaID uint, files []ReplicaFileReport) error {
+	accessToken, err := c.ensureAccessToken(ctx)
+	if err != nil {
+		return err
+	}
+
+	path := fmt.Sprintf("/internal/replica/%d/files", replicaID)
+	reqBody := struct {
+		Files []ReplicaFileReport `json:"files"`
+	}{
+		Files: files,
+	}
+
+	if err := c.doAuthenticatedJSON(ctx, http.MethodPost, path, reqBody, accessToken, nil); err != nil {
+		if apiErr, ok := err.(*APIError); ok && apiErr.StatusCode == http.StatusUnauthorized {
+			accessToken, err = c.refreshOrAuthenticate(ctx)
+			if err != nil {
+				return err
+			}
+			if err := c.doAuthenticatedJSON(ctx, http.MethodPost, path, reqBody, accessToken, nil); err != nil {
+				return err
+			}
+			return nil
+		}
+		return err
+	}
+
+	return nil
 }
 
 func (c *Client) UpdateCommand(ctx context.Context, commandID uint, status string, lastError *string) (*Command, error) {

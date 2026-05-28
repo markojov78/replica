@@ -91,7 +91,7 @@ version - version corresponds to the file_journal id for this file, having journ
 status - active, deleted
 
 #### file_journal
-action - crud action: created, updated, modified, deleted  
+action - crud action: created, updated, modified, deleted, restored  
 replica_id - replica on which action occurred  
 version - version on which action has been performed (old version)  
 timestamp - action timestamp  

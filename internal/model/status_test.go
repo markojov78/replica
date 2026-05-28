@@ -11,6 +11,7 @@ func TestDocumentedEnumsAreValid(t *testing.T) {
 		{name: string(InventoryTypeFolder), valid: InventoryTypeFolder.Valid()},
 		{name: string(InventoryFileStatusActive), valid: InventoryFileStatusActive.Valid()},
 		{name: string(FileJournalActionModified), valid: FileJournalActionModified.Valid()},
+		{name: string(FileJournalActionRestored), valid: FileJournalActionRestored.Valid()},
 		{name: string(ReplicaStatusActive), valid: ReplicaStatusActive.Valid()},
 		{name: string(ReplicaTypeFilesystem), valid: ReplicaTypeFilesystem.Valid()},
 		{name: string(ReplicaFileStatusConflict), valid: ReplicaFileStatusConflict.Valid()},

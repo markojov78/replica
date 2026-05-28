@@ -371,3 +371,167 @@ func TestClientListReplicaInventoryFilesUsesInternalEndpoint(t *testing.T) {
 		t.Fatalf("files[0].ReplicaVersion = %d, want 4", files[0].ReplicaVersion)
 	}
 }
+
+func TestClientReportReplicaFilesUsesInternalEndpoint(t *testing.T) {
+	fileID := uint(10)
+	created := time.Date(2026, 5, 21, 11, 0, 0, 0, time.UTC)
+	modified := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	var gotBody struct {
+		Files []ReplicaFileReport `json:"files"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/auth/login":
+			_ = json.NewEncoder(w).Encode(NodeTokenPair{
+				NodeID:                "node-a",
+				AccessToken:           "access-token",
+				RefreshToken:          "refresh-token",
+				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
+				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
+			})
+		case "/internal/replica/7/files":
+			if r.Method != http.MethodPost {
+				t.Fatalf("method = %s, want POST", r.Method)
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
+				t.Fatalf("Authorization = %q, want %q", got, "Bearer access-token")
+			}
+			if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+				t.Fatalf("Decode(request body) error = %v", err)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(config.Config{
+		App: config.AppConfig{
+			NodeID:         "node-a",
+			CoordinatorURL: server.URL,
+			NodeAddress:    "https://node-address:8081",
+		},
+		Auth: config.AuthConfig{
+			NodeSecret: "node-secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	err = client.ReportReplicaFiles(context.Background(), 7, []ReplicaFileReport{
+		{
+			FileID:       &fileID,
+			RelativeURI:  "album/img.jpg",
+			FileSize:     200,
+			FileHash:     "hash",
+			CreatedTime:  created,
+			ModifiedTime: modified,
+		},
+		{
+			RelativeURI:  "album/new.jpg",
+			FileSize:     300,
+			FileHash:     "new-hash",
+			CreatedTime:  created,
+			ModifiedTime: modified,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ReportReplicaFiles() error = %v", err)
+	}
+
+	if len(gotBody.Files) != 2 {
+		t.Fatalf("len(gotBody.Files) = %d, want 2", len(gotBody.Files))
+	}
+	if gotBody.Files[0].FileID == nil || *gotBody.Files[0].FileID != fileID {
+		t.Fatalf("gotBody.Files[0].FileID = %v, want %d", gotBody.Files[0].FileID, fileID)
+	}
+	if gotBody.Files[0].RelativeURI != "album/img.jpg" {
+		t.Fatalf("gotBody.Files[0].RelativeURI = %q, want album/img.jpg", gotBody.Files[0].RelativeURI)
+	}
+	if gotBody.Files[0].FileSize != 200 {
+		t.Fatalf("gotBody.Files[0].FileSize = %d, want 200", gotBody.Files[0].FileSize)
+	}
+	if gotBody.Files[0].FileHash != "hash" {
+		t.Fatalf("gotBody.Files[0].FileHash = %q, want hash", gotBody.Files[0].FileHash)
+	}
+	if !gotBody.Files[0].CreatedTime.Equal(created) {
+		t.Fatalf("gotBody.Files[0].CreatedTime = %s, want %s", gotBody.Files[0].CreatedTime, created)
+	}
+	if !gotBody.Files[0].ModifiedTime.Equal(modified) {
+		t.Fatalf("gotBody.Files[0].ModifiedTime = %s, want %s", gotBody.Files[0].ModifiedTime, modified)
+	}
+	if gotBody.Files[1].FileID != nil {
+		t.Fatalf("gotBody.Files[1].FileID = %v, want nil", gotBody.Files[1].FileID)
+	}
+}
+
+func TestClientReportReplicaFilesRefreshesExpiredToken(t *testing.T) {
+	refreshCalled := false
+	created := time.Date(2026, 5, 21, 11, 0, 0, 0, time.UTC)
+	modified := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/auth/refresh":
+			refreshCalled = true
+			_ = json.NewEncoder(w).Encode(NodeTokenPair{
+				NodeID:                "node-a",
+				AccessToken:           "new-access-token",
+				RefreshToken:          "new-refresh-token",
+				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
+				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
+			})
+		case "/internal/replica/7/files":
+			if r.Method != http.MethodPost {
+				t.Fatalf("method = %s, want POST", r.Method)
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer new-access-token" {
+				t.Fatalf("Authorization = %q, want %q", got, "Bearer new-access-token")
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(config.Config{
+		App: config.AppConfig{
+			NodeID:         "node-a",
+			CoordinatorURL: server.URL,
+			NodeAddress:    "https://node-address:8081",
+		},
+		Auth: config.AuthConfig{
+			NodeSecret: "node-secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	client.mu.Lock()
+	client.accessToken = "expired-access-token"
+	client.refreshToken = "refresh-token"
+	client.accessTokenExpiresAt = time.Now().UTC().Add(-time.Minute)
+	client.refreshTokenExpiresAt = time.Now().UTC().Add(time.Hour)
+	client.mu.Unlock()
+
+	err = client.ReportReplicaFiles(context.Background(), 7, []ReplicaFileReport{
+		{
+			RelativeURI:  "album/new.jpg",
+			FileSize:     300,
+			FileHash:     "new-hash",
+			CreatedTime:  created,
+			ModifiedTime: modified,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ReportReplicaFiles() error = %v", err)
+	}
+	if !refreshCalled {
+		t.Fatal("refresh endpoint was not called")
+	}
+}

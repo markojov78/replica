@@ -29,6 +29,7 @@ var (
 	ErrInvalidReplicaStatus     = errors.New("invalid replica status")
 	ErrInvalidReplicaType       = errors.New("invalid replica type")
 	ErrInvalidReplicaURI        = errors.New("invalid replica uri")
+	ErrInvalidReplicaFileUpdate = errors.New("invalid replica file update")
 	ErrReplicaNotFound          = errors.New("replica not found")
 )
 
@@ -149,9 +150,11 @@ type UpdateReplicaInput struct {
 }
 
 type ReplicaFileChangeInput struct {
-	FileID       uint
+	FileID       *uint
+	RelativeURI  string
 	FileSize     int64
 	FileHash     string
+	CreatedTime  time.Time
 	ModifiedTime time.Time
 }
 
@@ -602,10 +605,18 @@ func (s *InventoryService) ReportReplicaFileChanges(replicaID uint, nodeID strin
 
 	updates := make([]repository.ReplicaFileUpdate, 0, len(changes))
 	for _, change := range changes {
+		relativeURI := strings.TrimSpace(change.RelativeURI)
+		fileHash := strings.TrimSpace(change.FileHash)
+		if relativeURI == "" || fileHash == "" || change.FileSize < 0 || change.CreatedTime.IsZero() || change.ModifiedTime.IsZero() ||
+			(change.FileID != nil && *change.FileID == 0) {
+			return ErrInvalidReplicaFileUpdate
+		}
 		updates = append(updates, repository.ReplicaFileUpdate{
 			FileID:       change.FileID,
+			RelativeURI:  relativeURI,
 			FileSize:     change.FileSize,
-			FileHash:     strings.TrimSpace(change.FileHash),
+			FileHash:     fileHash,
+			CreatedTime:  change.CreatedTime,
 			ModifiedTime: change.ModifiedTime,
 		})
 	}
@@ -617,6 +628,9 @@ func (s *InventoryService) ReportReplicaFileChanges(replicaID uint, nodeID strin
 	if err := s.repo.ReportReplicaFileChanges(replicaID, updates); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrInventoryFileNotFound
+		}
+		if errors.Is(err, repository.ErrInvalidReplicaFileUpdate) {
+			return ErrInvalidReplicaFileUpdate
 		}
 		return err
 	}

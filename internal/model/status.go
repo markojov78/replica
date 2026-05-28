@@ -38,6 +38,7 @@ const (
 	FileJournalActionUpdated  FileJournalAction = "updated"
 	FileJournalActionModified FileJournalAction = "modified"
 	FileJournalActionDeleted  FileJournalAction = "deleted"
+	FileJournalActionRestored FileJournalAction = "restored"
 )
 
 const (
@@ -148,7 +149,7 @@ func (s InventoryFileStatus) Valid() bool {
 
 func (a FileJournalAction) Valid() bool {
 	switch a {
-	case FileJournalActionCreated, FileJournalActionUpdated, FileJournalActionModified, FileJournalActionDeleted:
+	case FileJournalActionCreated, FileJournalActionUpdated, FileJournalActionModified, FileJournalActionDeleted, FileJournalActionRestored:
 		return true
 	default:
 		return false

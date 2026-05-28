@@ -68,8 +68,10 @@ func registerInternalReplicaRoutes(api huma.API, svc services) {
 		for _, file := range input.Body.Files {
 			changes = append(changes, service.ReplicaFileChangeInput{
 				FileID:       file.FileID,
+				RelativeURI:  file.RelativeURI,
 				FileSize:     file.FileSize,
 				FileHash:     file.FileHash,
+				CreatedTime:  file.CreatedTime,
 				ModifiedTime: file.ModifiedTime,
 			})
 		}
@@ -114,9 +116,11 @@ type reportReplicaFilesInput struct {
 	ReplicaID     uint   `path:"replica_id"`
 	Body          struct {
 		Files []struct {
-			FileID       uint      `json:"file_id"`
+			FileID       *uint     `json:"file_id,omitempty"`
+			RelativeURI  string    `json:"relative_uri" minLength:"1"`
 			FileSize     int64     `json:"file_size"`
 			FileHash     string    `json:"file_hash" minLength:"1"`
+			CreatedTime  time.Time `json:"created_time"`
 			ModifiedTime time.Time `json:"modified_time"`
 		} `json:"files"`
 	}
