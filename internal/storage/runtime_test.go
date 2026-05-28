@@ -358,6 +358,255 @@ func TestRuntimeDeduplicatesCompletedRefreshStateCommand(t *testing.T) {
 	t.Fatalf("replicaCalls=%d commandUpdateCalls=%d", replicaCalls, commandUpdateCalls)
 }
 
+func TestRuntimeScanReplicaReportsCreatedAndChangedFiles(t *testing.T) {
+	var mu sync.Mutex
+	fileListCalls := 0
+	reportCalls := 0
+	commandUpdateCalls := 0
+	var gotReport struct {
+		Files []struct {
+			FileID       *uint     `json:"file_id"`
+			RelativeURI  string    `json:"relative_uri"`
+			FileSize     int64     `json:"file_size"`
+			FileHash     string    `json:"file_hash"`
+			CreatedTime  time.Time `json:"created_time"`
+			ModifiedTime time.Time `json:"modified_time"`
+		} `json:"files"`
+	}
+
+	replicaRoot := t.TempDir()
+	unchangedPath := filepath.Join(replicaRoot, "unchanged.txt")
+	changedPath := filepath.Join(replicaRoot, "changed.txt")
+	newPath := filepath.Join(replicaRoot, "new.txt")
+
+	if err := os.WriteFile(unchangedPath, []byte("unchanged"), 0o644); err != nil {
+		t.Fatalf("WriteFile(unchanged) error = %v", err)
+	}
+	if err := os.WriteFile(changedPath, []byte("changed"), 0o644); err != nil {
+		t.Fatalf("WriteFile(changed) error = %v", err)
+	}
+	if err := os.WriteFile(newPath, []byte("new"), 0o644); err != nil {
+		t.Fatalf("WriteFile(new) error = %v", err)
+	}
+
+	unchangedModified := time.Date(2026, 5, 21, 11, 0, 0, 0, time.UTC)
+	changedModified := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	newModified := time.Date(2026, 5, 21, 13, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(unchangedPath, unchangedModified, unchangedModified); err != nil {
+		t.Fatalf("Chtimes(unchanged) error = %v", err)
+	}
+	if err := os.Chtimes(changedPath, changedModified, changedModified); err != nil {
+		t.Fatalf("Chtimes(changed) error = %v", err)
+	}
+	if err := os.Chtimes(newPath, newModified, newModified); err != nil {
+		t.Fatalf("Chtimes(new) error = %v", err)
+	}
+
+	unchangedHash, err := hashFileBLAKE3(context.Background(), unchangedPath)
+	if err != nil {
+		t.Fatalf("hashFileBLAKE3(unchanged) error = %v", err)
+	}
+	changedHash, err := hashFileBLAKE3(context.Background(), changedPath)
+	if err != nil {
+		t.Fatalf("hashFileBLAKE3(changed) error = %v", err)
+	}
+	newHash, err := hashFileBLAKE3(context.Background(), newPath)
+	if err != nil {
+		t.Fatalf("hashFileBLAKE3(new) error = %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":                  "node-a",
+				"access_token":             "access-token",
+				"refresh_token":            "refresh-token",
+				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
+				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/internal/nodes":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":   "node-a",
+				"address":   "http://node-a:8081",
+				"last_seen": time.Now().UTC().Format(time.RFC3339),
+				"commands": []any{
+					map[string]any{
+						"id":         21,
+						"node_id":    "node-a",
+						"type":       "scan_replica",
+						"status":     "pending",
+						"payload":    map[string]any{"replica_id": 3},
+						"created_at": "2026-05-21T11:59:00Z",
+						"updated_at": "2026-05-21T11:59:00Z",
+					},
+				},
+			})
+		case "/internal/replicas":
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"id":           3,
+					"inventory_id": 2,
+					"node_id":      "node-a",
+					"uri":          replicaRoot,
+					"status":       "active",
+					"type":         "filesystem",
+				},
+			})
+		case "/internal/replica/3/files":
+			switch r.Method {
+			case http.MethodGet:
+				mu.Lock()
+				fileListCalls++
+				mu.Unlock()
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"files": []map[string]any{
+						{
+							"file_id":           10,
+							"replica_id":        3,
+							"inventory_id":      2,
+							"relative_uri":      "unchanged.txt",
+							"size":              9,
+							"hash":              unchangedHash,
+							"inventory_status":  "active",
+							"inventory_version": 1,
+							"replica_status":    "synchronized",
+							"replica_version":   1,
+							"created":           unchangedModified.Format(time.RFC3339),
+							"modified":          unchangedModified.Format(time.RFC3339),
+						},
+						{
+							"file_id":           11,
+							"replica_id":        3,
+							"inventory_id":      2,
+							"relative_uri":      "changed.txt",
+							"size":              7,
+							"hash":              "old-hash",
+							"inventory_status":  "active",
+							"inventory_version": 1,
+							"replica_status":    "synchronized",
+							"replica_version":   1,
+							"created":           changedModified.Add(-time.Hour).Format(time.RFC3339),
+							"modified":          changedModified.Add(-time.Hour).Format(time.RFC3339),
+						},
+					},
+				})
+			case http.MethodPost:
+				if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
+					t.Fatalf("Authorization = %q, want Bearer access-token", got)
+				}
+				if err := json.NewDecoder(r.Body).Decode(&gotReport); err != nil {
+					t.Fatalf("Decode(report) error = %v", err)
+				}
+				mu.Lock()
+				reportCalls++
+				mu.Unlock()
+				w.WriteHeader(http.StatusNoContent)
+			default:
+				t.Fatalf("method = %s, want GET or POST", r.Method)
+			}
+		case "/internal/commands/21":
+			if r.Method != http.MethodPatch {
+				t.Fatalf("command update method = %s, want PATCH", r.Method)
+			}
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("Decode(command update) error = %v", err)
+			}
+			if got := body["status"]; got != "completed" {
+				t.Fatalf("command status = %v, want completed", got)
+			}
+			mu.Lock()
+			commandUpdateCalls++
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":         21,
+				"node_id":    "node-a",
+				"type":       "scan_replica",
+				"status":     "completed",
+				"payload":    map[string]any{"replica_id": 3},
+				"created_at": "2026-05-21T11:59:00Z",
+				"updated_at": "2026-05-21T12:00:00Z",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	runtime, err := NewRuntime(config.Config{
+		App: config.AppConfig{
+			NodeID:            "node-a",
+			CoordinatorURL:    server.URL,
+			NodeAddress:       "http://node-a:8081",
+			HeartbeatInterval: time.Hour,
+		},
+		Auth: config.AuthConfig{
+			NodeSecret: "node-secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	runtime.Start(ctx)
+
+	deadline := time.Now().Add(1500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		done := fileListCalls >= 2 && reportCalls >= 1 && commandUpdateCalls >= 1
+		mu.Unlock()
+		if done {
+			if len(gotReport.Files) != 2 {
+				t.Fatalf("len(gotReport.Files) = %d, want 2; files=%+v", len(gotReport.Files), gotReport.Files)
+			}
+
+			byURI := map[string]struct {
+				FileID       *uint     `json:"file_id"`
+				RelativeURI  string    `json:"relative_uri"`
+				FileSize     int64     `json:"file_size"`
+				FileHash     string    `json:"file_hash"`
+				CreatedTime  time.Time `json:"created_time"`
+				ModifiedTime time.Time `json:"modified_time"`
+			}{}
+			for _, file := range gotReport.Files {
+				byURI[file.RelativeURI] = file
+			}
+
+			changed, ok := byURI["changed.txt"]
+			if !ok {
+				t.Fatalf("changed.txt report missing; files=%+v", gotReport.Files)
+			}
+			if changed.FileID == nil || *changed.FileID != 11 {
+				t.Fatalf("changed.FileID = %v, want 11", changed.FileID)
+			}
+			if changed.FileHash != changedHash {
+				t.Fatalf("changed.FileHash = %q, want %q", changed.FileHash, changedHash)
+			}
+
+			created, ok := byURI["new.txt"]
+			if !ok {
+				t.Fatalf("new.txt report missing; files=%+v", gotReport.Files)
+			}
+			if created.FileID != nil {
+				t.Fatalf("created.FileID = %v, want nil", created.FileID)
+			}
+			if created.FileHash != newHash {
+				t.Fatalf("created.FileHash = %q, want %q", created.FileHash, newHash)
+			}
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	t.Fatalf("fileListCalls=%d reportCalls=%d commandUpdateCalls=%d report=%+v", fileListCalls, reportCalls, commandUpdateCalls, gotReport)
+}
+
 func TestRuntimeStartsReplicaWatcherAndLogsChanges(t *testing.T) {
 	logOutput := captureLogs(t)
 	replicaRoot := t.TempDir()

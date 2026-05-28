@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -120,6 +121,15 @@ func (r *Runtime) refreshLocalState(ctx context.Context) ([]apiclient.Replica, e
 	return replicas, nil
 }
 
+func (r *Runtime) refreshReplicaFiles(ctx context.Context, replicaID uint) ([]apiclient.ReplicaInventoryFile, error) {
+	files, err := r.client.ListReplicaInventoryFiles(ctx, replicaID)
+	if err != nil {
+		return nil, err
+	}
+	r.setReplicaFiles(replicaID, files)
+	return files, nil
+}
+
 func (r *Runtime) setLocalState(replicas []apiclient.Replica, replicaFiles map[uint][]apiclient.ReplicaInventoryFile) {
 	r.stateMu.Lock()
 	defer r.stateMu.Unlock()
@@ -129,6 +139,28 @@ func (r *Runtime) setLocalState(replicas []apiclient.Replica, replicaFiles map[u
 	for replicaID, files := range replicaFiles {
 		r.replicaFiles[replicaID] = append([]apiclient.ReplicaInventoryFile(nil), files...)
 	}
+}
+
+func (r *Runtime) setReplicaFiles(replicaID uint, files []apiclient.ReplicaInventoryFile) {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+
+	if r.replicaFiles == nil {
+		r.replicaFiles = make(map[uint][]apiclient.ReplicaInventoryFile)
+	}
+	r.replicaFiles[replicaID] = append([]apiclient.ReplicaInventoryFile(nil), files...)
+}
+
+func (r *Runtime) findReplica(replicaID uint) (apiclient.Replica, bool) {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+
+	for _, replica := range r.replicas {
+		if replica.ID == replicaID {
+			return replica, true
+		}
+	}
+	return apiclient.Replica{}, false
 }
 
 func (r *Runtime) startReplicaWatchers(ctx context.Context, replicas []apiclient.Replica) {
@@ -345,10 +377,93 @@ func (r *Runtime) handleCommand(ctx context.Context, command apiclient.Command) 
 			return false
 		}
 		return r.markCommandCompleted(ctx, command.ID)
+	case "scan_replica":
+		if err := r.scanReplica(ctx, command); err != nil {
+			r.markCommandFailed(ctx, command.ID, err)
+			return false
+		}
+		return r.markCommandCompleted(ctx, command.ID)
 	default:
 		log.Printf("storage runtime command type not implemented id=%d type=%s", command.ID, command.Type)
 		return false
 	}
+}
+
+type scanReplicaCommandPayload struct {
+	ReplicaID uint `json:"replica_id"`
+}
+
+func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) error {
+	var payload scanReplicaCommandPayload
+	if err := json.Unmarshal(command.Payload, &payload); err != nil {
+		return fmt.Errorf("invalid scan_replica payload: %w", err)
+	}
+	if payload.ReplicaID == 0 {
+		return fmt.Errorf("invalid scan_replica payload: missing replica_id")
+	}
+
+	replica, ok := r.findReplica(payload.ReplicaID)
+	if !ok {
+		return fmt.Errorf("replica %d not found in local state", payload.ReplicaID)
+	}
+
+	files, err := r.refreshReplicaFiles(ctx, payload.ReplicaID)
+	if err != nil {
+		return err
+	}
+
+	scanner, err := GetScanner(ctx, replica.URI)
+	if err != nil {
+		return err
+	}
+	states, err := scanner.Scan(ctx, replica.URI)
+	if err != nil {
+		return err
+	}
+
+	reports := replicaFileReports(files, states)
+	if len(reports) == 0 {
+		log.Printf("storage runtime scan_replica detected no reportable changes replica_id=%d", payload.ReplicaID)
+		return nil
+	}
+
+	if err := r.client.ReportReplicaFiles(ctx, payload.ReplicaID, reports); err != nil {
+		return err
+	}
+	log.Printf("storage runtime scan_replica reported files replica_id=%d count=%d", payload.ReplicaID, len(reports))
+	return nil
+}
+
+func replicaFileReports(files []apiclient.ReplicaInventoryFile, states []FileState) []apiclient.ReplicaFileReport {
+	activeFilesByURI := make(map[string]apiclient.ReplicaInventoryFile, len(files))
+	for _, file := range files {
+		if file.InventoryStatus != "active" {
+			continue
+		}
+		activeFilesByURI[file.RelativeURI] = file
+	}
+
+	reports := make([]apiclient.ReplicaFileReport, 0)
+	for _, state := range states {
+		file, ok := activeFilesByURI[state.RelativeURI]
+		if ok && file.Size == state.Size && file.Hash == state.Hash && file.Modified.Equal(state.Modified) {
+			continue
+		}
+
+		report := apiclient.ReplicaFileReport{
+			RelativeURI:  state.RelativeURI,
+			FileSize:     state.Size,
+			FileHash:     state.Hash,
+			CreatedTime:  state.Created,
+			ModifiedTime: state.Modified,
+		}
+		if ok {
+			fileID := file.FileID
+			report.FileID = &fileID
+		}
+		reports = append(reports, report)
+	}
+	return reports
 }
 
 func (r *Runtime) markCommandCompleted(ctx context.Context, commandID uint) bool {
