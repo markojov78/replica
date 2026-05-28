@@ -299,16 +299,16 @@ This says:
 These are the authoritative logical files currently known for the inventory.  
 Each starts at version 1.  
 
-#### 6) Coordinator inserts `inventory_journal`
+#### 6) Coordinator inserts `file_journal`
 For each discovered file, insert a creation event:  
 ```
-inventory_journal
+file_journal
 id   file_id  inventory_id  replica_id  version  action   timestamp
 --------------------------------------------------------------------
 101  10       1             A           0        created  event_time  
 102  11       1             A           0        created  event_time  
 ```
-Version in `inventory_journal` is the old version on which action has been performed, 
+Version in `file_journal` is the old version on which action has been performed, 
 and version 0 here means that the file did not exist before this creation event.  
 
 #### 7) Coordinator inserts `replica_files`
