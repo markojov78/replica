@@ -24,6 +24,7 @@ type services struct {
 	roles       *service.RoleService
 	nodes       *service.NodeService
 	inventories *service.InventoryService
+	replicas    *service.ReplicaService
 }
 
 func New(
@@ -34,11 +35,17 @@ func New(
 	roleService *service.RoleService,
 	nodeService *service.NodeService,
 	inventoryService *service.InventoryService,
+	replicaServices ...*service.ReplicaService,
 ) http.Handler {
 	mux := http.NewServeMux()
 	api := humago.New(mux, huma.DefaultConfig(serviceName, info.Version))
 	apiGroup := huma.NewGroup(api, "/api")
 	internalGroup := huma.NewGroup(api, "/internal")
+
+	var replicaService *service.ReplicaService
+	if len(replicaServices) > 0 {
+		replicaService = replicaServices[0]
+	}
 
 	svc := services{
 		auth:        authService,
@@ -46,6 +53,7 @@ func New(
 		roles:       roleService,
 		nodes:       nodeService,
 		inventories: inventoryService,
+		replicas:    replicaService,
 	}
 
 	registerServiceInfoRoute(mux, cfg, info, svc)

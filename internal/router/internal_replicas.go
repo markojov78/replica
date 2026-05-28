@@ -21,7 +21,7 @@ func registerInternalReplicaRoutes(api huma.API, svc services) {
 			return nil, mapNodeMeError(err)
 		}
 
-		replicas, err := svc.inventories.ListReplicas(service.ReplicaListFilter{
+		replicas, err := svc.replicas.ListFiltered(service.ReplicaListFilter{
 			NodeID: node.ID,
 		})
 		if err != nil {
@@ -42,7 +42,7 @@ func registerInternalReplicaRoutes(api huma.API, svc services) {
 			return nil, mapNodeMeError(err)
 		}
 
-		files, err := svc.inventories.ListReplicaInventoryFiles(input.ReplicaID, node.ID)
+		files, err := svc.replicas.ListInventoryFiles(input.ReplicaID, node.ID)
 		if err != nil {
 			if err == service.ErrForbidden {
 				return nil, huma.Error403Forbidden("replica does not belong to authenticated node")
@@ -76,7 +76,7 @@ func registerInternalReplicaRoutes(api huma.API, svc services) {
 			})
 		}
 
-		if err := svc.inventories.ReportReplicaFileChanges(input.ReplicaID, node.ID, changes); err != nil {
+		if err := svc.replicas.ReportFileChanges(input.ReplicaID, node.ID, changes); err != nil {
 			if err == service.ErrForbidden {
 				return nil, huma.Error403Forbidden("replica does not belong to authenticated node")
 			}

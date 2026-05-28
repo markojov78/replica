@@ -25,7 +25,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		}
 
 		page, count := resolvePagination(input.Page, input.Count)
-		replicas, err := svc.inventories.ListReplicasPage(page, count, service.ReplicaListFilter{
+		replicas, err := svc.replicas.ListPage(page, count, service.ReplicaListFilter{
 			InventoryID: inventoryID,
 			NodeID:      input.NodeID,
 			URIPrefix:   input.URIPrefix,
@@ -45,7 +45,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 			return nil, mapPermissionError(err)
 		}
 
-		replica, err := svc.inventories.GetReplica(input.ID)
+		replica, err := svc.replicas.Get(input.ID)
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
 		}
@@ -67,7 +67,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 			version = &input.Version
 		}
 
-		files, err := svc.inventories.ListReplicaFiles(input.ID, page, count, service.ReplicaFileListFilter{
+		files, err := svc.replicas.ListFiles(input.ID, page, count, service.ReplicaFileListFilter{
 			Status:  input.Status,
 			Version: version,
 		})
@@ -86,7 +86,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 			return nil, mapPermissionError(err)
 		}
 
-		file, err := svc.inventories.GetReplicaFile(input.ID, input.FileID)
+		file, err := svc.replicas.GetFile(input.ID, input.FileID)
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
 		}
@@ -102,7 +102,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 			return nil, mapPermissionError(err)
 		}
 
-		replica, err := svc.inventories.CreateReplica(service.CreateReplicaInput{
+		replica, err := svc.replicas.Create(service.CreateReplicaInput{
 			InventoryID: input.Body.InventoryID,
 			NodeID:      input.Body.NodeID,
 			URI:         input.Body.URI,
@@ -123,7 +123,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 			return nil, mapPermissionError(err)
 		}
 
-		replica, err := svc.inventories.UpdateReplica(input.ID, service.UpdateReplicaInput{
+		replica, err := svc.replicas.Update(input.ID, service.UpdateReplicaInput{
 			Type:   input.Body.Type,
 			Status: input.Body.Status,
 		})
@@ -142,7 +142,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 			return nil, mapPermissionError(err)
 		}
 
-		replica, err := svc.inventories.DeleteReplica(input.ID)
+		replica, err := svc.replicas.Delete(input.ID)
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
 		}

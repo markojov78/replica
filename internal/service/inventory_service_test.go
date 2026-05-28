@@ -126,16 +126,17 @@ func TestInventoryServiceCreateReplicaPopulatesPendingFilesAndCommand(t *testing
 	}
 
 	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
-	svc := NewInventoryService(repository.NewInventoryRepository(database), nodeService)
+	inventoryRepo := repository.NewInventoryRepository(database)
+	svc := NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService)
 
-	replica, err := svc.CreateReplica(CreateReplicaInput{
+	replica, err := svc.Create(CreateReplicaInput{
 		InventoryID: inventory.ID,
 		NodeID:      "node-b",
 		URI:         "s3://bucket/photos",
 		Type:        string(model.ReplicaTypeStorage),
 	})
 	if err != nil {
-		t.Fatalf("CreateReplica() error = %v", err)
+		t.Fatalf("Create() error = %v", err)
 	}
 
 	var replicaFiles []model.ReplicaFile
@@ -207,11 +208,11 @@ func TestInventoryServiceListReplicaFiles(t *testing.T) {
 		t.Fatalf("Create(replica_file) error = %v", err)
 	}
 
-	svc := NewInventoryService(repository.NewInventoryRepository(database))
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
 
-	files, err := svc.ListReplicaFiles(replica.ID, 1, 20, ReplicaFileListFilter{})
+	files, err := svc.ListFiles(replica.ID, 1, 20, ReplicaFileListFilter{})
 	if err != nil {
-		t.Fatalf("ListReplicaFiles() error = %v", err)
+		t.Fatalf("ListFiles() error = %v", err)
 	}
 	if len(files.Items) != 1 {
 		t.Fatalf("len(files.Items) = %d, want 1", len(files.Items))
@@ -263,15 +264,15 @@ func TestInventoryServiceListReplicaFilesWithFilters(t *testing.T) {
 		t.Fatalf("Create(replica_file pending) error = %v", err)
 	}
 
-	svc := NewInventoryService(repository.NewInventoryRepository(database))
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
 
 	version := uint(3)
-	files, err := svc.ListReplicaFiles(replica.ID, 1, 20, ReplicaFileListFilter{
+	files, err := svc.ListFiles(replica.ID, 1, 20, ReplicaFileListFilter{
 		Status:  string(model.ReplicaFileStatusPending),
 		Version: &version,
 	})
 	if err != nil {
-		t.Fatalf("ListReplicaFiles(filtered) error = %v", err)
+		t.Fatalf("ListFiles(filtered) error = %v", err)
 	}
 	if len(files.Items) != 1 {
 		t.Fatalf("len(files.Items) = %d, want 1", len(files.Items))
@@ -307,10 +308,10 @@ func TestInventoryServiceListReplicaFilesRejectsInvalidStatus(t *testing.T) {
 		t.Fatalf("Create(replica) error = %v", err)
 	}
 
-	svc := NewInventoryService(repository.NewInventoryRepository(database))
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
 
-	if _, err := svc.ListReplicaFiles(replica.ID, 1, 20, ReplicaFileListFilter{Status: "invalid"}); err != ErrInvalidReplicaFileStatus {
-		t.Fatalf("ListReplicaFiles(invalid status) error = %v, want %v", err, ErrInvalidReplicaFileStatus)
+	if _, err := svc.ListFiles(replica.ID, 1, 20, ReplicaFileListFilter{Status: "invalid"}); err != ErrInvalidReplicaFileStatus {
+		t.Fatalf("ListFiles(invalid status) error = %v, want %v", err, ErrInvalidReplicaFileStatus)
 	}
 }
 
@@ -346,11 +347,11 @@ func TestInventoryServiceGetReplicaFile(t *testing.T) {
 		t.Fatalf("Create(replica_file) error = %v", err)
 	}
 
-	svc := NewInventoryService(repository.NewInventoryRepository(database))
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
 
-	file, err := svc.GetReplicaFile(replica.ID, replicaFile.FileID)
+	file, err := svc.GetFile(replica.ID, replicaFile.FileID)
 	if err != nil {
-		t.Fatalf("GetReplicaFile() error = %v", err)
+		t.Fatalf("GetFile() error = %v", err)
 	}
 	if file.ID != replicaFile.FileID {
 		t.Fatalf("file.ID = %d, want %d", file.ID, replicaFile.FileID)
@@ -383,10 +384,10 @@ func TestInventoryServiceGetReplicaFileNotFound(t *testing.T) {
 		t.Fatalf("Create(replica) error = %v", err)
 	}
 
-	svc := NewInventoryService(repository.NewInventoryRepository(database))
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
 
-	if _, err := svc.GetReplicaFile(replica.ID, 999); err != ErrReplicaFileNotFound {
-		t.Fatalf("GetReplicaFile() error = %v, want %v", err, ErrReplicaFileNotFound)
+	if _, err := svc.GetFile(replica.ID, 999); err != ErrReplicaFileNotFound {
+		t.Fatalf("GetFile() error = %v, want %v", err, ErrReplicaFileNotFound)
 	}
 }
 
@@ -463,12 +464,12 @@ func TestInventoryServiceReportReplicaFileChanges(t *testing.T) {
 		t.Fatalf("Create(replicaFileB) error = %v", err)
 	}
 
-	svc := NewInventoryService(repository.NewInventoryRepository(database))
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
 	fileID := file.ID
 	created := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
 	modified := time.Now().UTC().Truncate(time.Second)
 
-	if err := svc.ReportReplicaFileChanges(replicaA.ID, "node-a", []ReplicaFileChangeInput{
+	if err := svc.ReportFileChanges(replicaA.ID, "node-a", []ReplicaFileChangeInput{
 		{
 			FileID:       &fileID,
 			RelativeURI:  "album/img.jpg",
@@ -478,7 +479,7 @@ func TestInventoryServiceReportReplicaFileChanges(t *testing.T) {
 			ModifiedTime: modified,
 		},
 	}); err != nil {
-		t.Fatalf("ReportReplicaFileChanges() error = %v", err)
+		t.Fatalf("ReportFileChanges() error = %v", err)
 	}
 
 	var updatedFile model.InventoryFile
@@ -559,11 +560,11 @@ func TestInventoryServiceReportReplicaFileChangesCreatesNewFile(t *testing.T) {
 		t.Fatalf("Create(replica) error = %v", err)
 	}
 
-	svc := NewInventoryService(repository.NewInventoryRepository(database))
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
 	created := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	modified := time.Now().UTC().Truncate(time.Second)
 
-	if err := svc.ReportReplicaFileChanges(replica.ID, "node-a", []ReplicaFileChangeInput{
+	if err := svc.ReportFileChanges(replica.ID, "node-a", []ReplicaFileChangeInput{
 		{
 			RelativeURI:  "album/new.jpg",
 			FileSize:     123,
@@ -572,7 +573,7 @@ func TestInventoryServiceReportReplicaFileChangesCreatesNewFile(t *testing.T) {
 			ModifiedTime: modified,
 		},
 	}); err != nil {
-		t.Fatalf("ReportReplicaFileChanges() error = %v", err)
+		t.Fatalf("ReportFileChanges() error = %v", err)
 	}
 
 	var file model.InventoryFile
@@ -640,8 +641,8 @@ func TestInventoryServiceReportReplicaFileChangesRestoresDeletedFileByRelativeUR
 		t.Fatalf("Create(replica) error = %v", err)
 	}
 
-	svc := NewInventoryService(repository.NewInventoryRepository(database))
-	if err := svc.ReportReplicaFileChanges(replica.ID, "node-a", []ReplicaFileChangeInput{
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
+	if err := svc.ReportFileChanges(replica.ID, "node-a", []ReplicaFileChangeInput{
 		{
 			RelativeURI:  "album/restored.jpg",
 			FileSize:     20,
@@ -650,7 +651,7 @@ func TestInventoryServiceReportReplicaFileChangesRestoresDeletedFileByRelativeUR
 			ModifiedTime: time.Now().UTC(),
 		},
 	}); err != nil {
-		t.Fatalf("ReportReplicaFileChanges() error = %v", err)
+		t.Fatalf("ReportFileChanges() error = %v", err)
 	}
 
 	var updatedFile model.InventoryFile
@@ -719,26 +720,26 @@ func TestInventoryServiceReportReplicaFileChangesRejectsInvalidFileReferences(t 
 		t.Fatalf("Create(replica) error = %v", err)
 	}
 
-	svc := NewInventoryService(repository.NewInventoryRepository(database))
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
 	now := time.Now().UTC()
 
 	foreignID := fileB.ID
-	if err := svc.ReportReplicaFileChanges(replica.ID, "node-a", []ReplicaFileChangeInput{
+	if err := svc.ReportFileChanges(replica.ID, "node-a", []ReplicaFileChangeInput{
 		{FileID: &foreignID, RelativeURI: "foreign.jpg", FileSize: 1, FileHash: "hash", CreatedTime: now, ModifiedTime: now},
 	}); err != ErrInvalidReplicaFileUpdate {
-		t.Fatalf("ReportReplicaFileChanges(foreign file) error = %v, want %v", err, ErrInvalidReplicaFileUpdate)
+		t.Fatalf("ReportFileChanges(foreign file) error = %v, want %v", err, ErrInvalidReplicaFileUpdate)
 	}
 
 	fileAID := fileA.ID
-	if err := svc.ReportReplicaFileChanges(replica.ID, "node-a", []ReplicaFileChangeInput{
+	if err := svc.ReportFileChanges(replica.ID, "node-a", []ReplicaFileChangeInput{
 		{FileID: &fileAID, RelativeURI: "different.jpg", FileSize: 1, FileHash: "hash", CreatedTime: now, ModifiedTime: now},
 	}); err != ErrInvalidReplicaFileUpdate {
-		t.Fatalf("ReportReplicaFileChanges(uri mismatch) error = %v, want %v", err, ErrInvalidReplicaFileUpdate)
+		t.Fatalf("ReportFileChanges(uri mismatch) error = %v, want %v", err, ErrInvalidReplicaFileUpdate)
 	}
 
-	if err := svc.ReportReplicaFileChanges(replica.ID, "node-a", []ReplicaFileChangeInput{
+	if err := svc.ReportFileChanges(replica.ID, "node-a", []ReplicaFileChangeInput{
 		{RelativeURI: "same.jpg", FileSize: 1, FileHash: "hash", CreatedTime: now, ModifiedTime: now},
 	}); err != ErrInvalidReplicaFileUpdate {
-		t.Fatalf("ReportReplicaFileChanges(active duplicate) error = %v, want %v", err, ErrInvalidReplicaFileUpdate)
+		t.Fatalf("ReportFileChanges(active duplicate) error = %v, want %v", err, ErrInvalidReplicaFileUpdate)
 	}
 }

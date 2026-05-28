@@ -60,6 +60,7 @@ func main() {
 	nodeTokenRepo := repository.NewNodeTokenRepository(database)
 	roleRepo := repository.NewRoleRepository(database)
 	inventoryRepo := repository.NewInventoryRepository(database)
+	replicaRepo := repository.NewReplicaRepository(database)
 
 	authService := service.NewAuthService(
 		userRepo,
@@ -74,6 +75,7 @@ func main() {
 	roleService := service.NewRoleService(roleRepo)
 	nodeService := service.NewNodeService(nodeRepo, nodeCommandRepo)
 	inventoryService := service.NewInventoryService(inventoryRepo, nodeService)
+	replicaService := service.NewReplicaService(replicaRepo, inventoryRepo, nodeService)
 
 	handler := router.New(
 		cfg,
@@ -83,6 +85,7 @@ func main() {
 		roleService,
 		nodeService,
 		inventoryService,
+		replicaService,
 	)
 
 	server := &http.Server{

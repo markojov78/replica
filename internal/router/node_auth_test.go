@@ -173,6 +173,7 @@ func TestInternalAuthMeReturnsAuthenticatedNode(t *testing.T) {
 		service.NewRoleService(repository.NewRoleRepository(database)),
 		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
+		newRouterTestReplicaService(database, nil),
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/internal/auth/me", nil)
@@ -233,6 +234,7 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 		service.NewRoleService(repository.NewRoleRepository(database)),
 		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
+		newRouterTestReplicaService(database, nil),
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://node-address:8081"}`))
@@ -312,14 +314,17 @@ func TestInternalNodesReportAvailabilityReturnsPendingCommands(t *testing.T) {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
 
+	nodeService := service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	inventoryRepo := repository.NewInventoryRepository(database)
 	handler := New(
 		config.Config{},
 		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
 		authService,
 		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
 		service.NewRoleService(repository.NewRoleRepository(database)),
-		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
-		service.NewInventoryService(repository.NewInventoryRepository(database)),
+		nodeService,
+		service.NewInventoryService(inventoryRepo),
+		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService),
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://node-address:8081"}`))
@@ -413,6 +418,7 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 
 	nodeService := service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
 	inventoryService := service.NewInventoryService(repository.NewInventoryRepository(database), nodeService)
+	replicaService := newRouterTestReplicaService(database, nodeService)
 
 	handler := New(
 		config.Config{},
@@ -422,6 +428,7 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 		service.NewRoleService(repository.NewRoleRepository(database)),
 		nodeService,
 		inventoryService,
+		replicaService,
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/internal/replicas", nil)
@@ -523,6 +530,7 @@ func TestInternalReplicaFilesReturnsInventoryAndReplicaMetadata(t *testing.T) {
 
 	nodeService := service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
 	inventoryService := service.NewInventoryService(repository.NewInventoryRepository(database), nodeService)
+	replicaService := newRouterTestReplicaService(database, nodeService)
 
 	handler := New(
 		config.Config{},
@@ -532,6 +540,7 @@ func TestInternalReplicaFilesReturnsInventoryAndReplicaMetadata(t *testing.T) {
 		service.NewRoleService(repository.NewRoleRepository(database)),
 		nodeService,
 		inventoryService,
+		replicaService,
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files", nil)
@@ -638,6 +647,7 @@ func TestPublicReplicasListIsPaginated(t *testing.T) {
 
 	nodeService := service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
 	inventoryService := service.NewInventoryService(repository.NewInventoryRepository(database), nodeService)
+	replicaService := newRouterTestReplicaService(database, nodeService)
 	handler := New(
 		config.Config{},
 		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
@@ -646,6 +656,7 @@ func TestPublicReplicasListIsPaginated(t *testing.T) {
 		service.NewRoleService(repository.NewRoleRepository(database)),
 		nodeService,
 		inventoryService,
+		replicaService,
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/replicas?page=1&count=1", nil)
@@ -966,6 +977,7 @@ func TestPublicReplicaCreatePopulatesPendingFilesAndReconcileCommand(t *testing.
 	}
 
 	nodeService := service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	inventoryRepo := repository.NewInventoryRepository(database)
 	handler := New(
 		config.Config{},
 		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
@@ -973,7 +985,8 @@ func TestPublicReplicaCreatePopulatesPendingFilesAndReconcileCommand(t *testing.
 		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
 		service.NewRoleService(repository.NewRoleRepository(database)),
 		nodeService,
-		service.NewInventoryService(repository.NewInventoryRepository(database), nodeService),
+		service.NewInventoryService(inventoryRepo, nodeService),
+		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService),
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/replicas", strings.NewReader(`{"inventory_id":`+strconv.FormatUint(uint64(inventory.ID), 10)+`,"node_id":"node-b","uri":"s3://bucket/photos","type":"storage"}`))
@@ -1063,6 +1076,7 @@ func TestInternalCommandsPatchUpdatesOwnedCommandStatus(t *testing.T) {
 		service.NewRoleService(repository.NewRoleRepository(database)),
 		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
+		newRouterTestReplicaService(database, nil),
 	)
 
 	req := httptest.NewRequest(http.MethodPatch, "/internal/commands/"+strconv.FormatUint(uint64(command.ID), 10), strings.NewReader(`{"status":"failed","error":"refresh failed"}`))
@@ -1180,14 +1194,17 @@ func TestInternalReplicaFilesReportUpdatesCoordinatorState(t *testing.T) {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
 
+	nodeService := service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	inventoryRepo := repository.NewInventoryRepository(database)
 	handler := New(
 		config.Config{},
 		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
 		authService,
 		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
 		service.NewRoleService(repository.NewRoleRepository(database)),
-		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
-		service.NewInventoryService(repository.NewInventoryRepository(database)),
+		nodeService,
+		service.NewInventoryService(inventoryRepo),
+		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService),
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/replica/"+strconv.FormatUint(uint64(replicaA.ID), 10)+"/files", strings.NewReader(`{"files":[{"file_id":`+strconv.FormatUint(uint64(file.ID), 10)+`,"relative_uri":"album/img.jpg","file_size":200,"file_hash":"new-hash","created_time":"2026-05-21T11:00:00Z","modified_time":"2026-05-21T12:00:00Z"}]}`))
@@ -1246,4 +1263,12 @@ func newRouterTestAuthService(database *gorm.DB) *service.AuthService {
 		30*time.Minute,
 		8*time.Hour,
 	)
+}
+
+func newRouterTestReplicaService(database *gorm.DB, nodeService *service.NodeService) *service.ReplicaService {
+	inventoryRepo := repository.NewInventoryRepository(database)
+	if nodeService == nil {
+		return service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo)
+	}
+	return service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService)
 }
