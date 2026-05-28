@@ -78,6 +78,104 @@ func TestInventoryServiceCreateCreatesPendingScanReplicaCommand(t *testing.T) {
 	}
 }
 
+func TestInventoryServiceCreateReplicaPopulatesPendingFilesAndCommand(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "replica-create-command.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	inventory := &model.Inventory{
+		Name:   "Photos",
+		Status: model.InventoryStatusActive,
+		Type:   model.InventoryTypeFolder,
+	}
+	if err := database.Create(inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+
+	files := []model.InventoryFile{
+		{
+			InventoryID: inventory.ID,
+			RelativeURI: "one.jpg",
+			Status:      model.InventoryFileStatusActive,
+			Size:        100,
+			Hash:        "hash-one",
+			Version:     3,
+			Created:     time.Now().UTC(),
+			Modified:    time.Now().UTC(),
+		},
+		{
+			InventoryID: inventory.ID,
+			RelativeURI: "two.jpg",
+			Status:      model.InventoryFileStatusActive,
+			Size:        200,
+			Hash:        "hash-two",
+			Version:     4,
+			Created:     time.Now().UTC(),
+			Modified:    time.Now().UTC(),
+		},
+	}
+	if err := database.Create(&files).Error; err != nil {
+		t.Fatalf("Create(files) error = %v", err)
+	}
+
+	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	svc := NewInventoryService(repository.NewInventoryRepository(database), nodeService)
+
+	replica, err := svc.CreateReplica(CreateReplicaInput{
+		InventoryID: inventory.ID,
+		NodeID:      "node-b",
+		URI:         "s3://bucket/photos",
+		Type:        string(model.ReplicaTypeStorage),
+	})
+	if err != nil {
+		t.Fatalf("CreateReplica() error = %v", err)
+	}
+
+	var replicaFiles []model.ReplicaFile
+	if err := database.Where("replica_id = ?", replica.ID).Order("file_id asc").Find(&replicaFiles).Error; err != nil {
+		t.Fatalf("Find(replicaFiles) error = %v", err)
+	}
+	if len(replicaFiles) != len(files) {
+		t.Fatalf("len(replicaFiles) = %d, want %d", len(replicaFiles), len(files))
+	}
+	for i, replicaFile := range replicaFiles {
+		if replicaFile.FileID != files[i].ID {
+			t.Fatalf("replicaFiles[%d].FileID = %d, want %d", i, replicaFile.FileID, files[i].ID)
+		}
+		if replicaFile.Version != 0 {
+			t.Fatalf("replicaFiles[%d].Version = %d, want 0", i, replicaFile.Version)
+		}
+		if replicaFile.Status != model.ReplicaFileStatusPending {
+			t.Fatalf("replicaFiles[%d].Status = %q, want %q", i, replicaFile.Status, model.ReplicaFileStatusPending)
+		}
+	}
+
+	var command model.Command
+	if err := database.First(&command, "node_id = ? AND type = ?", "node-b", model.NodeCommandTypeReconcileReplica).Error; err != nil {
+		t.Fatalf("First(command) error = %v", err)
+	}
+	if command.Status != model.NodeCommandStatusPending {
+		t.Fatalf("command.Status = %q, want %q", command.Status, model.NodeCommandStatusPending)
+	}
+
+	var payload struct {
+		ReplicaID uint `json:"replica_id"`
+	}
+	if err := json.Unmarshal(command.Payload, &payload); err != nil {
+		t.Fatalf("Unmarshal(command.Payload) error = %v", err)
+	}
+	if payload.ReplicaID != replica.ID {
+		t.Fatalf("payload.ReplicaID = %d, want %d", payload.ReplicaID, replica.ID)
+	}
+}
+
 func TestInventoryServiceListReplicaFiles(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
 		Driver: "sqlite",

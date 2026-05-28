@@ -142,6 +142,51 @@ func (r *InventoryRepository) CreateReplica(replica *model.Replica) error {
 	return r.db.Create(replica).Error
 }
 
+func (r *InventoryRepository) CreateReplicaWithPendingFiles(replica *model.Replica, command *model.Command) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(replica).Error; err != nil {
+			return err
+		}
+
+		var files []model.InventoryFile
+		if err := tx.Where("inventory_id = ?", replica.InventoryID).Order("id asc").Find(&files).Error; err != nil {
+			return err
+		}
+
+		replicaFiles := make([]model.ReplicaFile, 0, len(files))
+		for _, file := range files {
+			replicaFiles = append(replicaFiles, model.ReplicaFile{
+				FileID:    file.ID,
+				ReplicaID: replica.ID,
+				Version:   0,
+				Status:    model.ReplicaFileStatusPending,
+			})
+		}
+		if len(replicaFiles) > 0 {
+			if err := tx.Create(&replicaFiles).Error; err != nil {
+				return err
+			}
+		}
+
+		if command == nil {
+			return nil
+		}
+		command.NodeID = replica.NodeID
+		if command.Type == model.NodeCommandTypeReconcileReplica {
+			payload, err := json.Marshal(map[string]uint{
+				"replica_id": replica.ID,
+			})
+			if err != nil {
+				return err
+			}
+			command.Payload = payload
+		} else if len(command.Payload) == 0 {
+			command.Payload = []byte("{}")
+		}
+		return tx.Create(command).Error
+	})
+}
+
 func (r *InventoryRepository) FindReplicaByID(id uint) (*model.Replica, error) {
 	var replica model.Replica
 	if err := r.db.First(&replica, id).Error; err != nil {

@@ -311,8 +311,16 @@ func (s *InventoryService) CreateReplica(input CreateReplicaInput) (*InventoryRe
 		Status:      model.ReplicaStatusActive,
 		Type:        replicaType,
 	}
-	if err := s.repo.CreateReplica(replica); err != nil {
+	command := &model.Command{
+		NodeID: nodeID,
+		Type:   model.NodeCommandTypeReconcileReplica,
+		Status: model.NodeCommandStatusPending,
+	}
+	if err := s.repo.CreateReplicaWithPendingFiles(replica, command); err != nil {
 		return nil, err
+	}
+	if s.nodes != nil {
+		s.nodes.PublishCommand(command)
 	}
 
 	return toInventoryReplicaDetails(replica), nil
