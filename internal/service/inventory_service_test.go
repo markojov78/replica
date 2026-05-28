@@ -306,7 +306,7 @@ func TestInventoryServiceReportReplicaFileChanges(t *testing.T) {
 
 	inventory := &model.Inventory{
 		Name:   "photos",
-		Status: model.InventoryStatusOnline,
+		Status: model.InventoryStatusActive,
 		Type:   model.InventoryTypeFolder,
 	}
 	if err := database.Create(inventory).Error; err != nil {

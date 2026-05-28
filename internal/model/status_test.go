@@ -7,7 +7,7 @@ func TestDocumentedEnumsAreValid(t *testing.T) {
 		name  string
 		valid bool
 	}{
-		{name: string(InventoryStatusOnline), valid: InventoryStatusOnline.Valid()},
+		{name: string(InventoryStatusActive), valid: InventoryStatusActive.Valid()},
 		{name: string(InventoryTypeFolder), valid: InventoryTypeFolder.Valid()},
 		{name: string(InventoryFileStatusActive), valid: InventoryFileStatusActive.Valid()},
 		{name: string(FileJournalActionModified), valid: FileJournalActionModified.Valid()},

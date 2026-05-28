@@ -82,7 +82,7 @@ last_callback_failure - last time the node filed to reply to the coordinator cal
 
 #### inventories
 name - if not specified, will use folder or file name  
-status - online, offline, deleted  
+status - active, deleted  
 type - file, folder
 
 #### inventory_files

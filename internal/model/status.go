@@ -19,8 +19,7 @@ type PermissionResource string
 type PermissionAction string
 
 const (
-	InventoryStatusOnline  InventoryStatus = "online"
-	InventoryStatusOffline InventoryStatus = "offline"
+	InventoryStatusActive  InventoryStatus = "active"
 	InventoryStatusDeleted InventoryStatus = "deleted"
 )
 
@@ -122,7 +121,7 @@ const (
 
 func (s InventoryStatus) Valid() bool {
 	switch s {
-	case InventoryStatusOnline, InventoryStatusOffline, InventoryStatusDeleted:
+	case InventoryStatusActive, InventoryStatusDeleted:
 		return true
 	default:
 		return false

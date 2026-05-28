@@ -87,7 +87,9 @@ func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []ap
 			continue
 		}
 
-		r.processFallbackCommands(report.Commands)
+		for _, command := range report.Commands {
+			r.processCommand(command)
+		}
 		log.Printf("storage runtime connected to coordinator as node_id=%s replicas=%d", r.client.NodeID(), len(replicas))
 		return pair, replicas, true
 	}
@@ -190,7 +192,10 @@ func (r *Runtime) heartbeatLoop(ctx context.Context) {
 				log.Printf("storage runtime heartbeat failed: %v", err)
 				continue
 			}
-			r.processFallbackCommands(report.Commands)
+
+			for _, command := range report.Commands {
+				r.processCommand(command)
+			}
 		}
 	}
 }
@@ -253,17 +258,8 @@ func (r *Runtime) listenForCommands(ctx context.Context) error {
 	}
 }
 
-func (r *Runtime) processFallbackCommands(commands []apiclient.Command) {
-	if r.wsConnected.Load() {
-		return
-	}
-
-	for _, command := range commands {
-		r.processCommand(command)
-	}
-}
-
 func (r *Runtime) processCommand(command apiclient.Command) {
+	// TODO
 	log.Printf("storage runtime got command id=%d type=%s status=%s payload=%s", command.ID, command.Type, command.Status, formatPayload(command.Payload))
 }
 

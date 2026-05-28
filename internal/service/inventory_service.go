@@ -173,7 +173,7 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 
 	inventory := &model.Inventory{
 		Name:   name,
-		Status: model.InventoryStatusOnline,
+		Status: model.InventoryStatusActive,
 		Type:   inventoryType,
 	}
 	replica := &model.Replica{

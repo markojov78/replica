@@ -380,7 +380,7 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 
 	inventory := &model.Inventory{
 		Name:   "photos",
-		Status: model.InventoryStatusOnline,
+		Status: model.InventoryStatusActive,
 		Type:   model.InventoryTypeFolder,
 	}
 	if err := database.Create(inventory).Error; err != nil {
@@ -485,7 +485,7 @@ func TestPublicReplicasListIsPaginated(t *testing.T) {
 		t.Fatalf("Create(user_role) error = %v", err)
 	}
 
-	inventory := &model.Inventory{Name: "photos", Status: model.InventoryStatusOnline, Type: model.InventoryTypeFolder}
+	inventory := &model.Inventory{Name: "photos", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
 	if err := database.Create(inventory).Error; err != nil {
 		t.Fatalf("Create(inventory) error = %v", err)
 	}
@@ -863,7 +863,7 @@ func TestInternalReplicaFilesReportUpdatesCoordinatorState(t *testing.T) {
 
 	inventory := &model.Inventory{
 		Name:   "photos",
-		Status: model.InventoryStatusOnline,
+		Status: model.InventoryStatusActive,
 		Type:   model.InventoryTypeFolder,
 	}
 	if err := database.Create(inventory).Error; err != nil {
