@@ -21,6 +21,21 @@ type ReplicaFileUpdate struct {
 	ModifiedTime time.Time
 }
 
+type ReplicaInventoryFile struct {
+	FileID           uint
+	ReplicaID        uint
+	InventoryID      uint
+	RelativeURI      string
+	Size             int64
+	Hash             string
+	InventoryStatus  string
+	InventoryVersion uint
+	ReplicaStatus    string
+	ReplicaVersion   uint
+	Created          time.Time
+	Modified         time.Time
+}
+
 func NewInventoryRepository(db *gorm.DB) *InventoryRepository {
 	return &InventoryRepository{db: db}
 }
@@ -133,7 +148,7 @@ func (r *InventoryRepository) FindReplicaByID(id uint) (*model.Replica, error) {
 
 func (r *InventoryRepository) FindReplicaFileByID(replicaID, fileID uint) (*model.ReplicaFile, error) {
 	var file model.ReplicaFile
-	if err := r.db.Where("replica_id = ? AND id = ?", replicaID, fileID).First(&file).Error; err != nil {
+	if err := r.db.Where("replica_id = ? AND file_id = ?", replicaID, fileID).First(&file).Error; err != nil {
 		return nil, err
 	}
 	return &file, nil
@@ -255,7 +270,7 @@ func (r *InventoryRepository) ListReplicaFiles(replicaID uint, page, perPage int
 			}
 			return tx
 		}).
-		Order("id asc").
+		Order("file_id asc").
 		Limit(perPage).
 		Offset((page - 1) * perPage).
 		Find(&files).Error
@@ -264,6 +279,34 @@ func (r *InventoryRepository) ListReplicaFiles(replicaID uint, page, perPage int
 	}
 
 	return files, total, nil
+}
+
+func (r *InventoryRepository) ListReplicaInventoryFiles(replicaID uint) ([]ReplicaInventoryFile, error) {
+	var files []ReplicaInventoryFile
+	err := r.db.
+		Table("replica_files").
+		Select(`
+			replica_files.file_id AS file_id,
+			replica_files.replica_id AS replica_id,
+			inventory_files.inventory_id AS inventory_id,
+			inventory_files.relative_uri AS relative_uri,
+			inventory_files.size AS size,
+			inventory_files.hash AS hash,
+			inventory_files.status AS inventory_status,
+			inventory_files.version AS inventory_version,
+			replica_files.status AS replica_status,
+			replica_files.version AS replica_version,
+			inventory_files.created AS created,
+			inventory_files.modified AS modified
+		`).
+		Joins("JOIN inventory_files ON inventory_files.id = replica_files.file_id").
+		Where("replica_files.replica_id = ?", replicaID).
+		Order("inventory_files.relative_uri asc").
+		Scan(&files).Error
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
 }
 
 func (r *InventoryRepository) UpdateReplica(replica *model.Replica) error {

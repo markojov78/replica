@@ -717,8 +717,7 @@ Example response:
 {
   "items": [
     {
-      "id": 1,
-      "file_id": 10,
+      "id": 10,
       "replica_id": 1,
       "version": 2,
       "status": "synchronized"
@@ -1066,6 +1065,50 @@ Possible errors:
 ### /replicas/{id}/files endpoint
 
 This endpoint is node-authenticated and does not require any explicit permission beyond a valid node access token.
+
+#### GET /replica/{id}/files
+Returns the complete file state for a replica owned by the authenticated node.
+
+Behavior:
+- validates the bearer node JWT
+- resolves the current node from the auth token
+- verifies the replica belongs to the authenticated node
+- returns an unpaginated `files` list intended for storage-node volatile state hydration
+- joins `replica_files` with `inventory_files`
+- includes file metadata from `inventory_files`
+- includes replica-local `status` and `version` from `replica_files`
+
+The response deliberately uses separate `inventory_*` and `replica_*` fields because inventory file version/status and replica file version/status can differ.
+
+Example response:
+
+```json
+{
+  "files": [
+    {
+      "file_id": 10,
+      "replica_id": 7,
+      "inventory_id": 3,
+      "relative_uri": "album/img.jpg",
+      "size": 200,
+      "hash": "inventory-hash",
+      "inventory_status": "active",
+      "inventory_version": 5,
+      "replica_status": "pending",
+      "replica_version": 4,
+      "created": "2026-05-21T11:00:00Z",
+      "modified": "2026-05-21T12:00:00Z"
+    }
+  ]
+}
+```
+
+Possible errors:
+- `401` missing authenticated node
+- `403` disabled node
+- `403` revoked node
+- `403` replica does not belong to authenticated node
+- `404` replica not found
 
 #### POST /replica/{id}/files
 Reports one or more file changes detected on a specific replica.

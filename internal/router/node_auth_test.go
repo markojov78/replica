@@ -453,6 +453,135 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 	}
 }
 
+func TestInternalReplicaFilesReturnsInventoryAndReplicaMetadata(t *testing.T) {
+	database := openRouterTestDB(t)
+
+	hashedSecret, err := security.HashPassword("node-secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+
+	if err := database.Create(&model.Node{
+		ID:     "node-a",
+		Status: model.NodeStatusOffline,
+		Secret: hashedSecret,
+	}).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+
+	inventory := &model.Inventory{
+		Name:   "photos",
+		Status: model.InventoryStatusActive,
+		Type:   model.InventoryTypeFolder,
+	}
+	if err := database.Create(inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+
+	replica := &model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-a",
+		URI:         "/data/photos",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(replica).Error; err != nil {
+		t.Fatalf("Create(replica) error = %v", err)
+	}
+
+	created := time.Date(2026, 5, 21, 11, 0, 0, 0, time.UTC)
+	modified := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	file := &model.InventoryFile{
+		InventoryID: inventory.ID,
+		RelativeURI: "album/img.jpg",
+		Status:      model.InventoryFileStatusActive,
+		Size:        200,
+		Hash:        "inventory-hash",
+		Version:     5,
+		Created:     created,
+		Modified:    modified,
+	}
+	if err := database.Create(file).Error; err != nil {
+		t.Fatalf("Create(file) error = %v", err)
+	}
+
+	replicaFile := &model.ReplicaFile{
+		FileID:    file.ID,
+		ReplicaID: replica.ID,
+		Version:   4,
+		Status:    model.ReplicaFileStatusPending,
+	}
+	if err := database.Create(replicaFile).Error; err != nil {
+		t.Fatalf("Create(replicaFile) error = %v", err)
+	}
+
+	authService := newRouterTestAuthService(database)
+	pair, err := authService.NodeLogin("node-a", "node-secret")
+	if err != nil {
+		t.Fatalf("NodeLogin() error = %v", err)
+	}
+
+	nodeService := service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	inventoryService := service.NewInventoryService(repository.NewInventoryRepository(database), nodeService)
+
+	handler := New(
+		config.Config{},
+		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
+		authService,
+		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
+		service.NewRoleService(repository.NewRoleRepository(database)),
+		nodeService,
+		inventoryService,
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files", nil)
+	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+
+	var body struct {
+		Files []struct {
+			FileID           uint      `json:"file_id"`
+			ReplicaID        uint      `json:"replica_id"`
+			InventoryID      uint      `json:"inventory_id"`
+			RelativeURI      string    `json:"relative_uri"`
+			Size             int64     `json:"size"`
+			Hash             string    `json:"hash"`
+			InventoryStatus  string    `json:"inventory_status"`
+			InventoryVersion uint      `json:"inventory_version"`
+			ReplicaStatus    string    `json:"replica_status"`
+			ReplicaVersion   uint      `json:"replica_version"`
+			Created          time.Time `json:"created"`
+			Modified         time.Time `json:"modified"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(body.Files) != 1 {
+		t.Fatalf("len(body.Files) = %d, want 1", len(body.Files))
+	}
+	got := body.Files[0]
+	if got.FileID != file.ID || got.ReplicaID != replica.ID || got.InventoryID != inventory.ID {
+		t.Fatalf("ids = file:%d replica:%d inventory:%d, want %d/%d/%d", got.FileID, got.ReplicaID, got.InventoryID, file.ID, replica.ID, inventory.ID)
+	}
+	if got.RelativeURI != "album/img.jpg" || got.Size != 200 || got.Hash != "inventory-hash" {
+		t.Fatalf("file metadata = uri:%q size:%d hash:%q", got.RelativeURI, got.Size, got.Hash)
+	}
+	if got.InventoryStatus != string(model.InventoryFileStatusActive) || got.InventoryVersion != 5 {
+		t.Fatalf("inventory state = %s/%d, want active/5", got.InventoryStatus, got.InventoryVersion)
+	}
+	if got.ReplicaStatus != string(model.ReplicaFileStatusPending) || got.ReplicaVersion != 4 {
+		t.Fatalf("replica state = %s/%d, want pending/4", got.ReplicaStatus, got.ReplicaVersion)
+	}
+}
+
 func TestPublicReplicasListIsPaginated(t *testing.T) {
 	database := openRouterTestDB(t)
 

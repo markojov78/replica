@@ -78,6 +78,25 @@ type ReplicaFile struct {
 	Status    string `json:"status"`
 }
 
+type ReplicaInventoryFile struct {
+	FileID           uint      `json:"file_id"`
+	ReplicaID        uint      `json:"replica_id"`
+	InventoryID      uint      `json:"inventory_id"`
+	RelativeURI      string    `json:"relative_uri"`
+	Size             int64     `json:"size"`
+	Hash             string    `json:"hash"`
+	InventoryStatus  string    `json:"inventory_status"`
+	InventoryVersion uint      `json:"inventory_version"`
+	ReplicaStatus    string    `json:"replica_status"`
+	ReplicaVersion   uint      `json:"replica_version"`
+	Created          time.Time `json:"created"`
+	Modified         time.Time `json:"modified"`
+}
+
+type ReplicaInventoryFileList struct {
+	Files []ReplicaInventoryFile `json:"files"`
+}
+
 type ReplicaFileList struct {
 	Items []ReplicaFile `json:"items"`
 	Page  int           `json:"page"`
@@ -284,6 +303,32 @@ func (c *Client) ListReplicaFiles(ctx context.Context, replicaID uint, page, cou
 	}
 
 	return &files, nil
+}
+
+func (c *Client) ListReplicaInventoryFiles(ctx context.Context, replicaID uint) ([]ReplicaInventoryFile, error) {
+	accessToken, err := c.ensureAccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	path := fmt.Sprintf("/internal/replica/%d/files", replicaID)
+
+	var fileList ReplicaInventoryFileList
+	if err := c.doAuthenticatedJSON(ctx, http.MethodGet, path, nil, accessToken, &fileList); err != nil {
+		if apiErr, ok := err.(*APIError); ok && apiErr.StatusCode == http.StatusUnauthorized {
+			accessToken, err = c.refreshOrAuthenticate(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.doAuthenticatedJSON(ctx, http.MethodGet, path, nil, accessToken, &fileList); err != nil {
+				return nil, err
+			}
+			return fileList.Files, nil
+		}
+		return nil, err
+	}
+
+	return fileList.Files, nil
 }
 
 func (c *Client) CompleteCommand(ctx context.Context, commandID uint) (*Command, error) {

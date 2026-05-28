@@ -283,3 +283,71 @@ func TestClientListReplicaFilesRefreshesExpiredToken(t *testing.T) {
 		t.Fatalf("files.Items[0].ReplicaID = %d, want %d", files.Items[0].ReplicaID, 7)
 	}
 }
+
+func TestClientListReplicaInventoryFilesUsesInternalEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/auth/login":
+			_ = json.NewEncoder(w).Encode(NodeTokenPair{
+				NodeID:                "node-a",
+				AccessToken:           "access-token",
+				RefreshToken:          "refresh-token",
+				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
+				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
+			})
+		case "/internal/replica/7/files":
+			if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
+				t.Fatalf("Authorization = %q, want %q", got, "Bearer access-token")
+			}
+			_ = json.NewEncoder(w).Encode(ReplicaInventoryFileList{
+				Files: []ReplicaInventoryFile{
+					{
+						FileID:           10,
+						ReplicaID:        7,
+						InventoryID:      3,
+						RelativeURI:      "album/img.jpg",
+						Size:             200,
+						Hash:             "hash",
+						InventoryStatus:  "active",
+						InventoryVersion: 5,
+						ReplicaStatus:    "pending",
+						ReplicaVersion:   4,
+						Created:          time.Now().UTC(),
+						Modified:         time.Now().UTC(),
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(config.Config{
+		App: config.AppConfig{
+			NodeID:         "node-a",
+			CoordinatorURL: server.URL,
+			NodeAddress:    "https://node-address:8081",
+		},
+		Auth: config.AuthConfig{
+			NodeSecret: "node-secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	files, err := client.ListReplicaInventoryFiles(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("ListReplicaInventoryFiles() error = %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("len(files) = %d, want 1", len(files))
+	}
+	if files[0].InventoryVersion != 5 {
+		t.Fatalf("files[0].InventoryVersion = %d, want 5", files[0].InventoryVersion)
+	}
+	if files[0].ReplicaVersion != 4 {
+		t.Fatalf("files[0].ReplicaVersion = %d, want 4", files[0].ReplicaVersion)
+	}
+}

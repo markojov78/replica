@@ -250,12 +250,12 @@ func TestInventoryServiceGetReplicaFile(t *testing.T) {
 
 	svc := NewInventoryService(repository.NewInventoryRepository(database))
 
-	file, err := svc.GetReplicaFile(replica.ID, replicaFile.ID)
+	file, err := svc.GetReplicaFile(replica.ID, replicaFile.FileID)
 	if err != nil {
 		t.Fatalf("GetReplicaFile() error = %v", err)
 	}
-	if file.ID != replicaFile.ID {
-		t.Fatalf("file.ID = %d, want %d", file.ID, replicaFile.ID)
+	if file.ID != replicaFile.FileID {
+		t.Fatalf("file.ID = %d, want %d", file.ID, replicaFile.FileID)
 	}
 	if file.Status != string(model.ReplicaFileStatusSynchronized) {
 		t.Fatalf("file.Status = %q, want %q", file.Status, model.ReplicaFileStatusSynchronized)

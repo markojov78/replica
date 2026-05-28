@@ -76,6 +76,21 @@ type ReplicaFileDetails struct {
 	Status    string `json:"status"`
 }
 
+type ReplicaInventoryFileDetails struct {
+	FileID           uint      `json:"file_id"`
+	ReplicaID        uint      `json:"replica_id"`
+	InventoryID      uint      `json:"inventory_id"`
+	RelativeURI      string    `json:"relative_uri"`
+	Size             int64     `json:"size"`
+	Hash             string    `json:"hash"`
+	InventoryStatus  string    `json:"inventory_status"`
+	InventoryVersion uint      `json:"inventory_version"`
+	ReplicaStatus    string    `json:"replica_status"`
+	ReplicaVersion   uint      `json:"replica_version"`
+	Created          time.Time `json:"created"`
+	Modified         time.Time `json:"modified"`
+}
+
 type ReplicaFileList struct {
 	Items []ReplicaFileDetails `json:"items"`
 	Page  int                  `json:"page"`
@@ -429,6 +444,44 @@ func (s *InventoryService) ListReplicaFiles(replicaID uint, page, perPage int, f
 	}, nil
 }
 
+func (s *InventoryService) ListReplicaInventoryFiles(replicaID uint, nodeID string) ([]ReplicaInventoryFileDetails, error) {
+	replica, err := s.repo.FindReplicaByID(replicaID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrReplicaNotFound
+		}
+		return nil, err
+	}
+	if strings.TrimSpace(nodeID) == "" || replica.NodeID != strings.TrimSpace(nodeID) {
+		return nil, ErrForbidden
+	}
+
+	files, err := s.repo.ListReplicaInventoryFiles(replicaID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]ReplicaInventoryFileDetails, 0, len(files))
+	for _, file := range files {
+		result = append(result, ReplicaInventoryFileDetails{
+			FileID:           file.FileID,
+			ReplicaID:        file.ReplicaID,
+			InventoryID:      file.InventoryID,
+			RelativeURI:      file.RelativeURI,
+			Size:             file.Size,
+			Hash:             file.Hash,
+			InventoryStatus:  file.InventoryStatus,
+			InventoryVersion: file.InventoryVersion,
+			ReplicaStatus:    file.ReplicaStatus,
+			ReplicaVersion:   file.ReplicaVersion,
+			Created:          file.Created,
+			Modified:         file.Modified,
+		})
+	}
+
+	return result, nil
+}
+
 func (s *InventoryService) ListFiles(inventoryID uint, page, perPage int) (*InventoryFileList, error) {
 	if page < 1 {
 		page = 1
@@ -617,7 +670,7 @@ func toInventoryFileDetails(file *model.InventoryFile) *InventoryFileDetails {
 
 func toReplicaFileDetails(file *model.ReplicaFile) *ReplicaFileDetails {
 	return &ReplicaFileDetails{
-		ID:        file.ID,
+		ID:        file.FileID,
 		FileID:    file.FileID,
 		ReplicaID: file.ReplicaID,
 		Version:   file.Version,

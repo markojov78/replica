@@ -111,9 +111,8 @@ func (Replica) TableName() string {
 }
 
 type ReplicaFile struct {
-	ID        uint              `gorm:"primaryKey" json:"id"`
-	FileID    uint              `gorm:"index;not null" json:"file_id"`
-	ReplicaID uint              `gorm:"index;not null" json:"replica_id"`
+	FileID    uint              `gorm:"primaryKey;autoIncrement:false;column:file_id" json:"file_id"`
+	ReplicaID uint              `gorm:"primaryKey;autoIncrement:false;column:replica_id" json:"replica_id"`
 	Version   uint              `gorm:"not null;default:0" json:"version"`
 	Status    ReplicaFileStatus `gorm:"size:32;not null" json:"status"`
 	File      InventoryFile     `gorm:"foreignKey:FileID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`

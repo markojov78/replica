@@ -31,6 +31,28 @@ func registerInternalReplicaRoutes(api huma.API, svc services) {
 		return &listOwnReplicasResponse{Body: replicas}, nil
 	})
 
+	huma.Get(api, "/replica/{replica_id}/files", func(ctx context.Context, input *listReplicaInventoryFilesInput) (*listReplicaInventoryFilesResponse, error) {
+		accessToken, err := bearerToken(input.Authorization)
+		if err != nil {
+			return nil, huma.Error401Unauthorized("missing authenticated node")
+		}
+
+		node, err := svc.auth.Node(accessToken)
+		if err != nil {
+			return nil, mapNodeMeError(err)
+		}
+
+		files, err := svc.inventories.ListReplicaInventoryFiles(input.ReplicaID, node.ID)
+		if err != nil {
+			if err == service.ErrForbidden {
+				return nil, huma.Error403Forbidden("replica does not belong to authenticated node")
+			}
+			return nil, mapInventoryError(err, svc.inventories)
+		}
+
+		return &listReplicaInventoryFilesResponse{Body: listReplicaInventoryFilesBody{Files: files}}, nil
+	})
+
 	huma.Post(api, "/replica/{replica_id}/files", func(ctx context.Context, input *reportReplicaFilesInput) (*reportReplicaFilesResponse, error) {
 		accessToken, err := bearerToken(input.Authorization)
 		if err != nil {
@@ -70,6 +92,20 @@ type listOwnReplicasInput struct {
 
 type listOwnReplicasResponse struct {
 	Body []service.InventoryReplicaDetails
+}
+
+type listReplicaInventoryFilesInput struct {
+	versionHeader
+	Authorization string `header:"Authorization"`
+	ReplicaID     uint   `path:"replica_id"`
+}
+
+type listReplicaInventoryFilesResponse struct {
+	Body listReplicaInventoryFilesBody
+}
+
+type listReplicaInventoryFilesBody struct {
+	Files []service.ReplicaInventoryFileDetails `json:"files"`
 }
 
 type reportReplicaFilesInput struct {
