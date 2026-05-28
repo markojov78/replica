@@ -281,19 +281,19 @@ The storage service responsible for replica A scans `/data/photos`
 For every discovered file, it calculates: relative_uri , size, hash, modified (timestamp)   
 Example discovered files:  
 
-| relative_uri     | size | hash                             |
-|------------------|------|----------------------------------|
-| img001.jpg       | 125  | 7d35803cfcca9f0e046d30b5338efbab |
-| album/img002.jpg | 256  | d5bddda567cc62b99e5695704a399c6a |
+| relative_uri     | size  | hash  |
+|------------------|-------|-------|
+| img001.jpg       | size1 | hash1 |
+| album/img002.jpg | size2 | hash2 |
 
 #### 5) Coordinator inserts `inventory_files`
 For each discovered file:  
 ```
 inventory_files
-file_id  inventory_id  relative_uri       version  status  modified  size  hash
------------------------------------------------------------------------------------------------------------
-10       1             img001.jpg         1        active  time_1    125   7d35803cfcca9f0e046d30b5338efbab
-11       1             album/img002.jpg   1        active  time_2    256   d5bddda567cc62b99e5695704a399c6a
+file_id  inventory_id  relative_uri       version  status  created  modified  size  hash
+-----------------------------------------------------------------------------------------
+10       1             img001.jpg         1        active  time_1   time_3    125   hash1
+11       1             album/img002.jpg   1        active  time_2   time_4    256   hash2
 ```
 This says:  
 These are the authoritative logical files currently known for the inventory.  
@@ -303,10 +303,10 @@ Each starts at version 1.
 For each discovered file, insert a creation event:  
 ```
 inventory_journal
-id   file_id  inventory_id  replica_id  version  action   timestam
+id   file_id  inventory_id  replica_id  version  action   timestamp
 --------------------------------------------------------------------
-101  10       1             A           0        created  time_1  
-102  11       1             A           0        created  time_2  
+101  10       1             A           0        created  event_time  
+102  11       1             A           0        created  event_time  
 ```
 Version in `inventory_journal` is the old version on which action has been performed, 
 and version 0 here means that the file did not exist before this creation event.  
@@ -336,11 +336,11 @@ id  inventory_id  node_id  uri           type        status
 A   1             node-1   /data/photos  filesystem  active
 
 inventory_files
-file_id  inventory_id  relative_uri       version  status  modified  size  hash
------------------------------------------------------------------------------------------------------------
-10       1             img001.jpg         1        active  time_1    125   7d35803cfcca9f0e046d30b5338efbab
-11       1             album/img002.jpg   1        active  time_2    256   d5bddda567cc62b99e5695704a399c6a
-
+file_id  inventory_id  relative_uri       version  status  created  modified  size  hash
+-----------------------------------------------------------------------------------------
+10       1             img001.jpg         1        active  time1    time3     125   hash1
+11       1             album/img002.jpg   1        active  time2    time4     256   hash2
+ 
 replica_files
 file_id  replica_id  version  status
 ------------------------------------------
@@ -356,13 +356,15 @@ So the default replica starts as `synchronized`, and additional replicas added l
 because they need to receive the already-known inventory files.  
 
 ### Creating a new replica
+This explains what happens when a new replica is created for an existing inventory.  
+
 #### 1) Initial state
 ```
 inventory_files
-file_id  version  status  modified  size  hash
-----------------------------------------------
-10       3        active  time      size  hash
-11       3        active  time      size  hash
+file_id  version  status  created  modified  size   hash
+---------------------------------------------------------
+10       3        active  time1    time3     size1  hash1
+11       3        active  time2    time4     size2  hash2
 
 replicas
 id  inventory_id  node_id  uri           type        status

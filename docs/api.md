@@ -1133,9 +1133,11 @@ Behavior:
 Request body:
 - `files` required
 - each file entry contains:
-  - `file_id`
+  - `file_id` optional, new file id means new file
+  - `relative_uri`
   - `file_size`
   - `file_hash`
+  - `created_time`
   - `modified_time`
 
 Example request:
@@ -1145,8 +1147,10 @@ Example request:
   "files": [
     {
       "file_id": 10,
+      "relative_uri": "photos/image025.jpg",
       "file_size": 200,
       "file_hash": "new-hash",
+      "created_time": "2026-05-21T12:00:00Z",
       "modified_time": "2026-05-21T12:00:00Z"
     }
   ]
