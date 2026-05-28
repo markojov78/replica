@@ -9,7 +9,7 @@ import (
 )
 
 func registerInternalCommandRoutes(api huma.API, svc services) {
-	huma.Post(api, "/commands/{command_id}/complete", func(ctx context.Context, input *completeNodeCommandInput) (*completeNodeCommandResponse, error) {
+	huma.Patch(api, "/commands/{command_id}", func(ctx context.Context, input *updateNodeCommandInput) (*updateNodeCommandResponse, error) {
 		accessToken, err := bearerToken(input.Authorization)
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated node")
@@ -20,21 +20,28 @@ func registerInternalCommandRoutes(api huma.API, svc services) {
 			return nil, mapNodeMeError(err)
 		}
 
-		command, err := svc.nodes.CompleteCommand(node.ID, input.CommandID)
+		command, err := svc.nodes.UpdateCommand(node.ID, input.CommandID, service.UpdateNodeCommandInput{
+			Status: input.Body.Status,
+			Error:  input.Body.Error,
+		})
 		if err != nil {
 			return nil, mapNodeError(err, svc.nodes)
 		}
 
-		return &completeNodeCommandResponse{Body: *command}, nil
+		return &updateNodeCommandResponse{Body: *command}, nil
 	})
 }
 
-type completeNodeCommandInput struct {
+type updateNodeCommandInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
 	CommandID     uint   `path:"command_id"`
+	Body          struct {
+		Status string  `json:"status" minLength:"1"`
+		Error  *string `json:"error,omitempty"`
+	}
 }
 
-type completeNodeCommandResponse struct {
+type updateNodeCommandResponse struct {
 	Body service.NodeCommand
 }

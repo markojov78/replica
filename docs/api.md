@@ -987,24 +987,30 @@ Possible errors:
 
 This endpoint is node-authenticated and does not require any explicit permission beyond a valid node access token.
 
-#### POST /commands/{command_id}/complete
-Marks a durable coordinator command as completed for the authenticated node.
+#### PATCH /commands/{command_id}
+Updates the status of a durable coordinator command for the authenticated node.
 
 Behavior:
 - validates the bearer node JWT
 - resolves the current node from the auth token
 - loads the command from coordinator storage
-- rejects attempts to complete commands owned by another node
-- if the command is already completed, returns success idempotently
-- otherwise updates command status to `completed` and updates `updated_at`
+- rejects attempts to update commands owned by another node
+- validates the requested command status
+- updates command status and `updated_at`
+- stores `last_error` when `error` is provided
 
 Example request:
 
-```http
-POST /internal/commands/7/complete
-Authorization: Bearer node-access-token-value
-X-API-Version: 1
+```json
+{
+  "status": "failed",
+  "error": "refresh failed"
+}
 ```
+
+Request body:
+- `status` required, one of `pending`, `completed`, `failed`, `canceled`
+- `error` optional, stored as `last_error`
 
 Example response:
 
@@ -1013,12 +1019,13 @@ Example response:
   "id": 7,
   "node_id": "node-a",
   "type": "refresh_state",
-  "status": "completed",
+  "status": "failed",
   "payload": {
     "placeholder": true
   },
   "created_at": "2026-05-21T11:59:00Z",
-  "updated_at": "2026-05-21T12:05:00Z"
+  "updated_at": "2026-05-21T12:05:00Z",
+  "last_error": "refresh failed"
 }
 ```
 
@@ -1027,6 +1034,7 @@ Possible errors:
 - `403` disabled node
 - `403` revoked node
 - `403` node command belongs to another node
+- `400` invalid node command status
 - `404` node command not found
 
 ### /replicas endpoint

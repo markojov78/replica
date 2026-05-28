@@ -906,7 +906,7 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 	}
 }
 
-func TestInternalCommandsCompleteMarksOwnedCommandCompleted(t *testing.T) {
+func TestInternalCommandsPatchUpdatesOwnedCommandStatus(t *testing.T) {
 	database := openRouterTestDB(t)
 
 	hashedSecret, err := security.HashPassword("node-secret")
@@ -947,9 +947,10 @@ func TestInternalCommandsCompleteMarksOwnedCommandCompleted(t *testing.T) {
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/commands/"+strconv.FormatUint(uint64(command.ID), 10)+"/complete", nil)
+	req := httptest.NewRequest(http.MethodPatch, "/internal/commands/"+strconv.FormatUint(uint64(command.ID), 10), strings.NewReader(`{"status":"failed","error":"refresh failed"}`))
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
+	req.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 
 	handler.ServeHTTP(recorder, req)
@@ -959,8 +960,9 @@ func TestInternalCommandsCompleteMarksOwnedCommandCompleted(t *testing.T) {
 	}
 
 	var body struct {
-		ID     uint   `json:"id"`
-		Status string `json:"status"`
+		ID        uint    `json:"id"`
+		Status    string  `json:"status"`
+		LastError *string `json:"last_error"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
@@ -968,8 +970,11 @@ func TestInternalCommandsCompleteMarksOwnedCommandCompleted(t *testing.T) {
 	if body.ID != command.ID {
 		t.Fatalf("body.ID = %d, want %d", body.ID, command.ID)
 	}
-	if body.Status != string(model.NodeCommandStatusCompleted) {
-		t.Fatalf("body.Status = %q, want %q", body.Status, model.NodeCommandStatusCompleted)
+	if body.Status != string(model.NodeCommandStatusFailed) {
+		t.Fatalf("body.Status = %q, want %q", body.Status, model.NodeCommandStatusFailed)
+	}
+	if body.LastError == nil || *body.LastError != "refresh failed" {
+		t.Fatalf("body.LastError = %v, want refresh failed", body.LastError)
 	}
 }
 

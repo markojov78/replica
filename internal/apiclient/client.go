@@ -331,22 +331,28 @@ func (c *Client) ListReplicaInventoryFiles(ctx context.Context, replicaID uint) 
 	return fileList.Files, nil
 }
 
-func (c *Client) CompleteCommand(ctx context.Context, commandID uint) (*Command, error) {
+func (c *Client) UpdateCommand(ctx context.Context, commandID uint, status string, lastError *string) (*Command, error) {
 	accessToken, err := c.ensureAccessToken(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	path := fmt.Sprintf("/internal/commands/%d/complete", commandID)
+	path := fmt.Sprintf("/internal/commands/%d", commandID)
+	reqBody := map[string]any{
+		"status": status,
+	}
+	if lastError != nil {
+		reqBody["error"] = *lastError
+	}
 
 	var command Command
-	if err := c.doAuthenticatedJSON(ctx, http.MethodPost, path, nil, accessToken, &command); err != nil {
+	if err := c.doAuthenticatedJSON(ctx, http.MethodPatch, path, reqBody, accessToken, &command); err != nil {
 		if apiErr, ok := err.(*APIError); ok && apiErr.StatusCode == http.StatusUnauthorized {
 			accessToken, err = c.refreshOrAuthenticate(ctx)
 			if err != nil {
 				return nil, err
 			}
-			if err := c.doAuthenticatedJSON(ctx, http.MethodPost, path, nil, accessToken, &command); err != nil {
+			if err := c.doAuthenticatedJSON(ctx, http.MethodPatch, path, reqBody, accessToken, &command); err != nil {
 				return nil, err
 			}
 			return &command, nil

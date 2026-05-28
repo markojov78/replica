@@ -24,8 +24,11 @@ type Runtime struct {
 	wsConnected       atomic.Bool
 	wsDialer          *websocket.Dialer
 
-	replicasMu sync.RWMutex
-	replicas   []apiclient.Replica
+	stateMu      sync.RWMutex
+	replicas     []apiclient.Replica
+	replicaFiles map[uint][]apiclient.ReplicaInventoryFile
+
+	commandCh chan apiclient.Command
 }
 
 func NewRuntime(cfg config.Config) (*Runtime, error) {
@@ -38,6 +41,8 @@ func NewRuntime(cfg config.Config) (*Runtime, error) {
 		client:            client,
 		heartbeatInterval: cfg.App.HeartbeatInterval,
 		wsDialer:          websocket.DefaultDialer,
+		replicaFiles:      make(map[uint][]apiclient.ReplicaInventoryFile),
+		commandCh:         make(chan apiclient.Command, 128),
 	}, nil
 }
 
@@ -46,24 +51,27 @@ func (r *Runtime) Start(ctx context.Context) {
 }
 
 func (r *Runtime) run(ctx context.Context) {
-	pair, replicas, ok := r.bootstrap(ctx)
+	pair, replicas, commands, ok := r.bootstrap(ctx)
 	if !ok {
 		return
 	}
 
-	r.setReplicas(replicas)
 	r.startReplicaWatchers(ctx, replicas)
+	go r.commandProcessor(ctx)
+	for _, command := range commands {
+		r.enqueueCommand(command)
+	}
 	go r.refreshLoop(ctx, pair)
 	go r.commandLoop(ctx)
 	go r.heartbeatLoop(ctx)
 }
 
-func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []apiclient.Replica, bool) {
+func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []apiclient.Replica, []apiclient.Command, bool) {
 	for {
 		pair, err := r.client.Authenticate(ctx)
 		if err != nil {
 			if !sleepContext(ctx, bootstrapRetryInterval) {
-				return nil, nil, false
+				return nil, nil, nil, false
 			}
 			log.Printf("storage runtime authenticate failed: %v", err)
 			continue
@@ -72,34 +80,55 @@ func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []ap
 		report, err := r.client.ReportAvailability(ctx)
 		if err != nil {
 			if !sleepContext(ctx, bootstrapRetryInterval) {
-				return nil, nil, false
+				return nil, nil, nil, false
 			}
 			log.Printf("storage runtime initial heartbeat failed: %v", err)
 			continue
 		}
 
-		replicas, err := r.client.ListOwnReplicas(ctx)
+		replicas, err := r.refreshLocalState(ctx)
 		if err != nil {
 			if !sleepContext(ctx, bootstrapRetryInterval) {
-				return nil, nil, false
+				return nil, nil, nil, false
 			}
-			log.Printf("storage runtime replica bootstrap failed: %v", err)
+			log.Printf("storage runtime state bootstrap failed: %v", err)
 			continue
 		}
 
-		for _, command := range report.Commands {
-			r.processCommand(command)
-		}
 		log.Printf("storage runtime connected to coordinator as node_id=%s replicas=%d", r.client.NodeID(), len(replicas))
-		return pair, replicas, true
+		return pair, replicas, report.Commands, true
 	}
 }
 
-func (r *Runtime) setReplicas(replicas []apiclient.Replica) {
-	r.replicasMu.Lock()
-	defer r.replicasMu.Unlock()
+func (r *Runtime) refreshLocalState(ctx context.Context) ([]apiclient.Replica, error) {
+	replicas, err := r.client.ListOwnReplicas(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	replicaFiles := make(map[uint][]apiclient.ReplicaInventoryFile, len(replicas))
+	for _, replica := range replicas {
+		files, err := r.client.ListReplicaInventoryFiles(ctx, replica.ID)
+		if err != nil {
+			return nil, err
+		}
+		replicaFiles[replica.ID] = append([]apiclient.ReplicaInventoryFile(nil), files...)
+	}
+
+	r.setLocalState(replicas, replicaFiles)
+	log.Printf("storage runtime refreshed local state replicas=%d", len(replicas))
+	return replicas, nil
+}
+
+func (r *Runtime) setLocalState(replicas []apiclient.Replica, replicaFiles map[uint][]apiclient.ReplicaInventoryFile) {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
 
 	r.replicas = append([]apiclient.Replica(nil), replicas...)
+	r.replicaFiles = make(map[uint][]apiclient.ReplicaInventoryFile, len(replicaFiles))
+	for replicaID, files := range replicaFiles {
+		r.replicaFiles[replicaID] = append([]apiclient.ReplicaInventoryFile(nil), files...)
+	}
 }
 
 func (r *Runtime) startReplicaWatchers(ctx context.Context, replicas []apiclient.Replica) {
@@ -194,7 +223,7 @@ func (r *Runtime) heartbeatLoop(ctx context.Context) {
 			}
 
 			for _, command := range report.Commands {
-				r.processCommand(command)
+				r.enqueueCommand(command)
 			}
 		}
 	}
@@ -254,13 +283,90 @@ func (r *Runtime) listenForCommands(ctx context.Context) error {
 		if err := conn.ReadJSON(&command); err != nil {
 			return err
 		}
-		r.processCommand(command)
+		r.enqueueCommand(command)
 	}
 }
 
-func (r *Runtime) processCommand(command apiclient.Command) {
-	// TODO
+func (r *Runtime) enqueueCommand(command apiclient.Command) {
 	log.Printf("storage runtime got command id=%d type=%s status=%s payload=%s", command.ID, command.Type, command.Status, formatPayload(command.Payload))
+	r.commandCh <- command
+}
+
+func (r *Runtime) commandProcessor(ctx context.Context) {
+	pending := make(map[uint]apiclient.Command)
+	completed := make(map[uint]struct{})
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case command := <-r.commandCh:
+			if command.ID == 0 {
+				log.Printf("storage runtime ignored command with missing id type=%s", command.Type)
+				continue
+			}
+			if _, ok := completed[command.ID]; ok {
+				r.markCommandCompleted(ctx, command.ID)
+				continue
+			}
+			if _, ok := pending[command.ID]; ok {
+				continue
+			}
+			pending[command.ID] = command
+
+			for len(pending) > 0 {
+				nextID, next := nextCommand(pending)
+				delete(pending, nextID)
+				if r.handleCommand(ctx, next) {
+					completed[next.ID] = struct{}{}
+				}
+			}
+		}
+	}
+}
+
+func nextCommand(commands map[uint]apiclient.Command) (uint, apiclient.Command) {
+	var minID uint
+	var selected apiclient.Command
+	for id, command := range commands {
+		if minID == 0 || id < minID {
+			minID = id
+			selected = command
+		}
+	}
+	return minID, selected
+}
+
+func (r *Runtime) handleCommand(ctx context.Context, command apiclient.Command) bool {
+	switch command.Type {
+	case "refresh_state":
+		if _, err := r.refreshLocalState(ctx); err != nil {
+			r.markCommandFailed(ctx, command.ID, err)
+			return false
+		}
+		return r.markCommandCompleted(ctx, command.ID)
+	default:
+		log.Printf("storage runtime command type not implemented id=%d type=%s", command.ID, command.Type)
+		return false
+	}
+}
+
+func (r *Runtime) markCommandCompleted(ctx context.Context, commandID uint) bool {
+	if _, err := r.client.UpdateCommand(ctx, commandID, "completed", nil); err != nil {
+		log.Printf("storage runtime command completion failed id=%d error=%v", commandID, err)
+		return false
+	}
+	log.Printf("storage runtime command completed id=%d", commandID)
+	return true
+}
+
+func (r *Runtime) markCommandFailed(ctx context.Context, commandID uint, commandErr error) {
+	message := commandErr.Error()
+	if _, err := r.client.UpdateCommand(ctx, commandID, "failed", &message); err != nil {
+		log.Printf("storage runtime command failure report failed id=%d command_error=%v report_error=%v", commandID, commandErr, err)
+		return
+	}
+	log.Printf("storage runtime command failed id=%d error=%v", commandID, commandErr)
 }
 
 func formatPayload(payload json.RawMessage) string {

@@ -231,6 +231,8 @@ func mapNodeError(err error, nodeService *service.NodeService) error {
 		return huma.Error403Forbidden("node command belongs to another node")
 	case errors.Is(err, service.ErrInvalidNodeStatus):
 		return huma.Error400BadRequest("invalid node status")
+	case errors.Is(err, service.ErrInvalidNodeCommandStatus):
+		return huma.Error400BadRequest("invalid node command status")
 	case strings.Contains(lower, "unique"):
 		return huma.Error409Conflict("node already exists")
 	default:

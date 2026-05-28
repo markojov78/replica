@@ -198,7 +198,7 @@ func TestNodeServiceReportAvailabilityIncludesPendingCommands(t *testing.T) {
 	}
 }
 
-func TestNodeServiceCompleteCommandIsIdempotentAndScopedToNode(t *testing.T) {
+func TestNodeServiceUpdateCommandSetsStatusErrorAndScopesToNode(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
 		Driver: "sqlite",
 		DSN:    filepath.Join(t.TempDir(), "node-complete-command.db"),
@@ -228,23 +228,39 @@ func TestNodeServiceCompleteCommandIsIdempotentAndScopedToNode(t *testing.T) {
 		t.Fatalf("Create(command) error = %v", err)
 	}
 
-	completed, err := nodeService.CompleteCommand("node-a", command.ID)
+	completed, err := nodeService.UpdateCommand("node-a", command.ID, UpdateNodeCommandInput{
+		Status: string(model.NodeCommandStatusCompleted),
+	})
 	if err != nil {
-		t.Fatalf("CompleteCommand() error = %v", err)
+		t.Fatalf("UpdateCommand(completed) error = %v", err)
 	}
 	if completed.Status != string(model.NodeCommandStatusCompleted) {
 		t.Fatalf("completed.Status = %q, want %q", completed.Status, model.NodeCommandStatusCompleted)
 	}
+	if completed.LastError != nil {
+		t.Fatalf("completed.LastError = %q, want nil", *completed.LastError)
+	}
 
-	completedAgain, err := nodeService.CompleteCommand("node-a", command.ID)
+	failureReason := "refresh failed"
+	failed, err := nodeService.UpdateCommand("node-a", command.ID, UpdateNodeCommandInput{
+		Status: string(model.NodeCommandStatusFailed),
+		Error:  &failureReason,
+	})
 	if err != nil {
-		t.Fatalf("CompleteCommand(idempotent) error = %v", err)
+		t.Fatalf("UpdateCommand(failed) error = %v", err)
 	}
-	if completedAgain.Status != string(model.NodeCommandStatusCompleted) {
-		t.Fatalf("completedAgain.Status = %q, want %q", completedAgain.Status, model.NodeCommandStatusCompleted)
+	if failed.Status != string(model.NodeCommandStatusFailed) {
+		t.Fatalf("failed.Status = %q, want %q", failed.Status, model.NodeCommandStatusFailed)
+	}
+	if failed.LastError == nil || *failed.LastError != failureReason {
+		t.Fatalf("failed.LastError = %v, want %q", failed.LastError, failureReason)
 	}
 
-	if _, err := nodeService.CompleteCommand("node-b", command.ID); err != ErrNodeCommandOwnership {
-		t.Fatalf("CompleteCommand(other node) error = %v, want %v", err, ErrNodeCommandOwnership)
+	if _, err := nodeService.UpdateCommand("node-a", command.ID, UpdateNodeCommandInput{Status: "invalid"}); err != ErrInvalidNodeCommandStatus {
+		t.Fatalf("UpdateCommand(invalid status) error = %v, want %v", err, ErrInvalidNodeCommandStatus)
+	}
+
+	if _, err := nodeService.UpdateCommand("node-b", command.ID, UpdateNodeCommandInput{Status: string(model.NodeCommandStatusCompleted)}); err != ErrNodeCommandOwnership {
+		t.Fatalf("UpdateCommand(other node) error = %v, want %v", err, ErrNodeCommandOwnership)
 	}
 }

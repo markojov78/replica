@@ -14,6 +14,7 @@ import (
 )
 
 var ErrInvalidNodeStatus = errors.New("invalid node status")
+var ErrInvalidNodeCommandStatus = errors.New("invalid node command status")
 var ErrNodeCommandNotFound = errors.New("node command not found")
 var ErrNodeCommandOwnership = errors.New("node command ownership mismatch")
 
@@ -55,6 +56,11 @@ type UpdateNodeInput struct {
 	Secret  *string
 	Address *string
 	Status  *string
+}
+
+type UpdateNodeCommandInput struct {
+	Status string
+	Error  *string
 }
 
 type NodeService struct {
@@ -204,7 +210,7 @@ func (s *NodeService) ReportAvailability(id, address string) (*NodeAvailabilityR
 	}, nil
 }
 
-func (s *NodeService) CompleteCommand(nodeID string, commandID uint) (*NodeCommand, error) {
+func (s *NodeService) UpdateCommand(nodeID string, commandID uint, input UpdateNodeCommandInput) (*NodeCommand, error) {
 	command, err := s.commands.FindByID(commandID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -215,12 +221,18 @@ func (s *NodeService) CompleteCommand(nodeID string, commandID uint) (*NodeComma
 	if command.NodeID != nodeID {
 		return nil, ErrNodeCommandOwnership
 	}
-	if command.Status != model.NodeCommandStatusCompleted {
-		command.Status = model.NodeCommandStatusCompleted
-		if err := s.commands.Update(command); err != nil {
-			return nil, err
-		}
+
+	status := model.CommandStatus(input.Status)
+	if !status.Valid() {
+		return nil, ErrInvalidNodeCommandStatus
 	}
+
+	command.Status = status
+	command.LastError = input.Error
+	if err := s.commands.Update(command); err != nil {
+		return nil, err
+	}
+
 	return toNodeCommand(command), nil
 }
 

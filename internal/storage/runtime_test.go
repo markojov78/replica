@@ -25,6 +25,7 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 	refreshCalls := 0
 	heartbeatCalls := 0
 	replicaCalls := 0
+	commandUpdateCalls := 0
 	wsConnections := 0
 
 	logOutput := captureLogs(t)
@@ -65,6 +66,27 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 		case "/internal/replicas":
 			replicaCalls++
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/internal/commands/7":
+			if r.Method != http.MethodPatch {
+				t.Fatalf("command update method = %s, want PATCH", r.Method)
+			}
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("Decode() command update body error = %v", err)
+			}
+			if got := body["status"]; got != "completed" {
+				t.Fatalf("command update status = %v, want completed", got)
+			}
+			commandUpdateCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":         7,
+				"node_id":    "node-a",
+				"type":       "refresh_state",
+				"status":     "completed",
+				"payload":    map[string]any{"placeholder": true},
+				"created_at": "2026-05-21T11:59:00Z",
+				"updated_at": "2026-05-21T11:59:00Z",
+			})
 		case "/internal/nodes/ws":
 			if got := r.Header.Get("Authorization"); got == "" {
 				t.Fatalf("Authorization header missing for websocket request")
@@ -117,9 +139,11 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 	deadline := time.Now().Add(1800 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		mu.Lock()
-		done := loginCalls >= 1 && refreshCalls >= 1 && heartbeatCalls >= 2 && replicaCalls >= 1 && wsConnections >= 1
+		done := loginCalls >= 1 && refreshCalls >= 1 && heartbeatCalls >= 2 && replicaCalls >= 2 && commandUpdateCalls >= 1 && wsConnections >= 1
 		mu.Unlock()
-		if done && strings.Contains(logOutput.String(), "got command id=7 type=refresh_state status=pending") {
+		if done &&
+			strings.Contains(logOutput.String(), "got command id=7 type=refresh_state status=pending") &&
+			strings.Contains(logOutput.String(), "storage runtime command completed id=7") {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -127,7 +151,7 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	t.Fatalf("loginCalls=%d refreshCalls=%d heartbeatCalls=%d replicaCalls=%d wsConnections=%d logs=%q", loginCalls, refreshCalls, heartbeatCalls, replicaCalls, wsConnections, logOutput.String())
+	t.Fatalf("loginCalls=%d refreshCalls=%d heartbeatCalls=%d replicaCalls=%d commandUpdateCalls=%d wsConnections=%d logs=%q", loginCalls, refreshCalls, heartbeatCalls, replicaCalls, commandUpdateCalls, wsConnections, logOutput.String())
 }
 
 func TestRuntimeProcessesFallbackCommandsWhenWebSocketUnavailable(t *testing.T) {
@@ -199,6 +223,141 @@ func TestRuntimeProcessesFallbackCommandsWhenWebSocketUnavailable(t *testing.T) 
 	t.Fatalf("fallback command log missing, logs=%q", logOutput.String())
 }
 
+func TestRuntimeDeduplicatesCompletedRefreshStateCommand(t *testing.T) {
+	var mu sync.Mutex
+	replicaCalls := 0
+	commandUpdateCalls := 0
+	firstUpdate := make(chan struct{})
+	firstUpdateClosed := false
+
+	upgrader := websocket.Upgrader{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":                  "node-a",
+				"access_token":             "access-token",
+				"refresh_token":            "refresh-token",
+				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
+				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/internal/nodes":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":   "node-a",
+				"address":   "http://node-a:8081",
+				"last_seen": time.Now().UTC().Format(time.RFC3339),
+				"commands":  []any{},
+			})
+		case "/internal/replicas":
+			mu.Lock()
+			replicaCalls++
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/internal/commands/7":
+			if r.Method != http.MethodPatch {
+				t.Fatalf("command update method = %s, want PATCH", r.Method)
+			}
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("Decode() command update body error = %v", err)
+			}
+			if got := body["status"]; got != "completed" {
+				t.Fatalf("command update status = %v, want completed", got)
+			}
+
+			mu.Lock()
+			commandUpdateCalls++
+			if !firstUpdateClosed {
+				close(firstUpdate)
+				firstUpdateClosed = true
+			}
+			mu.Unlock()
+
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":         7,
+				"node_id":    "node-a",
+				"type":       "refresh_state",
+				"status":     "completed",
+				"payload":    map[string]any{},
+				"created_at": "2026-05-21T11:59:00Z",
+				"updated_at": "2026-05-21T11:59:00Z",
+			})
+		case "/internal/nodes/ws":
+			conn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				t.Fatalf("Upgrade() error = %v", err)
+			}
+			defer conn.Close()
+
+			command := map[string]any{
+				"id":         7,
+				"node_id":    "node-a",
+				"type":       "refresh_state",
+				"status":     "pending",
+				"payload":    map[string]any{},
+				"created_at": "2026-05-21T11:59:00Z",
+				"updated_at": "2026-05-21T11:59:00Z",
+			}
+			if err := conn.WriteJSON(command); err != nil {
+				t.Fatalf("WriteJSON(first) error = %v", err)
+			}
+
+			select {
+			case <-firstUpdate:
+			case <-time.After(time.Second):
+				t.Fatalf("timed out waiting for first command update")
+			}
+
+			if err := conn.WriteJSON(command); err != nil {
+				t.Fatalf("WriteJSON(duplicate) error = %v", err)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	runtime, err := NewRuntime(config.Config{
+		App: config.AppConfig{
+			NodeID:            "node-a",
+			CoordinatorURL:    server.URL,
+			NodeAddress:       "http://node-a:8081",
+			HeartbeatInterval: time.Hour,
+		},
+		Auth: config.AuthConfig{
+			NodeSecret: "node-secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	runtime.Start(ctx)
+
+	deadline := time.Now().Add(1500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		done := replicaCalls == 2 && commandUpdateCalls >= 2
+		gotReplicaCalls := replicaCalls
+		mu.Unlock()
+		if done {
+			return
+		}
+		if gotReplicaCalls > 2 {
+			t.Fatalf("replicaCalls=%d, want duplicate command not to refresh state again", gotReplicaCalls)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	t.Fatalf("replicaCalls=%d commandUpdateCalls=%d", replicaCalls, commandUpdateCalls)
+}
+
 func TestRuntimeStartsReplicaWatcherAndLogsChanges(t *testing.T) {
 	logOutput := captureLogs(t)
 	replicaRoot := t.TempDir()
@@ -230,6 +389,10 @@ func TestRuntimeStartsReplicaWatcherAndLogsChanges(t *testing.T) {
 					"status":       "active",
 					"type":         "filesystem",
 				},
+			})
+		case "/internal/replica/3/files":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"files": []any{},
 			})
 		default:
 			http.NotFound(w, r)
