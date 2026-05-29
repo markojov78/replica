@@ -30,16 +30,18 @@ var (
 	ErrInvalidReplicaType       = errors.New("invalid replica type")
 	ErrInvalidReplicaURI        = errors.New("invalid replica uri")
 	ErrInvalidReplicaFileUpdate = errors.New("invalid replica file update")
+	ErrInvalidReplicaUpstream   = errors.New("invalid replica upstream")
 	ErrReplicaNotFound          = errors.New("replica not found")
 )
 
 type InventoryReplicaDetails struct {
-	ID          uint   `json:"id"`
-	InventoryID uint   `json:"inventory_id"`
-	NodeID      string `json:"node_id"`
-	URI         string `json:"uri"`
-	Status      string `json:"status"`
-	Type        string `json:"type"`
+	ID                uint   `json:"id"`
+	InventoryID       uint   `json:"inventory_id"`
+	NodeID            string `json:"node_id"`
+	URI               string `json:"uri"`
+	Status            string `json:"status"`
+	Type              string `json:"type"`
+	UpstreamReplicaID *uint  `json:"upstream_replica_id"`
 }
 
 type InventoryDetails struct {
@@ -127,10 +129,11 @@ type CreateInventoryInput struct {
 }
 
 type CreateReplicaInput struct {
-	InventoryID uint
-	NodeID      string
-	URI         string
-	Type        string
+	InventoryID       uint
+	NodeID            string
+	URI               string
+	Type              string
+	UpstreamReplicaID *uint
 }
 
 type UpdateInventoryInput struct {
@@ -145,8 +148,9 @@ type ReplicaListFilter struct {
 }
 
 type UpdateReplicaInput struct {
-	Type   *string
-	Status *string
+	Type              *string
+	Status            *string
+	UpstreamReplicaID *uint
 }
 
 type ReplicaFileChangeInput struct {
@@ -377,12 +381,13 @@ func toInventoryDetails(inventory *model.Inventory) *InventoryDetails {
 
 func toInventoryReplicaDetails(replica *model.Replica) *InventoryReplicaDetails {
 	return &InventoryReplicaDetails{
-		ID:          replica.ID,
-		InventoryID: replica.InventoryID,
-		NodeID:      replica.NodeID,
-		URI:         replica.URI,
-		Status:      string(replica.Status),
-		Type:        string(replica.Type),
+		ID:                replica.ID,
+		InventoryID:       replica.InventoryID,
+		NodeID:            replica.NodeID,
+		URI:               replica.URI,
+		Status:            string(replica.Status),
+		Type:              string(replica.Type),
+		UpstreamReplicaID: replica.UpstreamReplicaID,
 	}
 }
 

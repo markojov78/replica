@@ -20,10 +20,10 @@ These are the main functionalities that the service offers:
 * Each inventory has at least one replica which points to the physical location of data.  
 * Replica can be defined on local computer storage, cloud storage (i.e. aws s3, with ability to add support for more storage types) and removable storage, like external disk occasionally plugged into the computer to receive data backup  
 * An inventory can have multiple replicas with the following replication rules:   
-1. One-way replication (source to replica)where all changes in the source are propagated to the destination and all the discrepancies are solved by making destination identical to the source   
-2. Multi-directional replication where changes to one copy are propagated to others using type of the change (crud operation) replica id and a timestamp of the change for conflict resolution (this can lead to replication error due to unsolvable conflicts that require user intervention - which is ok for time being, later I maybe introduce some additional rules for conflict resolution)   
-3. One-way replication replicas can form a tree structure where any downstream replica can have only one source   
-4. Multi-directional replica can only be at a base of a three but cannot an upstream source of the one-way replication type
+1. Base replicas have `upstream_replica_id = null` and participate in multi-directional replication with other base replicas of the same inventory.   
+2. Downstream replicas have `upstream_replica_id` set to another replica in the same inventory and receive changes from that upstream replica.   
+3. Local changes reported from downstream replicas are not authoritative inventory changes and must be rejected or marked as conflict/error.   
+4. One-way replication replicas can form a tree structure where any downstream replica can have only one source. Cycle detection is not implemented yet.   
 
 ### Share
 * It's an inventory accessible through the web interface, depending on ownership and permissions and replication rules, end user can use a share to perform CRUD operation on the files accessible through the share  
@@ -102,6 +102,7 @@ node_id - id of the service node on which replica exists
 uri - data prefix uri for the replica  
 status - active, deleted  
 type - storage, filesystem, removable
+upstream_replica_id - nullable reference to another replica in the same inventory; null means base multi-directional replica, non-null means downstream/read-only from replication perspective
 
 #### replica_files
 synchronized - boolean, indicates local change that needs to be propagated in case multi-directional replication or overridden for read-only replica  
@@ -112,13 +113,6 @@ pending - waiting for remote changes to be applied to the local copy
 synchronized - all changes reconciled, nothing to do  
 conflict - multiple changes detected, requires manual fix  
 error - problems other than conflict, for example permission problem
-
-#### replication_groups
-type - bi-directional, one-way  
-status - active, deleted
-
-#### group_replicas
-upstream_id - optional upstream replica in case of one-way replication tree, nullable
 
 #### shares
 name - if not specified, will use inventory name  
@@ -134,7 +128,7 @@ status - active, deleted
 status - active, deleted
 
 #### permissions
-resource - users, shares, inventories (permissions to manage inventories implies permission to manage replicas and replication groups)
+resource - users, shares, inventories (permissions to manage inventories implies permission to manage replicas)
 action - read, create, update delete
 
 ## Operation
@@ -268,9 +262,9 @@ Inventory 1 exists as a logical dataset.
 #### 3) Coordinator creates default replica
 ```
 replicas
-id  inventory_id  node_id  uri           type        status
-------------------------------------------------------------
-A   1             node-1   /data/photos  filesystem  active
+id  inventory_id  node_id  uri           type        status  upstream_replica_id
+--------------------------------------------------------------------------------
+A   1             node-1   /data/photos  filesystem  active  null
 ```
 This says:  
 Replica A is the first physical location for inventory 1.  
@@ -331,9 +325,9 @@ id  name    type    status
 1   Photos  folder  active
 
 replicas
-id  inventory_id  node_id  uri           type        status
-------------------------------------------------------------
-A   1             node-1   /data/photos  filesystem  active
+id  inventory_id  node_id  uri           type        status  upstream_replica_id
+--------------------------------------------------------------------------------
+A   1             node-1   /data/photos  filesystem  active  null
 
 inventory_files
 file_id  inventory_id  relative_uri       version  status  created  modified  size  hash
@@ -367,9 +361,9 @@ file_id  version  status  created  modified  size   hash
 11       3        active  time2    time4     size2  hash2
 
 replicas
-id  inventory_id  node_id  uri           type        status
-------------------------------------------------------------
-A   1             node-1   /data/photos  filesystem  active
+id  inventory_id  node_id  uri           type        status  upstream_replica_id
+--------------------------------------------------------------------------------
+A   1             node-1   /data/photos  filesystem  active  null
 
 replica_files
 file_id  replica_id  version  status
@@ -380,9 +374,9 @@ file_id  replica_id  version  status
 #### 2) Coordinator create new replica
 ```
 replicas
-id  inventory_id  node_id  uri                 type     status
---------------------------------------------------------------
-B   1             node-2   s3://bucket/photos  storage  active
+id  inventory_id  node_id  uri                 type     status  upstream_replica_id
+----------------------------------------------------------------------------------
+B   1             node-2   s3://bucket/photos  storage  active  null
 ```
 #### 3) Coordinator populates `replica_files` for the new replica
 ```

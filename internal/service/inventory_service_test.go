@@ -177,6 +177,75 @@ func TestInventoryServiceCreateReplicaPopulatesPendingFilesAndCommand(t *testing
 	}
 }
 
+func TestReplicaServiceCreateValidatesUpstreamReplica(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "replica-create-upstream.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	inventoryA := &model.Inventory{Name: "a", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	inventoryB := &model.Inventory{Name: "b", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(inventoryA).Error; err != nil {
+		t.Fatalf("Create(inventoryA) error = %v", err)
+	}
+	if err := database.Create(inventoryB).Error; err != nil {
+		t.Fatalf("Create(inventoryB) error = %v", err)
+	}
+	upstream := &model.Replica{
+		InventoryID: inventoryA.ID,
+		NodeID:      "node-a",
+		URI:         "/data/a",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	foreignUpstream := &model.Replica{
+		InventoryID: inventoryB.ID,
+		NodeID:      "node-b",
+		URI:         "/data/b",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(upstream).Error; err != nil {
+		t.Fatalf("Create(upstream) error = %v", err)
+	}
+	if err := database.Create(foreignUpstream).Error; err != nil {
+		t.Fatalf("Create(foreignUpstream) error = %v", err)
+	}
+
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
+	upstreamID := upstream.ID
+	replica, err := svc.Create(CreateReplicaInput{
+		InventoryID:       inventoryA.ID,
+		NodeID:            "node-c",
+		URI:               "/data/c",
+		Type:              string(model.ReplicaTypeFilesystem),
+		UpstreamReplicaID: &upstreamID,
+	})
+	if err != nil {
+		t.Fatalf("Create(valid upstream) error = %v", err)
+	}
+	if replica.UpstreamReplicaID == nil || *replica.UpstreamReplicaID != upstream.ID {
+		t.Fatalf("replica.UpstreamReplicaID = %v, want %d", replica.UpstreamReplicaID, upstream.ID)
+	}
+
+	foreignID := foreignUpstream.ID
+	if _, err := svc.Create(CreateReplicaInput{
+		InventoryID:       inventoryA.ID,
+		NodeID:            "node-d",
+		URI:               "/data/d",
+		Type:              string(model.ReplicaTypeFilesystem),
+		UpstreamReplicaID: &foreignID,
+	}); err != ErrInvalidReplicaUpstream {
+		t.Fatalf("Create(foreign upstream) error = %v, want %v", err, ErrInvalidReplicaUpstream)
+	}
+}
+
 func TestInventoryServiceListReplicaFiles(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
 		Driver: "sqlite",
@@ -741,5 +810,53 @@ func TestInventoryServiceReportReplicaFileChangesRejectsInvalidFileReferences(t 
 		{RelativeURI: "same.jpg", FileSize: 1, FileHash: "hash", CreatedTime: now, ModifiedTime: now},
 	}); err != ErrInvalidReplicaFileUpdate {
 		t.Fatalf("ReportFileChanges(active duplicate) error = %v, want %v", err, ErrInvalidReplicaFileUpdate)
+	}
+}
+
+func TestReplicaServiceReportFileChangesRejectsDownstreamReplica(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "replica-file-report-downstream.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	inventory := &model.Inventory{Name: "photos", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	upstream := &model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-a",
+		URI:         "/data/a",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(upstream).Error; err != nil {
+		t.Fatalf("Create(upstream) error = %v", err)
+	}
+	downstream := &model.Replica{
+		InventoryID:       inventory.ID,
+		NodeID:            "node-b",
+		URI:               "/data/b",
+		Status:            model.ReplicaStatusActive,
+		Type:              model.ReplicaTypeFilesystem,
+		UpstreamReplicaID: &upstream.ID,
+	}
+	if err := database.Create(downstream).Error; err != nil {
+		t.Fatalf("Create(downstream) error = %v", err)
+	}
+
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
+	now := time.Now().UTC()
+	err = svc.ReportFileChanges(downstream.ID, "node-b", []ReplicaFileChangeInput{
+		{RelativeURI: "file.txt", FileSize: 1, FileHash: "hash", CreatedTime: now, ModifiedTime: now},
+	})
+	if err != ErrInvalidReplicaFileUpdate {
+		t.Fatalf("ReportFileChanges(downstream) error = %v, want %v", err, ErrInvalidReplicaFileUpdate)
 	}
 }

@@ -15,8 +15,6 @@ func TestDocumentedEnumsAreValid(t *testing.T) {
 		{name: string(ReplicaStatusActive), valid: ReplicaStatusActive.Valid()},
 		{name: string(ReplicaTypeFilesystem), valid: ReplicaTypeFilesystem.Valid()},
 		{name: string(ReplicaFileStatusConflict), valid: ReplicaFileStatusConflict.Valid()},
-		{name: string(ReplicationGroupTypeOneWay), valid: ReplicationGroupTypeOneWay.Valid()},
-		{name: string(ReplicationGroupStatusDeleted), valid: ReplicationGroupStatusDeleted.Valid()},
 		{name: string(ShareStatusActive), valid: ShareStatusActive.Valid()},
 		{name: string(NodeStatusOnline), valid: NodeStatusOnline.Valid()},
 		{name: string(NodeCommandStatusPending), valid: NodeCommandStatusPending.Valid()},
@@ -37,9 +35,6 @@ func TestInvalidStatusesFailValidation(t *testing.T) {
 	}
 	if ReplicaFileStatus("invalid").Valid() {
 		t.Fatal("invalid replica file status should fail")
-	}
-	if ReplicationGroupType("invalid").Valid() {
-		t.Fatal("invalid replication group type should fail")
 	}
 	if NodeStatus("invalid").Valid() {
 		t.Fatal("invalid node status should fail")

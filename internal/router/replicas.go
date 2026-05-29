@@ -103,10 +103,11 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		}
 
 		replica, err := svc.replicas.Create(service.CreateReplicaInput{
-			InventoryID: input.Body.InventoryID,
-			NodeID:      input.Body.NodeID,
-			URI:         input.Body.URI,
-			Type:        input.Body.Type,
+			InventoryID:       input.Body.InventoryID,
+			NodeID:            input.Body.NodeID,
+			URI:               input.Body.URI,
+			Type:              input.Body.Type,
+			UpstreamReplicaID: input.Body.UpstreamReplicaID,
 		})
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
@@ -124,8 +125,9 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		}
 
 		replica, err := svc.replicas.Update(input.ID, service.UpdateReplicaInput{
-			Type:   input.Body.Type,
-			Status: input.Body.Status,
+			Type:              input.Body.Type,
+			Status:            input.Body.Status,
+			UpstreamReplicaID: input.Body.UpstreamReplicaID,
 		})
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
@@ -170,10 +172,11 @@ type createReplicaInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
 	Body          struct {
-		InventoryID uint   `json:"inventory_id"`
-		NodeID      string `json:"node_id" minLength:"1"`
-		URI         string `json:"uri" minLength:"1"`
-		Type        string `json:"type" minLength:"1"`
+		InventoryID       uint   `json:"inventory_id"`
+		NodeID            string `json:"node_id" minLength:"1"`
+		URI               string `json:"uri" minLength:"1"`
+		Type              string `json:"type" minLength:"1"`
+		UpstreamReplicaID *uint  `json:"upstream_replica_id,omitempty"`
 	}
 }
 
@@ -199,8 +202,9 @@ type updateReplicaInput struct {
 	Authorization string `header:"Authorization"`
 	ID            uint   `path:"id"`
 	Body          struct {
-		Type   *string `json:"type,omitempty"`
-		Status *string `json:"status,omitempty"`
+		Type              *string `json:"type,omitempty"`
+		Status            *string `json:"status,omitempty"`
+		UpstreamReplicaID *uint   `json:"upstream_replica_id,omitempty"`
 	}
 }
 

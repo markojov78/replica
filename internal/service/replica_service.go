@@ -43,13 +43,17 @@ func (s *ReplicaService) Create(input CreateReplicaInput) (*InventoryReplicaDeta
 	if !replicaType.Valid() {
 		return nil, ErrInvalidReplicaType
 	}
+	if err := s.validateUpstreamReplica(input.InventoryID, 0, input.UpstreamReplicaID); err != nil {
+		return nil, err
+	}
 
 	replica := &model.Replica{
-		InventoryID: input.InventoryID,
-		NodeID:      nodeID,
-		URI:         uri,
-		Status:      model.ReplicaStatusActive,
-		Type:        replicaType,
+		InventoryID:       input.InventoryID,
+		NodeID:            nodeID,
+		URI:               uri,
+		Status:            model.ReplicaStatusActive,
+		Type:              replicaType,
+		UpstreamReplicaID: input.UpstreamReplicaID,
 	}
 	command := &model.Command{
 		NodeID: nodeID,
@@ -256,6 +260,12 @@ func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput) (*Inve
 		}
 		replica.Status = status
 	}
+	if input.UpstreamReplicaID != nil {
+		if err := s.validateUpstreamReplica(replica.InventoryID, replica.ID, input.UpstreamReplicaID); err != nil {
+			return nil, err
+		}
+		replica.UpstreamReplicaID = input.UpstreamReplicaID
+	}
 
 	if err := s.repo.Update(replica); err != nil {
 		return nil, err
@@ -281,6 +291,9 @@ func (s *ReplicaService) ReportFileChanges(replicaID uint, nodeID string, change
 
 	if strings.TrimSpace(nodeID) == "" || replica.NodeID != strings.TrimSpace(nodeID) {
 		return ErrForbidden
+	}
+	if replica.UpstreamReplicaID != nil {
+		return ErrInvalidReplicaFileUpdate
 	}
 
 	updates := make([]repository.ReplicaFileUpdate, 0, len(changes))
@@ -320,4 +333,27 @@ func (s *ReplicaService) ReportFileChanges(replicaID uint, nodeID string, change
 
 func (s *ReplicaService) IsNotFound(err error) bool {
 	return errors.Is(err, gorm.ErrRecordNotFound)
+}
+
+func (s *ReplicaService) validateUpstreamReplica(inventoryID, replicaID uint, upstreamReplicaID *uint) error {
+	if upstreamReplicaID == nil {
+		return nil
+	}
+	if *upstreamReplicaID == 0 || *upstreamReplicaID == replicaID {
+		return ErrInvalidReplicaUpstream
+	}
+
+	upstream, err := s.repo.FindByID(*upstreamReplicaID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrInvalidReplicaUpstream
+		}
+		return err
+	}
+	if upstream.InventoryID != inventoryID {
+		return ErrInvalidReplicaUpstream
+	}
+
+	// TODO: add cycle detection if topology updates become more complex.
+	return nil
 }

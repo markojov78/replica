@@ -7,8 +7,6 @@ type FileJournalAction string
 type ReplicaStatus string
 type ReplicaType string
 type ReplicaFileStatus string
-type ReplicationGroupType string
-type ReplicationGroupStatus string
 type ShareStatus string
 type UserStatus string
 type RoleStatus string
@@ -58,16 +56,6 @@ const (
 	ReplicaFileStatusSynchronized ReplicaFileStatus = "synchronized"
 	ReplicaFileStatusConflict     ReplicaFileStatus = "conflict"
 	ReplicaFileStatusError        ReplicaFileStatus = "error"
-)
-
-const (
-	ReplicationGroupTypeBiDirectional ReplicationGroupType = "bi-directional"
-	ReplicationGroupTypeOneWay        ReplicationGroupType = "one-way"
-)
-
-const (
-	ReplicationGroupStatusActive  ReplicationGroupStatus = "active"
-	ReplicationGroupStatusDeleted ReplicationGroupStatus = "deleted"
 )
 
 const (
@@ -177,24 +165,6 @@ func (t ReplicaType) Valid() bool {
 func (s ReplicaFileStatus) Valid() bool {
 	switch s {
 	case ReplicaFileStatusChanged, ReplicaFileStatusPending, ReplicaFileStatusSynchronized, ReplicaFileStatusConflict, ReplicaFileStatusError:
-		return true
-	default:
-		return false
-	}
-}
-
-func (t ReplicationGroupType) Valid() bool {
-	switch t {
-	case ReplicationGroupTypeBiDirectional, ReplicationGroupTypeOneWay:
-		return true
-	default:
-		return false
-	}
-}
-
-func (s ReplicationGroupStatus) Valid() bool {
-	switch s {
-	case ReplicationGroupStatusActive, ReplicationGroupStatusDeleted:
 		return true
 	default:
 		return false

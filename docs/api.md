@@ -648,7 +648,8 @@ Example response:
       "node_id": "node-1",
       "uri": "/home/username/images/Vacation March 2026",
       "status": "active",
-      "type": "filesystem"
+      "type": "filesystem",
+      "upstream_replica_id": null
     }
   ],
   "page": 1,
@@ -668,6 +669,7 @@ Request body:
 - `node_id` required
 - `uri` required
 - `type` required
+- `upstream_replica_id` optional, nullable; when set, the new replica is downstream/read-only from replication perspective and must reference a replica in the same inventory
 
 Example request:
 
@@ -676,7 +678,8 @@ Example request:
   "inventory_id": 1,
   "node_id": "node-2",
   "uri": "/mnt/backup/photos",
-  "type": "filesystem"
+  "type": "filesystem",
+  "upstream_replica_id": 1
 }
 ```
 
@@ -686,6 +689,12 @@ Updates a replica.
 Request body fields are optional:
 - `type`
 - `status`
+- `upstream_replica_id`
+
+Replica topology:
+- `upstream_replica_id: null` means the replica is a base replica and may be treated as an authoritative source for local changes.
+- `upstream_replica_id` set to another replica id means the replica is downstream/read-only from replication perspective.
+- upstream replicas must belong to the same inventory and a replica cannot reference itself as upstream.
 
 #### DELETE /replicas/{id}
 Soft-deletes a replica by setting its status to `deleted`.
@@ -697,6 +706,7 @@ Possible errors:
 - `400` invalid replica status
 - `400` invalid replica type
 - `400` invalid replica uri
+- `400` invalid replica upstream
 
 ### /replicas/{id}/files endpoint
 
@@ -1137,6 +1147,7 @@ Behavior:
 - rejects a provided `file_id` that belongs to a different inventory
 - rejects a provided `file_id` when its current `relative_uri` differs from the reported `relative_uri`
 - rejects a new-file report when another active file in the same inventory already has the same `relative_uri`
+- rejects reports from downstream replicas whose `upstream_replica_id` is not null, because they are not authoritative sources for local changes
 
 Request body:
 - `files` required

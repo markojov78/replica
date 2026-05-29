@@ -62,12 +62,13 @@ type NodeTokenPair struct {
 }
 
 type Replica struct {
-	ID          uint   `json:"id"`
-	InventoryID uint   `json:"inventory_id"`
-	NodeID      string `json:"node_id"`
-	URI         string `json:"uri"`
-	Status      string `json:"status"`
-	Type        string `json:"type"`
+	ID                uint   `json:"id"`
+	InventoryID       uint   `json:"inventory_id"`
+	NodeID            string `json:"node_id"`
+	URI               string `json:"uri"`
+	Status            string `json:"status"`
+	Type              string `json:"type"`
+	UpstreamReplicaID *uint  `json:"upstream_replica_id"`
 }
 
 type ReplicaFile struct {

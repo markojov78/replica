@@ -96,14 +96,16 @@ func (Command) TableName() string {
 }
 
 type Replica struct {
-	ID          uint          `gorm:"primaryKey" json:"id"`
-	InventoryID uint          `gorm:"index;not null" json:"inventory_id"`
-	NodeID      string        `gorm:"size:255;index;not null" json:"node_id"`
-	URI         string        `gorm:"size:2048;not null" json:"uri"`
-	Status      ReplicaStatus `gorm:"size:32;not null" json:"status"`
-	Type        ReplicaType   `gorm:"size:32;not null" json:"type"`
-	Inventory   Inventory     `gorm:"foreignKey:InventoryID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
-	Node        Node          `gorm:"foreignKey:NodeID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
+	ID                uint          `gorm:"primaryKey" json:"id"`
+	InventoryID       uint          `gorm:"index;not null" json:"inventory_id"`
+	NodeID            string        `gorm:"size:255;index;not null" json:"node_id"`
+	URI               string        `gorm:"size:2048;not null" json:"uri"`
+	Status            ReplicaStatus `gorm:"size:32;not null" json:"status"`
+	Type              ReplicaType   `gorm:"size:32;not null" json:"type"`
+	UpstreamReplicaID *uint         `gorm:"index" json:"upstream_replica_id,omitempty"`
+	Inventory         Inventory     `gorm:"foreignKey:InventoryID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
+	Node              Node          `gorm:"foreignKey:NodeID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
+	UpstreamReplica   *Replica      `gorm:"foreignKey:UpstreamReplicaID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;" json:"-"`
 }
 
 func (Replica) TableName() string {
@@ -121,30 +123,6 @@ type ReplicaFile struct {
 
 func (ReplicaFile) TableName() string {
 	return "replica_files"
-}
-
-type ReplicationGroup struct {
-	ID     uint                   `gorm:"primaryKey" json:"id"`
-	Type   ReplicationGroupType   `gorm:"size:32;not null" json:"type"`
-	Status ReplicationGroupStatus `gorm:"size:32;not null" json:"status"`
-}
-
-func (ReplicationGroup) TableName() string {
-	return "replication_groups"
-}
-
-type GroupReplica struct {
-	ID         uint             `gorm:"primaryKey" json:"id"`
-	GroupID    uint             `gorm:"index;not null" json:"group_id"`
-	ReplicaID  uint             `gorm:"index;not null" json:"replica_id"`
-	UpstreamID *uint            `gorm:"index" json:"upstream_id"`
-	Group      ReplicationGroup `gorm:"foreignKey:GroupID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
-	Replica    Replica          `gorm:"foreignKey:ReplicaID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
-	Upstream   *Replica         `gorm:"foreignKey:UpstreamID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;" json:"-"`
-}
-
-func (GroupReplica) TableName() string {
-	return "group_replicas"
 }
 
 type Share struct {
@@ -273,8 +251,6 @@ func AllModels() []any {
 		&Command{},
 		&Replica{},
 		&ReplicaFile{},
-		&ReplicationGroup{},
-		&GroupReplica{},
 		&Share{},
 		&User{},
 		&UserRole{},

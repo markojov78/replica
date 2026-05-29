@@ -272,6 +272,8 @@ func mapInventoryError(err error, inventoryService *service.InventoryService) er
 		return huma.Error400BadRequest("invalid replica type")
 	case errors.Is(err, service.ErrInvalidReplicaURI):
 		return huma.Error400BadRequest("invalid replica uri")
+	case errors.Is(err, service.ErrInvalidReplicaUpstream):
+		return huma.Error400BadRequest("invalid replica upstream")
 	case errors.Is(err, service.ErrReplicaNotFound):
 		return huma.Error404NotFound("replica not found")
 	default:
