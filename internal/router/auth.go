@@ -150,11 +150,12 @@ type tokenPairResponse struct {
 }
 
 type nodeTokenPairBody struct {
-	NodeID                string    `json:"node_id"`
-	AccessToken           string    `json:"access_token"`
-	RefreshToken          string    `json:"refresh_token"`
-	AccessTokenExpiresAt  time.Time `json:"access_token_expires_at"`
-	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at"`
+	NodeID                 string    `json:"node_id"`
+	AccessToken            string    `json:"access_token"`
+	RefreshToken           string    `json:"refresh_token"`
+	AccessTokenExpiresAt   time.Time `json:"access_token_expires_at"`
+	RefreshTokenExpiresAt  time.Time `json:"refresh_token_expires_at"`
+	TransferTokenPublicKey string    `json:"transfer_token_public_key"`
 }
 
 type nodeTokenPairResponse struct {
@@ -200,11 +201,12 @@ func tokenPairFromService(pair *service.TokenPair) *tokenPairResponse {
 func nodeTokenPairFromService(pair *service.NodeTokenPair) *nodeTokenPairResponse {
 	return &nodeTokenPairResponse{
 		Body: nodeTokenPairBody{
-			NodeID:                pair.NodeID,
-			AccessToken:           pair.AccessToken,
-			RefreshToken:          pair.RefreshToken,
-			AccessTokenExpiresAt:  pair.AccessTokenExpiresAt,
-			RefreshTokenExpiresAt: pair.RefreshTokenExpiresAt,
+			NodeID:                 pair.NodeID,
+			AccessToken:            pair.AccessToken,
+			RefreshToken:           pair.RefreshToken,
+			AccessTokenExpiresAt:   pair.AccessTokenExpiresAt,
+			RefreshTokenExpiresAt:  pair.RefreshTokenExpiresAt,
+			TransferTokenPublicKey: pair.TransferTokenPublicKey,
 		},
 	}
 }

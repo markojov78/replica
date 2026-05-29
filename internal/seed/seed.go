@@ -3,12 +3,19 @@ package seed
 import (
 	"dropoutbox/internal/config"
 	"dropoutbox/internal/model"
+	"dropoutbox/internal/repository"
 	"dropoutbox/internal/security"
+	"dropoutbox/internal/service"
 
 	"gorm.io/gorm"
 )
 
 func Run(db *gorm.DB, cfg config.SeedConfig) error {
+	settingService := service.NewSettingService(repository.NewSettingRepository(db))
+	if err := settingService.EnsureTransferKeys(); err != nil {
+		return err
+	}
+
 	adminName := cfg.AdminName
 	if adminName == "" {
 		adminName = "admin"

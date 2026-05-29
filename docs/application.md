@@ -105,14 +105,13 @@ type - storage, filesystem, removable
 upstream_replica_id - nullable reference to another replica in the same inventory; null means base multi-directional replica, non-null means downstream/read-only from replication perspective
 
 #### replica_files
-synchronized - boolean, indicates local change that needs to be propagated in case multi-directional replication or overridden for read-only replica  
 version - last file version in the replica  
 status - changed, pending, synchronized, conflict, error:  
-changed - local change that needs to be propagated in the case of multi-directional replication or overridden in case of read-only replication  
-pending - waiting for remote changes to be applied to the local copy  
-synchronized - all changes reconciled, nothing to do  
-conflict - multiple changes detected, requires manual fix  
-error - problems other than conflict, for example permission problem
+ -changed - local change that needs to be propagated in the case of multi-directional replication or overridden in case of read-only replication  
+ -pending - waiting for remote changes to be applied to the local copy  
+ -synchronized - all changes reconciled, nothing to do  
+ -conflict - multiple changes detected, requires manual fix  
+ -error - problems other than conflict, for example permission problem
 
 #### shares
 name - if not specified, will use inventory name  
@@ -130,6 +129,10 @@ status - active, deleted
 #### permissions
 resource - users, shares, inventories (permissions to manage inventories implies permission to manage replicas)
 action - read, create, update delete
+
+#### settings
+key - application-managed setting key
+value - application-managed setting value
 
 ## Operation
 ### Communication between nodes

@@ -79,6 +79,15 @@ func (NodeToken) TableName() string {
 	return "node_tokens"
 }
 
+type Setting struct {
+	Key   string `gorm:"primaryKey;size:255" json:"key"`
+	Value string `gorm:"type:text;not null" json:"value"`
+}
+
+func (Setting) TableName() string {
+	return "settings"
+}
+
 type Command struct {
 	ID        uint            `gorm:"primaryKey" json:"id"`
 	NodeID    string          `gorm:"size:255;index;not null" json:"node_id"`
@@ -248,6 +257,7 @@ func AllModels() []any {
 		&FileJournal{},
 		&Node{},
 		&NodeToken{},
+		&Setting{},
 		&Command{},
 		&Replica{},
 		&ReplicaFile{},

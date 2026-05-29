@@ -51,14 +51,16 @@ type Client struct {
 	refreshToken          string
 	accessTokenExpiresAt  time.Time
 	refreshTokenExpiresAt time.Time
+	transferPublicKey     string
 }
 
 type NodeTokenPair struct {
-	NodeID                string    `json:"node_id"`
-	AccessToken           string    `json:"access_token"`
-	RefreshToken          string    `json:"refresh_token"`
-	AccessTokenExpiresAt  time.Time `json:"access_token_expires_at"`
-	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at"`
+	NodeID                 string    `json:"node_id"`
+	AccessToken            string    `json:"access_token"`
+	RefreshToken           string    `json:"refresh_token"`
+	AccessTokenExpiresAt   time.Time `json:"access_token_expires_at"`
+	RefreshTokenExpiresAt  time.Time `json:"refresh_token_expires_at"`
+	TransferTokenPublicKey string    `json:"transfer_token_public_key"`
 }
 
 type Replica struct {
@@ -162,6 +164,12 @@ func New(cfg config.Config) (*Client, error) {
 
 func (c *Client) NodeID() string {
 	return c.nodeID
+}
+
+func (c *Client) TransferTokenPublicKey() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.transferPublicKey
 }
 
 func (c *Client) AccessToken(ctx context.Context) (string, error) {
@@ -445,6 +453,7 @@ func (c *Client) storeTokenPair(pair NodeTokenPair) {
 	c.refreshToken = pair.RefreshToken
 	c.accessTokenExpiresAt = pair.AccessTokenExpiresAt
 	c.refreshTokenExpiresAt = pair.RefreshTokenExpiresAt
+	c.transferPublicKey = pair.TransferTokenPublicKey
 }
 
 func (c *Client) doAuthenticatedJSON(ctx context.Context, method, path string, requestBody any, accessToken string, responseBody any) error {

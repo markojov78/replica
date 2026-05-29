@@ -28,6 +28,7 @@ type Runtime struct {
 	stateMu      sync.RWMutex
 	replicas     []apiclient.Replica
 	replicaFiles map[uint][]apiclient.ReplicaInventoryFile
+	transferKey  string
 
 	commandCh chan apiclient.Command
 }
@@ -77,6 +78,7 @@ func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []ap
 			log.Printf("storage runtime authenticate failed: %v", err)
 			continue
 		}
+		r.setTransferTokenPublicKey(pair.TransferTokenPublicKey)
 
 		report, err := r.client.ReportAvailability(ctx)
 		if err != nil {
@@ -149,6 +151,18 @@ func (r *Runtime) setReplicaFiles(replicaID uint, files []apiclient.ReplicaInven
 		r.replicaFiles = make(map[uint][]apiclient.ReplicaInventoryFile)
 	}
 	r.replicaFiles[replicaID] = append([]apiclient.ReplicaInventoryFile(nil), files...)
+}
+
+func (r *Runtime) setTransferTokenPublicKey(publicKey string) {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	r.transferKey = publicKey
+}
+
+func (r *Runtime) transferTokenPublicKey() string {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+	return r.transferKey
 }
 
 func (r *Runtime) findReplica(replicaID uint) (apiclient.Replica, bool) {
@@ -236,6 +250,7 @@ func (r *Runtime) refreshLoop(ctx context.Context, pair *apiclient.NodeTokenPair
 		}
 
 		current = nextPair
+		r.setTransferTokenPublicKey(nextPair.TransferTokenPublicKey)
 	}
 }
 
@@ -383,6 +398,13 @@ func (r *Runtime) handleCommand(ctx context.Context, command apiclient.Command) 
 			return false
 		}
 		return r.markCommandCompleted(ctx, command.ID)
+	case "reconcile_replica":
+		//if err := r.reconcileReplicaPlaceholder(command); err != nil {
+		//	r.markCommandFailed(ctx, command.ID, err)
+		//	return false
+		//}
+		//return r.markCommandCompleted(ctx, command.ID)
+		return false // TODO: remove this after implementation
 	default:
 		log.Printf("storage runtime command type not implemented id=%d type=%s", command.ID, command.Type)
 		return false
@@ -391,6 +413,19 @@ func (r *Runtime) handleCommand(ctx context.Context, command apiclient.Command) 
 
 type scanReplicaCommandPayload struct {
 	ReplicaID uint `json:"replica_id"`
+}
+
+func (r *Runtime) reconcileReplicaPlaceholder(command apiclient.Command) error {
+	var payload scanReplicaCommandPayload
+	if err := json.Unmarshal(command.Payload, &payload); err != nil {
+		return fmt.Errorf("invalid reconcile_replica payload: %w", err)
+	}
+	if payload.ReplicaID == 0 {
+		return fmt.Errorf("invalid reconcile_replica payload: missing replica_id")
+	}
+
+	log.Printf("storage runtime reconcile_replica command received id=%d replica_id=%d: not implemented", command.ID, payload.ReplicaID)
+	return fmt.Errorf("reconcile_replica is not implemented")
 }
 
 func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) error {

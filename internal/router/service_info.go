@@ -11,16 +11,18 @@ const serviceName = "DropOutBox"
 
 func registerServiceInfoRoute(mux *http.ServeMux, cfg config.Config, info buildinfo.Info, svc services) {
 	mux.HandleFunc("GET /api/{$}", func(w http.ResponseWriter, r *http.Request) {
-		accessToken, err := bearerToken(r.Header.Get("Authorization"))
-		if err != nil {
-			writeJSONError(w, http.StatusUnauthorized, "missing authenticated user")
-			return
-		}
+		if cfg.App.Coordinator || svc.auth != nil {
+			accessToken, err := bearerToken(r.Header.Get("Authorization"))
+			if err != nil {
+				writeJSONError(w, http.StatusUnauthorized, "missing authenticated user")
+				return
+			}
 
-		if _, err := svc.auth.Me(accessToken); err != nil {
-			status, message := mapMeHTTPError(err)
-			writeJSONError(w, status, message)
-			return
+			if _, err := svc.auth.Me(accessToken); err != nil {
+				status, message := mapMeHTTPError(err)
+				writeJSONError(w, status, message)
+				return
+			}
 		}
 
 		writeJSON(w, http.StatusOK, serviceInfoBody{

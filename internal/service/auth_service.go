@@ -34,11 +34,12 @@ type TokenPair struct {
 }
 
 type NodeTokenPair struct {
-	NodeID                string
-	AccessToken           string
-	RefreshToken          string
-	AccessTokenExpiresAt  time.Time
-	RefreshTokenExpiresAt time.Time
+	NodeID                 string
+	AccessToken            string
+	RefreshToken           string
+	AccessTokenExpiresAt   time.Time
+	RefreshTokenExpiresAt  time.Time
+	TransferTokenPublicKey string
 }
 
 type AuthenticatedUser struct {
@@ -72,6 +73,7 @@ type AuthService struct {
 	userTokens      *repository.UserTokenRepository
 	nodes           *repository.NodeRepository
 	nodeTokens      *repository.NodeTokenRepository
+	settings        *SettingService
 	jwtSecret       []byte
 	accessTokenTTL  time.Duration
 	refreshTokenTTL time.Duration
@@ -84,12 +86,19 @@ func NewAuthService(
 	nodeTokens *repository.NodeTokenRepository,
 	jwtSecret string,
 	accessTokenTTL, refreshTokenTTL time.Duration,
+	settingServices ...*SettingService,
 ) *AuthService {
+	var settings *SettingService
+	if len(settingServices) > 0 {
+		settings = settingServices[0]
+	}
+
 	return &AuthService{
 		users:           users,
 		userTokens:      userTokens,
 		nodes:           nodes,
 		nodeTokens:      nodeTokens,
+		settings:        settings,
 		jwtSecret:       []byte(jwtSecret),
 		accessTokenTTL:  accessTokenTTL,
 		refreshTokenTTL: refreshTokenTTL,
@@ -332,6 +341,13 @@ func (s *AuthService) issueNodeTokenPair(nodeID string) (*NodeTokenPair, error) 
 	pair.AccessToken, err = security.GenerateNodeAccessToken(s.jwtSecret, nodeID, pair.AccessTokenExpiresAt)
 	if err != nil {
 		return nil, err
+	}
+
+	if s.settings != nil {
+		pair.TransferTokenPublicKey, err = s.settings.TransferPublicKey()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return pair, nil

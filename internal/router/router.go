@@ -13,6 +13,7 @@ import (
 	"dropoutbox/internal/buildinfo"
 	"dropoutbox/internal/config"
 	"dropoutbox/internal/service"
+	"dropoutbox/internal/storage"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -25,6 +26,7 @@ type services struct {
 	nodes       *service.NodeService
 	inventories *service.InventoryService
 	replicas    *service.ReplicaService
+	storage     *storage.Runtime
 }
 
 func New(
@@ -35,7 +37,7 @@ func New(
 	roleService *service.RoleService,
 	nodeService *service.NodeService,
 	inventoryService *service.InventoryService,
-	replicaServices ...*service.ReplicaService,
+	optionalServices ...any,
 ) http.Handler {
 	mux := http.NewServeMux()
 	api := humago.New(mux, huma.DefaultConfig(serviceName, info.Version))
@@ -43,8 +45,14 @@ func New(
 	internalGroup := huma.NewGroup(api, "/internal")
 
 	var replicaService *service.ReplicaService
-	if len(replicaServices) > 0 {
-		replicaService = replicaServices[0]
+	var storageRuntime *storage.Runtime
+	for _, optionalService := range optionalServices {
+		switch optional := optionalService.(type) {
+		case *service.ReplicaService:
+			replicaService = optional
+		case *storage.Runtime:
+			storageRuntime = optional
+		}
 	}
 
 	svc := services{
@@ -54,20 +62,26 @@ func New(
 		nodes:       nodeService,
 		inventories: inventoryService,
 		replicas:    replicaService,
+		storage:     storageRuntime,
 	}
 
 	registerServiceInfoRoute(mux, cfg, info, svc)
-	registerPublicAuthRoutes(apiGroup, svc)
-	registerInternalAuthRoutes(internalGroup, svc)
-	registerInternalNodeWebSocketRoute(mux, svc)
-	registerInternalNodeRoutes(internalGroup, svc)
-	registerInternalCommandRoutes(internalGroup, svc)
-	registerInternalReplicaRoutes(internalGroup, svc)
-	registerUserRoutes(apiGroup, svc)
-	registerRoleRoutes(apiGroup, svc)
-	registerNodeRoutes(apiGroup, svc)
-	registerInventoryRoutes(apiGroup, svc)
-	registerReplicaRoutes(apiGroup, svc)
+	if cfg.App.Storage && storageRuntime != nil {
+		registerInternalStorageTransferRoutes(mux, svc)
+	}
+	if cfg.App.Coordinator || authService != nil {
+		registerPublicAuthRoutes(apiGroup, svc)
+		registerInternalAuthRoutes(internalGroup, svc)
+		registerInternalNodeWebSocketRoute(mux, svc)
+		registerInternalNodeRoutes(internalGroup, svc)
+		registerInternalCommandRoutes(internalGroup, svc)
+		registerInternalReplicaRoutes(internalGroup, svc)
+		registerUserRoutes(apiGroup, svc)
+		registerRoleRoutes(apiGroup, svc)
+		registerNodeRoutes(apiGroup, svc)
+		registerInventoryRoutes(apiGroup, svc)
+		registerReplicaRoutes(apiGroup, svc)
+	}
 
 	return withMiddleware(mux)
 }

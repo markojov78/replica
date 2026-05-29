@@ -760,8 +760,10 @@ Node authentication model:
 - node `refresh_token` is an opaque random token
 - node refresh tokens are stored server-side only as a hash
 - node refresh tokens are rotated on successful refresh
+- `transfer_token_public_key` is the coordinator transfer-token verification public key
 - `node_id` and `secret` are used only to obtain a node token pair
 - the node secret is stored hashed in the coordinator database and kept as plaintext only in node configuration
+- transfer token private key is never returned to storage nodes
 - node authentication does not update node address
 - node authentication does not update node online/offline status
 - node runtime reporting will be handled later by separate internal endpoints
@@ -780,6 +782,7 @@ Behavior:
 - verifies the provided node secret against the hashed secret stored in the coordinator database
 - returns a signed JWT node access token with `token_type = "node"`
 - returns a new opaque node refresh token
+- returns `transfer_token_public_key`, which storage nodes keep in volatile memory and use to verify coordinator-issued file transfer tokens
 - creates or replaces the node refresh-token session on the server
 - does not update node address
 - does not update node online/offline status
@@ -805,7 +808,8 @@ Example response:
   "access_token": "node-access-token-value",
   "refresh_token": "node-refresh-token-value",
   "access_token_expires_at": "2026-05-20T12:30:00Z",
-  "refresh_token_expires_at": "2026-05-20T20:30:00Z"
+  "refresh_token_expires_at": "2026-05-20T20:30:00Z",
+  "transfer_token_public_key": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"
 }
 ```
 
@@ -825,6 +829,7 @@ Behavior:
 - revokes the old node refresh-token session
 - returns a new signed JWT node access token with `token_type = "node"`
 - returns a new opaque node refresh token
+- returns the current `transfer_token_public_key`
 - does not update node address
 - does not update node online/offline status
 
@@ -847,7 +852,8 @@ Example response:
   "access_token": "new-node-access-token-value",
   "refresh_token": "new-node-refresh-token-value",
   "access_token_expires_at": "2026-05-20T13:00:00Z",
-  "refresh_token_expires_at": "2026-05-20T21:00:00Z"
+  "refresh_token_expires_at": "2026-05-20T21:00:00Z",
+  "transfer_token_public_key": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"
 }
 ```
 
@@ -1188,3 +1194,68 @@ Possible errors:
 - `400` invalid replica file update
 - `404` replica not found
 - `404` inventory file not found
+
+### /replicas/{replica_id}/files/{file_id}/content endpoint
+
+This endpoint is served by storage nodes when `app.storage = true`. It is not a coordinator-relayed download endpoint.
+
+#### GET /replicas/{replica_id}/files/{file_id}/content?version=123
+Streams local replica file content from a source storage node to a target storage node.
+
+Behavior:
+- requires `Authorization: Bearer <transfer-token>`
+- verifies the transfer token with the `transfer_token_public_key` stored in storage-node volatile runtime state
+- verifies JWT signature and time claims (`iat`, `nbf`, `exp`)
+- verifies token `purpose = "replica_file_transfer"`
+- verifies token audience matches the source node id
+- verifies token `source_replica_id`, `file_id`, and `version` match the request path/query
+- verifies this node owns the requested source replica using local volatile replica state
+- verifies local replica file state matches the requested file/version when that state is available
+- resolves `relative_uri` under the replica URI and rejects path traversal
+- streams the file without loading the full file into memory
+
+The `version` query parameter is an authorization and integrity check. Historical versions are not stored or served; the endpoint only serves the current local file if local state matches the requested version.
+
+Transfer tokens are coordinator-issued, short-lived, and scoped to a source replica, target replica, file id, file version, and relative URI. Transfer token generation/signing and passing transfer tokens through replication commands are intentionally not implemented yet.
+
+Expected transfer token claims:
+
+```json
+{
+  "purpose": "replica_file_transfer",
+  "source_replica_id": 1,
+  "target_replica_id": 2,
+  "file_id": 10,
+  "version": 123,
+  "relative_uri": "album/img001.jpg",
+  "iss": "coordinator",
+  "aud": "source-node-id",
+  "sub": "target-node-id",
+  "iat": 1234567890,
+  "nbf": 1234567890,
+  "exp": 1234568790
+}
+```
+
+Example request:
+
+```http
+GET /internal/replicas/1/files/10/content?version=123
+Authorization: Bearer transfer-token-value
+```
+
+Successful response:
+- `200 OK`
+- body is raw file content
+- `Content-Length` is set when local file size is available
+
+Possible errors:
+- `401` missing, invalid, expired, or unverifiable transfer token
+- `403` token is valid but not authorized for the requested source replica/file/version
+- `404` local replica or file does not exist
+- `409` local replica file state does not match the requested version
+
+Not implemented in this change:
+- coordinator transfer-token generation/signing
+- passing transfer tokens through `reconcile_replica` commands
+- actual `reconcile_replica` file copy logic
