@@ -3,6 +3,7 @@ package repository
 import (
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -396,14 +397,24 @@ func (r *ReplicaRepository) UpdateFileStatus(replicaID, fileID uint, status mode
 	})
 }
 
-func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaFileUpdate) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaFileUpdate, payloadBuilders ...ReconcilePayloadBuilder) ([]model.Command, error) {
+	var commands []model.Command
+	err := r.db.Transaction(func(tx *gorm.DB) error {
 		var replica model.Replica
 		if err := tx.First(&replica, replicaID).Error; err != nil {
 			return err
 		}
 
+		affectedReplicaIDs := make(map[uint]struct{})
 		for _, update := range updates {
+			handled, err := r.handleNoContentReportedFile(tx, replica, update)
+			if err != nil {
+				return err
+			}
+			if handled {
+				continue
+			}
+
 			file, created, restored, err := r.resolveReportedInventoryFile(tx, replica.InventoryID, update)
 			if err != nil {
 				return err
@@ -465,15 +476,129 @@ func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaF
 				return err
 			}
 
-			if err := tx.Model(&model.ReplicaFile{}).
-				Where("file_id = ? AND replica_id <> ?", file.ID, replica.ID).
-				Update("status", model.ReplicaFileStatusPending).Error; err != nil {
+			var destinationReplicas []model.Replica
+			if err := tx.
+				Where("inventory_id = ? AND id <> ? AND status = ?", replica.InventoryID, replica.ID, model.ReplicaStatusActive).
+				Order("id asc").
+				Find(&destinationReplicas).Error; err != nil {
 				return err
+			}
+			for _, destinationReplica := range destinationReplicas {
+				var destinationReplicaFile model.ReplicaFile
+				err := tx.Where("file_id = ? AND replica_id = ?", file.ID, destinationReplica.ID).First(&destinationReplicaFile).Error
+				switch {
+				case err == nil:
+					destinationReplicaFile.Status = model.ReplicaFileStatusPending
+					if err := tx.Save(&destinationReplicaFile).Error; err != nil {
+						return err
+					}
+				case errors.Is(err, gorm.ErrRecordNotFound):
+					destinationReplicaFile = model.ReplicaFile{
+						FileID:    file.ID,
+						ReplicaID: destinationReplica.ID,
+						Version:   0,
+						Status:    model.ReplicaFileStatusPending,
+					}
+					if err := tx.Create(&destinationReplicaFile).Error; err != nil {
+						return err
+					}
+				default:
+					return err
+				}
+				affectedReplicaIDs[destinationReplica.ID] = struct{}{}
+			}
+		}
+
+		if len(payloadBuilders) > 0 && len(affectedReplicaIDs) > 0 {
+			destinationIDs := make([]uint, 0, len(affectedReplicaIDs))
+			for replicaID := range affectedReplicaIDs {
+				destinationIDs = append(destinationIDs, replicaID)
+			}
+			sort.Slice(destinationIDs, func(i, j int) bool {
+				return destinationIDs[i] < destinationIDs[j]
+			})
+
+			for _, destinationID := range destinationIDs {
+				var destination model.Replica
+				if err := tx.First(&destination, destinationID).Error; err != nil {
+					return err
+				}
+				source, err := r.selectReconcileSource(tx, destination)
+				if err != nil {
+					return err
+				}
+				payload, err := payloadBuilders[0](destination, source)
+				if err != nil {
+					return err
+				}
+				command := model.Command{
+					NodeID:  destination.NodeID,
+					Type:    model.NodeCommandTypeReconcileReplica,
+					Status:  model.NodeCommandStatusPending,
+					Payload: payload,
+				}
+				now := time.Now().UTC()
+				command.CreatedAt = now
+				command.UpdatedAt = now
+				if err := tx.Create(&command).Error; err != nil {
+					return err
+				}
+				commands = append(commands, command)
 			}
 		}
 
 		return nil
 	})
+	return commands, err
+}
+
+func (r *ReplicaRepository) handleNoContentReportedFile(tx *gorm.DB, replica model.Replica, update ReplicaFileUpdate) (bool, error) {
+	var file model.InventoryFile
+	var err error
+	if update.FileID != nil {
+		err = tx.First(&file, *update.FileID).Error
+	} else {
+		err = tx.
+			Where("inventory_id = ? AND relative_uri = ?", replica.InventoryID, update.RelativeURI).
+			First(&file).Error
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if file.InventoryID != replica.InventoryID || file.RelativeURI != update.RelativeURI {
+		return false, nil
+	}
+	if file.Status != model.InventoryFileStatusActive || !sameReportedFileContent(file, update) {
+		return false, nil
+	}
+
+	var replicaFile model.ReplicaFile
+	err = tx.Where("file_id = ? AND replica_id = ?", file.ID, replica.ID).First(&replicaFile).Error
+	switch {
+	case err == nil:
+		replicaFile.Version = file.Version
+		replicaFile.Status = model.ReplicaFileStatusSynchronized
+		return true, tx.Save(&replicaFile).Error
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		replicaFile = model.ReplicaFile{
+			FileID:    file.ID,
+			ReplicaID: replica.ID,
+			Version:   file.Version,
+			Status:    model.ReplicaFileStatusSynchronized,
+		}
+		return true, tx.Create(&replicaFile).Error
+	default:
+		return false, err
+	}
+}
+
+func sameReportedFileContent(file model.InventoryFile, update ReplicaFileUpdate) bool {
+	return file.RelativeURI == update.RelativeURI &&
+		file.Size == update.FileSize &&
+		file.Hash == update.FileHash
 }
 
 func (r *ReplicaRepository) resolveReportedInventoryFile(tx *gorm.DB, inventoryID uint, update ReplicaFileUpdate) (*model.InventoryFile, bool, bool, error) {

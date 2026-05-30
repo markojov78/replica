@@ -21,6 +21,7 @@ import (
 
 const bootstrapRetryInterval = 5 * time.Second
 const commandWebSocketPath = "/internal/nodes/ws"
+const watcherReportSettleDelay = 250 * time.Millisecond
 
 type Runtime struct {
 	client            *apiclient.Client
@@ -237,10 +238,72 @@ func (r *Runtime) startReplicaWatchers(ctx context.Context, replicas []apiclient
 						optionalString(change.PreviousRelativeURI),
 						formatFileState(change.State),
 					)
+					if err := r.reportWatcherChange(ctx, replica, change); err != nil {
+						log.Printf("storage runtime watcher report failed replica_id=%d uri=%s change_type=%s relative_uri=%s error=%v", replica.ID, replica.URI, change.ChangeType, change.RelativeURI, err)
+					}
 				}
 			}
 		}(replica, changeCh, errCh)
 	}
+}
+
+func (r *Runtime) reportWatcherChange(ctx context.Context, replica apiclient.Replica, change FileChange) error {
+	if change.ChangeType != FileChangeTypeCreated && change.ChangeType != FileChangeTypeModified {
+		return nil
+	}
+	if strings.TrimSpace(change.RelativeURI) == "" {
+		return nil
+	}
+
+	if !sleepContext(ctx, watcherReportSettleDelay) {
+		return ctx.Err()
+	}
+
+	state, ok, err := r.currentFileState(ctx, replica.URI, change.RelativeURI)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+
+	reports := replicaFileReports(r.replicaFilesSnapshot(replica.ID), []FileState{state})
+	if len(reports) == 0 {
+		return nil
+	}
+
+	if err := r.client.ReportReplicaFiles(ctx, replica.ID, reports); err != nil {
+		return err
+	}
+	if _, err := r.refreshReplicaFiles(ctx, replica.ID); err != nil {
+		return err
+	}
+
+	log.Printf("storage runtime watcher reported files replica_id=%d count=%d", replica.ID, len(reports))
+	return nil
+}
+
+func (r *Runtime) currentFileState(ctx context.Context, replicaURI, relativeURI string) (FileState, bool, error) {
+	scanner, err := GetScanner(ctx, replicaURI)
+	if err != nil {
+		return FileState{}, false, err
+	}
+	states, err := scanner.Scan(ctx, replicaURI)
+	if err != nil {
+		return FileState{}, false, err
+	}
+	for _, state := range states {
+		if state.RelativeURI == relativeURI {
+			return state, true, nil
+		}
+	}
+	return FileState{}, false, nil
+}
+
+func (r *Runtime) replicaFilesSnapshot(replicaID uint) []apiclient.ReplicaInventoryFile {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+	return append([]apiclient.ReplicaInventoryFile(nil), r.replicaFiles[replicaID]...)
 }
 
 // Token refresh loop
@@ -634,7 +697,7 @@ func replicaFileReports(files []apiclient.ReplicaInventoryFile, states []FileSta
 	reports := make([]apiclient.ReplicaFileReport, 0)
 	for _, state := range states {
 		file, ok := activeFilesByURI[state.RelativeURI]
-		if ok && file.Size == state.Size && file.Hash == state.Hash && file.Modified.Equal(state.Modified) {
+		if ok && sameReplicaFileContent(file, state) {
 			continue
 		}
 
@@ -652,6 +715,12 @@ func replicaFileReports(files []apiclient.ReplicaInventoryFile, states []FileSta
 		reports = append(reports, report)
 	}
 	return reports
+}
+
+func sameReplicaFileContent(file apiclient.ReplicaInventoryFile, state FileState) bool {
+	return file.RelativeURI == state.RelativeURI &&
+		file.Size == state.Size &&
+		file.Hash == state.Hash
 }
 
 func (r *Runtime) markCommandCompleted(ctx context.Context, commandID uint) bool {

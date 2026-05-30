@@ -376,7 +376,8 @@ func (s *ReplicaService) ReportFileChanges(replicaID uint, nodeID string, change
 		return nil
 	}
 
-	if err := s.repo.ReportFileChanges(replicaID, updates); err != nil {
+	commands, err := s.repo.ReportFileChanges(replicaID, updates, s.reconcilePayloadBuilder())
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrInventoryFileNotFound
 		}
@@ -384,6 +385,11 @@ func (s *ReplicaService) ReportFileChanges(replicaID uint, nodeID string, change
 			return ErrInvalidReplicaFileUpdate
 		}
 		return err
+	}
+	if s.nodes != nil {
+		for i := range commands {
+			s.nodes.PublishCommand(&commands[i])
+		}
 	}
 
 	return nil

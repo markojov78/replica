@@ -1187,12 +1187,16 @@ func TestInternalReplicaFilesReportUpdatesCoordinatorState(t *testing.T) {
 	}
 
 	node := &model.Node{
-		ID:     "node-a",
-		Status: model.NodeStatusOffline,
-		Secret: hashedSecret,
+		ID:      "node-a",
+		Status:  model.NodeStatusOffline,
+		Secret:  hashedSecret,
+		Address: "https://node-a.example",
 	}
 	if err := database.Create(node).Error; err != nil {
 		t.Fatalf("Create(node) error = %v", err)
+	}
+	if err := database.Create(&model.Node{ID: "node-b", Status: model.NodeStatusOnline, Address: "https://node-b.example"}).Error; err != nil {
+		t.Fatalf("Create(node-b) error = %v", err)
 	}
 
 	inventory := &model.Inventory{
@@ -1263,6 +1267,10 @@ func TestInternalReplicaFilesReportUpdatesCoordinatorState(t *testing.T) {
 	}
 
 	nodeService := service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	settingService := service.NewSettingService(repository.NewSettingRepository(database))
+	if err := settingService.EnsureTransferKeys(); err != nil {
+		t.Fatalf("EnsureTransferKeys() error = %v", err)
+	}
 	inventoryRepo := repository.NewInventoryRepository(database)
 	handler := New(
 		config.Config{},
@@ -1272,7 +1280,7 @@ func TestInternalReplicaFilesReportUpdatesCoordinatorState(t *testing.T) {
 		service.NewRoleService(repository.NewRoleRepository(database)),
 		nodeService,
 		service.NewInventoryService(inventoryRepo),
-		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService),
+		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService, settingService),
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/replica/"+strconv.FormatUint(uint64(replicaA.ID), 10)+"/files", strings.NewReader(`{"files":[{"file_id":`+strconv.FormatUint(uint64(file.ID), 10)+`,"relative_uri":"album/img.jpg","file_size":200,"file_hash":"new-hash","created_time":"2026-05-21T11:00:00Z","modified_time":"2026-05-21T12:00:00Z"}]}`))
@@ -1301,6 +1309,18 @@ func TestInternalReplicaFilesReportUpdatesCoordinatorState(t *testing.T) {
 	}
 	if pendingReplica.Status != model.ReplicaFileStatusPending {
 		t.Fatalf("pendingReplica.Status = %q, want %q", pendingReplica.Status, model.ReplicaFileStatusPending)
+	}
+
+	var command model.Command
+	if err := database.Where("node_id = ? AND type = ?", "node-b", model.NodeCommandTypeReconcileReplica).First(&command).Error; err != nil {
+		t.Fatalf("First(command) error = %v", err)
+	}
+	var payload service.ReconcileReplicaCommandPayload
+	if err := json.Unmarshal(command.Payload, &payload); err != nil {
+		t.Fatalf("Unmarshal(command.Payload) error = %v", err)
+	}
+	if payload.SourceReplicaID != replicaA.ID || payload.DestinationReplicaID != replicaB.ID || payload.TransferToken == "" {
+		t.Fatalf("payload = %+v, want source=%d destination=%d with token", payload, replicaA.ID, replicaB.ID)
 	}
 }
 

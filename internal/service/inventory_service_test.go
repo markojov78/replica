@@ -533,6 +533,12 @@ func TestInventoryServiceReportReplicaFileChanges(t *testing.T) {
 	if err := database.Create(inventory).Error; err != nil {
 		t.Fatalf("Create(inventory) error = %v", err)
 	}
+	if err := database.Create(&model.Node{ID: "node-a", Status: model.NodeStatusOnline, Address: "https://node-a.example"}).Error; err != nil {
+		t.Fatalf("Create(node-a) error = %v", err)
+	}
+	if err := database.Create(&model.Node{ID: "node-b", Status: model.NodeStatusOnline, Address: "https://node-b.example"}).Error; err != nil {
+		t.Fatalf("Create(node-b) error = %v", err)
+	}
 
 	file := &model.InventoryFile{
 		InventoryID: inventory.ID,
@@ -586,7 +592,12 @@ func TestInventoryServiceReportReplicaFileChanges(t *testing.T) {
 		t.Fatalf("Create(replicaFileB) error = %v", err)
 	}
 
-	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
+	settingService := NewSettingService(repository.NewSettingRepository(database))
+	if err := settingService.EnsureTransferKeys(); err != nil {
+		t.Fatalf("EnsureTransferKeys() error = %v", err)
+	}
+	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database), nodeService, settingService)
 	fileID := file.ID
 	created := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
 	modified := time.Now().UTC().Truncate(time.Second)
@@ -653,6 +664,21 @@ func TestInventoryServiceReportReplicaFileChanges(t *testing.T) {
 	if updatedReplicaB.Status != model.ReplicaFileStatusPending {
 		t.Fatalf("updatedReplicaB.Status = %q, want %q", updatedReplicaB.Status, model.ReplicaFileStatusPending)
 	}
+
+	var command model.Command
+	if err := database.Where("node_id = ? AND type = ?", "node-b", model.NodeCommandTypeReconcileReplica).First(&command).Error; err != nil {
+		t.Fatalf("First(command) error = %v", err)
+	}
+	var payload ReconcileReplicaCommandPayload
+	if err := json.Unmarshal(command.Payload, &payload); err != nil {
+		t.Fatalf("Unmarshal(command.Payload) error = %v", err)
+	}
+	if payload.SourceReplicaID != replicaA.ID || payload.DestinationReplicaID != replicaB.ID {
+		t.Fatalf("payload source/destination = %d/%d, want %d/%d", payload.SourceReplicaID, payload.DestinationReplicaID, replicaA.ID, replicaB.ID)
+	}
+	if payload.SourceNodeID != "node-a" || payload.SourceNodeAddress != "https://node-a.example" || payload.TransferToken == "" {
+		t.Fatalf("payload = %+v, want node-a source with transfer token", payload)
+	}
 }
 
 func TestInventoryServiceReportReplicaFileChangesCreatesNewFile(t *testing.T) {
@@ -671,6 +697,12 @@ func TestInventoryServiceReportReplicaFileChangesCreatesNewFile(t *testing.T) {
 	if err := database.Create(inventory).Error; err != nil {
 		t.Fatalf("Create(inventory) error = %v", err)
 	}
+	if err := database.Create(&model.Node{ID: "node-a", Status: model.NodeStatusOnline, Address: "https://node-a.example"}).Error; err != nil {
+		t.Fatalf("Create(node-a) error = %v", err)
+	}
+	if err := database.Create(&model.Node{ID: "node-b", Status: model.NodeStatusOnline, Address: "https://node-b.example"}).Error; err != nil {
+		t.Fatalf("Create(node-b) error = %v", err)
+	}
 	replica := &model.Replica{
 		InventoryID: inventory.ID,
 		NodeID:      "node-a",
@@ -678,11 +710,26 @@ func TestInventoryServiceReportReplicaFileChangesCreatesNewFile(t *testing.T) {
 		Status:      model.ReplicaStatusActive,
 		Type:        model.ReplicaTypeFilesystem,
 	}
+	replicaB := &model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-b",
+		URI:         "/data/b",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
 	if err := database.Create(replica).Error; err != nil {
 		t.Fatalf("Create(replica) error = %v", err)
 	}
+	if err := database.Create(replicaB).Error; err != nil {
+		t.Fatalf("Create(replicaB) error = %v", err)
+	}
 
-	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
+	settingService := NewSettingService(repository.NewSettingRepository(database))
+	if err := settingService.EnsureTransferKeys(); err != nil {
+		t.Fatalf("EnsureTransferKeys() error = %v", err)
+	}
+	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database), nodeService, settingService)
 	created := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	modified := time.Now().UTC().Truncate(time.Second)
 
@@ -714,12 +761,144 @@ func TestInventoryServiceReportReplicaFileChangesCreatesNewFile(t *testing.T) {
 		t.Fatalf("replicaFile = %+v, want version=1 synchronized", replicaFile)
 	}
 
+	var pendingReplicaFile model.ReplicaFile
+	if err := database.Where("file_id = ? AND replica_id = ?", file.ID, replicaB.ID).First(&pendingReplicaFile).Error; err != nil {
+		t.Fatalf("First(pendingReplicaFile) error = %v", err)
+	}
+	if pendingReplicaFile.Version != 0 || pendingReplicaFile.Status != model.ReplicaFileStatusPending {
+		t.Fatalf("pendingReplicaFile = %+v, want version=0 pending", pendingReplicaFile)
+	}
+
+	var command model.Command
+	if err := database.Where("node_id = ? AND type = ?", "node-b", model.NodeCommandTypeReconcileReplica).First(&command).Error; err != nil {
+		t.Fatalf("First(command) error = %v", err)
+	}
+	var payload ReconcileReplicaCommandPayload
+	if err := json.Unmarshal(command.Payload, &payload); err != nil {
+		t.Fatalf("Unmarshal(command.Payload) error = %v", err)
+	}
+	if payload.SourceReplicaID != replica.ID || payload.DestinationReplicaID != replicaB.ID || payload.TransferToken == "" {
+		t.Fatalf("payload = %+v, want source=%d destination=%d with token", payload, replica.ID, replicaB.ID)
+	}
+
 	var journal model.FileJournal
 	if err := database.First(&journal).Error; err != nil {
 		t.Fatalf("First(journal) error = %v", err)
 	}
 	if journal.FileID != file.ID || journal.Version != 0 || journal.Action != model.FileJournalActionCreated {
 		t.Fatalf("journal = %+v, want file_id=%d version=0 action=created", journal, file.ID)
+	}
+}
+
+func TestInventoryServiceReportReplicaFileChangesIgnoresNoContentChange(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "replica-file-report-no-content.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	inventory := &model.Inventory{Name: "photos", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	file := &model.InventoryFile{
+		InventoryID: inventory.ID,
+		RelativeURI: "album/same.jpg",
+		Status:      model.InventoryFileStatusActive,
+		Size:        123,
+		Hash:        "same-hash",
+		Version:     3,
+		Created:     time.Date(2026, 5, 21, 10, 0, 0, 0, time.UTC),
+		Modified:    time.Date(2026, 5, 21, 11, 0, 0, 0, time.UTC),
+	}
+	if err := database.Create(file).Error; err != nil {
+		t.Fatalf("Create(file) error = %v", err)
+	}
+	replicaA := &model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-a",
+		URI:         "/data/a",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	replicaB := &model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-b",
+		URI:         "/data/b",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(replicaA).Error; err != nil {
+		t.Fatalf("Create(replicaA) error = %v", err)
+	}
+	if err := database.Create(replicaB).Error; err != nil {
+		t.Fatalf("Create(replicaB) error = %v", err)
+	}
+	if err := database.Create(&model.ReplicaFile{
+		FileID:    file.ID,
+		ReplicaID: replicaA.ID,
+		Version:   3,
+		Status:    model.ReplicaFileStatusSynchronized,
+	}).Error; err != nil {
+		t.Fatalf("Create(replicaFileA) error = %v", err)
+	}
+	if err := database.Create(&model.ReplicaFile{
+		FileID:    file.ID,
+		ReplicaID: replicaB.ID,
+		Version:   2,
+		Status:    model.ReplicaFileStatusPending,
+	}).Error; err != nil {
+		t.Fatalf("Create(replicaFileB) error = %v", err)
+	}
+
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
+	if err := svc.ReportFileChanges(replicaB.ID, "node-b", []ReplicaFileChangeInput{
+		{
+			RelativeURI:  "album/same.jpg",
+			FileSize:     123,
+			FileHash:     "same-hash",
+			CreatedTime:  time.Date(2026, 5, 30, 10, 0, 0, 0, time.UTC),
+			ModifiedTime: time.Date(2026, 5, 30, 11, 0, 0, 0, time.UTC),
+		},
+	}); err != nil {
+		t.Fatalf("ReportFileChanges() error = %v", err)
+	}
+
+	var updatedFile model.InventoryFile
+	if err := database.First(&updatedFile, file.ID).Error; err != nil {
+		t.Fatalf("First(updatedFile) error = %v", err)
+	}
+	if updatedFile.Version != 3 || updatedFile.Size != 123 || updatedFile.Hash != "same-hash" {
+		t.Fatalf("updatedFile = %+v, want unchanged version=3 size=123 hash=same-hash", updatedFile)
+	}
+
+	var replicaFileB model.ReplicaFile
+	if err := database.Where("file_id = ? AND replica_id = ?", file.ID, replicaB.ID).First(&replicaFileB).Error; err != nil {
+		t.Fatalf("First(replicaFileB) error = %v", err)
+	}
+	if replicaFileB.Version != 3 || replicaFileB.Status != model.ReplicaFileStatusSynchronized {
+		t.Fatalf("replicaFileB = %+v, want version=3 synchronized", replicaFileB)
+	}
+
+	var journalCount int64
+	if err := database.Model(&model.FileJournal{}).Count(&journalCount).Error; err != nil {
+		t.Fatalf("Count(file_journal) error = %v", err)
+	}
+	if journalCount != 0 {
+		t.Fatalf("journalCount = %d, want 0", journalCount)
+	}
+
+	var commandCount int64
+	if err := database.Model(&model.Command{}).Count(&commandCount).Error; err != nil {
+		t.Fatalf("Count(commands) error = %v", err)
+	}
+	if commandCount != 0 {
+		t.Fatalf("commandCount = %d, want 0", commandCount)
 	}
 }
 

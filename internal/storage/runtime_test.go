@@ -1045,6 +1045,166 @@ func TestRuntimeStartsReplicaWatcherAndLogsChanges(t *testing.T) {
 	t.Fatalf("replica change log missing, logs=%q", logOutput.String())
 }
 
+func TestRuntimeReportsWatcherCreatedFile(t *testing.T) {
+	replicaRoot := t.TempDir()
+	filePath := filepath.Join(replicaRoot, "new.txt")
+	if err := os.WriteFile(filePath, []byte("content"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	var gotReport struct {
+		Files []struct {
+			FileID      *uint  `json:"file_id"`
+			RelativeURI string `json:"relative_uri"`
+			FileSize    int64  `json:"file_size"`
+			FileHash    string `json:"file_hash"`
+		} `json:"files"`
+	}
+	reportCalls := 0
+	refreshCalls := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":                  "node-a",
+				"access_token":             "access-token",
+				"refresh_token":            "refresh-token",
+				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
+				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/internal/replica/3/files":
+			switch r.Method {
+			case http.MethodPost:
+				if err := json.NewDecoder(r.Body).Decode(&gotReport); err != nil {
+					t.Fatalf("Decode(report) error = %v", err)
+				}
+				reportCalls++
+				w.WriteHeader(http.StatusNoContent)
+			case http.MethodGet:
+				refreshCalls++
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"files": []map[string]any{
+						{
+							"file_id":           10,
+							"replica_id":        3,
+							"inventory_id":      2,
+							"relative_uri":      "new.txt",
+							"size":              7,
+							"hash":              "hash",
+							"inventory_status":  "active",
+							"inventory_version": 1,
+							"replica_status":    "synchronized",
+							"replica_version":   1,
+							"created":           "2026-05-21T11:00:00Z",
+							"modified":          "2026-05-21T12:00:00Z",
+						},
+					},
+				})
+			default:
+				t.Fatalf("method = %s, want GET or POST", r.Method)
+			}
+		default:
+			t.Fatalf("unexpected path %q", r.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	runtime, err := NewRuntime(config.Config{
+		App: config.AppConfig{
+			NodeID:         "node-a",
+			CoordinatorURL: server.URL,
+			NodeAddress:    "http://node-a:8081",
+		},
+		Auth: config.AuthConfig{NodeSecret: "node-secret"},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v", err)
+	}
+	runtime.setLocalState(
+		[]apiclient.Replica{{ID: 3, InventoryID: 2, NodeID: "node-a", URI: replicaRoot, Status: "active", Type: "filesystem"}},
+		map[uint][]apiclient.ReplicaInventoryFile{3: {}},
+	)
+
+	err = runtime.reportWatcherChange(context.Background(), apiclient.Replica{ID: 3, URI: replicaRoot}, FileChange{
+		RelativeURI: "new.txt",
+		ChangeType:  FileChangeTypeCreated,
+	})
+	if err != nil {
+		t.Fatalf("reportWatcherChange() error = %v", err)
+	}
+
+	if reportCalls != 1 || refreshCalls != 1 {
+		t.Fatalf("reportCalls=%d refreshCalls=%d, want 1/1", reportCalls, refreshCalls)
+	}
+	if len(gotReport.Files) != 1 {
+		t.Fatalf("len(gotReport.Files) = %d, want 1", len(gotReport.Files))
+	}
+	if gotReport.Files[0].FileID != nil {
+		t.Fatalf("FileID = %v, want nil for new file", gotReport.Files[0].FileID)
+	}
+	if gotReport.Files[0].RelativeURI != "new.txt" || gotReport.Files[0].FileSize != 7 || gotReport.Files[0].FileHash == "" {
+		t.Fatalf("reported file = %+v, want new.txt size=7 with hash", gotReport.Files[0])
+	}
+}
+
+func TestReplicaFileReportsIgnoreTimestampOnlyDifference(t *testing.T) {
+	fileID := uint(10)
+	reports := replicaFileReports(
+		[]apiclient.ReplicaInventoryFile{
+			{
+				FileID:          fileID,
+				RelativeURI:     "same.txt",
+				Size:            7,
+				Hash:            "content-hash",
+				InventoryStatus: "active",
+				Modified:        time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC),
+			},
+		},
+		[]FileState{
+			{
+				RelativeURI: "same.txt",
+				Size:        7,
+				Hash:        "content-hash",
+				Modified:    time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC),
+			},
+		},
+	)
+	if len(reports) != 0 {
+		t.Fatalf("len(reports) = %d, want 0", len(reports))
+	}
+}
+
+func TestReplicaFileReportsReportHashDifference(t *testing.T) {
+	fileID := uint(10)
+	reports := replicaFileReports(
+		[]apiclient.ReplicaInventoryFile{
+			{
+				FileID:          fileID,
+				RelativeURI:     "same.txt",
+				Size:            7,
+				Hash:            "old-hash",
+				InventoryStatus: "active",
+				Modified:        time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC),
+			},
+		},
+		[]FileState{
+			{
+				RelativeURI: "same.txt",
+				Size:        7,
+				Hash:        "new-hash",
+				Modified:    time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC),
+			},
+		},
+	)
+	if len(reports) != 1 {
+		t.Fatalf("len(reports) = %d, want 1", len(reports))
+	}
+	if reports[0].FileID == nil || *reports[0].FileID != fileID || reports[0].FileHash != "new-hash" {
+		t.Fatalf("reports[0] = %+v, want file_id=%d hash=new-hash", reports[0], fileID)
+	}
+}
+
 func captureLogs(t *testing.T) *bytes.Buffer {
 	t.Helper()
 
