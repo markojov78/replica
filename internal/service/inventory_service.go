@@ -30,6 +30,7 @@ var (
 	ErrInvalidReplicaType       = errors.New("invalid replica type")
 	ErrInvalidReplicaURI        = errors.New("invalid replica uri")
 	ErrInvalidReplicaFileUpdate = errors.New("invalid replica file update")
+	ErrInvalidReplicaFileAction = errors.New("invalid replica file action")
 	ErrInvalidReplicaUpstream   = errors.New("invalid replica upstream")
 	ErrReplicaNotFound          = errors.New("replica not found")
 )
@@ -154,12 +155,17 @@ type UpdateReplicaInput struct {
 }
 
 type ReplicaFileChangeInput struct {
-	FileID       *uint
-	RelativeURI  string
-	FileSize     int64
-	FileHash     string
-	CreatedTime  time.Time
-	ModifiedTime time.Time
+	FileID          *uint
+	Action          string
+	RelativeURI     string
+	FileSize        int64
+	FileSizeSet     bool
+	FileHash        string
+	FileHashSet     bool
+	CreatedTime     time.Time
+	CreatedTimeSet  bool
+	ModifiedTime    time.Time
+	ModifiedTimeSet bool
 }
 
 func NewInventoryService(repo *repository.InventoryRepository, nodeServices ...*NodeService) *InventoryService {

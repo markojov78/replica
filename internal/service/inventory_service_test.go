@@ -902,6 +902,136 @@ func TestInventoryServiceReportReplicaFileChangesIgnoresNoContentChange(t *testi
 	}
 }
 
+func TestInventoryServiceReportReplicaFileChangesDeletesFile(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "replica-file-report-delete.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	inventory := &model.Inventory{Name: "photos", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	if err := database.Create(&model.Node{ID: "node-a", Status: model.NodeStatusOnline, Address: "https://node-a.example"}).Error; err != nil {
+		t.Fatalf("Create(node-a) error = %v", err)
+	}
+	if err := database.Create(&model.Node{ID: "node-b", Status: model.NodeStatusOnline, Address: "https://node-b.example"}).Error; err != nil {
+		t.Fatalf("Create(node-b) error = %v", err)
+	}
+	file := &model.InventoryFile{
+		InventoryID: inventory.ID,
+		RelativeURI: "album/delete.jpg",
+		Status:      model.InventoryFileStatusActive,
+		Size:        123,
+		Hash:        "hash",
+		Version:     3,
+		Created:     time.Now().UTC().Add(-time.Hour),
+		Modified:    time.Now().UTC().Add(-time.Minute),
+	}
+	if err := database.Create(file).Error; err != nil {
+		t.Fatalf("Create(file) error = %v", err)
+	}
+	replicaA := &model.Replica{InventoryID: inventory.ID, NodeID: "node-a", URI: "/data/a", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeFilesystem}
+	replicaB := &model.Replica{InventoryID: inventory.ID, NodeID: "node-b", URI: "/data/b", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeFilesystem}
+	if err := database.Create(replicaA).Error; err != nil {
+		t.Fatalf("Create(replicaA) error = %v", err)
+	}
+	if err := database.Create(replicaB).Error; err != nil {
+		t.Fatalf("Create(replicaB) error = %v", err)
+	}
+	if err := database.Create(&model.ReplicaFile{FileID: file.ID, ReplicaID: replicaA.ID, Version: 3, Status: model.ReplicaFileStatusSynchronized}).Error; err != nil {
+		t.Fatalf("Create(replicaFileA) error = %v", err)
+	}
+	if err := database.Create(&model.ReplicaFile{FileID: file.ID, ReplicaID: replicaB.ID, Version: 3, Status: model.ReplicaFileStatusSynchronized}).Error; err != nil {
+		t.Fatalf("Create(replicaFileB) error = %v", err)
+	}
+
+	settingService := NewSettingService(repository.NewSettingRepository(database))
+	if err := settingService.EnsureTransferKeys(); err != nil {
+		t.Fatalf("EnsureTransferKeys() error = %v", err)
+	}
+	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database), nodeService, settingService)
+
+	fileID := file.ID
+	if err := svc.ReportFileChanges(replicaA.ID, "node-a", []ReplicaFileChangeInput{
+		{FileID: &fileID, Action: string(model.ReplicaFileActionDeleted), RelativeURI: "album/delete.jpg"},
+	}); err != nil {
+		t.Fatalf("ReportFileChanges(delete) error = %v", err)
+	}
+
+	var deletedFile model.InventoryFile
+	if err := database.First(&deletedFile, file.ID).Error; err != nil {
+		t.Fatalf("First(deletedFile) error = %v", err)
+	}
+	if deletedFile.Status != model.InventoryFileStatusDeleted || deletedFile.Version != 4 {
+		t.Fatalf("deletedFile status/version = %s/%d, want deleted/4", deletedFile.Status, deletedFile.Version)
+	}
+
+	var replicaFileA model.ReplicaFile
+	if err := database.Where("file_id = ? AND replica_id = ?", file.ID, replicaA.ID).First(&replicaFileA).Error; err != nil {
+		t.Fatalf("First(replicaFileA) error = %v", err)
+	}
+	if replicaFileA.Version != 4 || replicaFileA.Status != model.ReplicaFileStatusSynchronized {
+		t.Fatalf("replicaFileA = %+v, want version=4 synchronized", replicaFileA)
+	}
+
+	var replicaFileB model.ReplicaFile
+	if err := database.Where("file_id = ? AND replica_id = ?", file.ID, replicaB.ID).First(&replicaFileB).Error; err != nil {
+		t.Fatalf("First(replicaFileB) error = %v", err)
+	}
+	if replicaFileB.Version != 3 || replicaFileB.Status != model.ReplicaFileStatusPending {
+		t.Fatalf("replicaFileB = %+v, want version=3 pending", replicaFileB)
+	}
+
+	var journal model.FileJournal
+	if err := database.First(&journal).Error; err != nil {
+		t.Fatalf("First(journal) error = %v", err)
+	}
+	if journal.Action != model.FileJournalActionDeleted || journal.Version != 3 || journal.ReplicaID != replicaA.ID {
+		t.Fatalf("journal = %+v, want deleted version=3 replica=%d", journal, replicaA.ID)
+	}
+
+	var command model.Command
+	if err := database.Where("node_id = ? AND type = ?", "node-b", model.NodeCommandTypeReconcileReplica).First(&command).Error; err != nil {
+		t.Fatalf("First(command) error = %v", err)
+	}
+	var payload ReconcileReplicaCommandPayload
+	if err := json.Unmarshal(command.Payload, &payload); err != nil {
+		t.Fatalf("Unmarshal(command.Payload) error = %v", err)
+	}
+	if payload.SourceReplicaID != replicaA.ID || payload.DestinationReplicaID != replicaB.ID || payload.TransferToken == "" {
+		t.Fatalf("payload = %+v, want source=%d destination=%d with token", payload, replicaA.ID, replicaB.ID)
+	}
+
+	if err := svc.ReportFileChanges(replicaA.ID, "node-a", []ReplicaFileChangeInput{
+		{FileID: &fileID, Action: string(model.ReplicaFileActionDeleted), RelativeURI: "album/delete.jpg"},
+	}); err != nil {
+		t.Fatalf("ReportFileChanges(repeated delete) error = %v", err)
+	}
+
+	var journalCount int64
+	if err := database.Model(&model.FileJournal{}).Count(&journalCount).Error; err != nil {
+		t.Fatalf("Count(journal) error = %v", err)
+	}
+	if journalCount != 1 {
+		t.Fatalf("journalCount = %d, want 1", journalCount)
+	}
+	var commandCount int64
+	if err := database.Model(&model.Command{}).Count(&commandCount).Error; err != nil {
+		t.Fatalf("Count(command) error = %v", err)
+	}
+	if commandCount != 1 {
+		t.Fatalf("commandCount = %d, want 1", commandCount)
+	}
+}
+
 func TestInventoryServiceReportReplicaFileChangesRestoresDeletedFileByRelativeURI(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
 		Driver: "sqlite",

@@ -280,6 +280,8 @@ func mapInventoryError(err error, inventoryService *service.InventoryService) er
 		return huma.Error400BadRequest("invalid replica file status")
 	case errors.Is(err, service.ErrInvalidReplicaFileUpdate):
 		return huma.Error400BadRequest("invalid replica file update")
+	case errors.Is(err, service.ErrInvalidReplicaFileAction):
+		return huma.Error400BadRequest("invalid file action")
 	case errors.Is(err, service.ErrInvalidReplicaStatus):
 		return huma.Error400BadRequest("invalid replica status")
 	case errors.Is(err, service.ErrInvalidReplicaType):

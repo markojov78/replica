@@ -101,12 +101,13 @@ type ReplicaInventoryFileList struct {
 }
 
 type ReplicaFileReport struct {
-	FileID       *uint     `json:"file_id,omitempty"`
-	RelativeURI  string    `json:"relative_uri"`
-	FileSize     int64     `json:"file_size"`
-	FileHash     string    `json:"file_hash"`
-	CreatedTime  time.Time `json:"created_time"`
-	ModifiedTime time.Time `json:"modified_time"`
+	FileID       *uint      `json:"file_id,omitempty"`
+	Action       string     `json:"action,omitempty"`
+	RelativeURI  string     `json:"relative_uri"`
+	FileSize     *int64     `json:"file_size,omitempty"`
+	FileHash     *string    `json:"file_hash,omitempty"`
+	CreatedTime  *time.Time `json:"created_time,omitempty"`
+	ModifiedTime *time.Time `json:"modified_time,omitempty"`
 }
 
 type ReplicaFileList struct {

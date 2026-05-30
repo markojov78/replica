@@ -1154,8 +1154,10 @@ Behavior:
 - validates the bearer node JWT
 - resolves the current node from the auth token
 - verifies the replica belongs to the authenticated node
-- if `file_id` is provided, treats the entry as an update for an existing `inventory_files` row
-- if `file_id` is omitted, creates a new `inventory_files` row unless a deleted row with the same `relative_uri` can be restored
+- supports explicit `action` values: `created`, `updated`, `deleted`
+- preserves backward compatibility when `action` is omitted:
+  - if `file_id` is provided, treats the entry as an update for an existing `inventory_files` row
+  - if `file_id` is omitted, creates a new `inventory_files` row unless a deleted row with the same `relative_uri` can be restored
 - restores a deleted `inventory_files` row to `active` when the reported `file_id` and `relative_uri` match it
 - restores a deleted `inventory_files` row to `active` when a new-file report omits `file_id` but matches its `relative_uri`
 - updates `inventory_files` metadata and increments file version for existing/restored files
@@ -1163,27 +1165,59 @@ Behavior:
 - inserts a journal row for each changed file using the previous version and `updated` action, `restored` action for deleted-to-active files, or version `0` and `created` action for newly created files
 - updates the reporting replica row in `replica_files` to the new version and `synchronized`
 - marks the same file on other existing replicas as `pending`
+- for `action = "deleted"`, sets `inventory_files.status` to `deleted`, increments `inventory_files.version`, inserts a `deleted` journal action with the previous version, marks the reporting replica file `synchronized`, marks other replicas `pending`, and creates reconciliation commands using existing source-selection logic
+- if `action = "deleted"` is repeated for an already deleted inventory file, treats it as already synchronized and does not increment version or insert another journal row
+- ignores timestamp-only reports: content identity is `relative_uri` + `file_size` + `file_hash`
+- if a reported `created` or `updated` entry has the same content identity as the authoritative active `inventory_files` row, it does not increment version, insert journal rows, mark other replicas pending, or create reconciliation commands
+- if a matching no-content-change report comes from a pending replica, that replica file may be marked `synchronized` at the authoritative inventory version
 - rejects a provided `file_id` that belongs to a different inventory
 - rejects a provided `file_id` when its current `relative_uri` differs from the reported `relative_uri`
 - rejects a new-file report when another active file in the same inventory already has the same `relative_uri`
 - rejects reports from downstream replicas whose `upstream_replica_id` is not null, because they are not authoritative sources for local changes
+- rejects invalid or inconsistent explicit actions
 
 Request body:
 - `files` required
 - each file entry contains:
+  - `action` optional; allowed values are `created`, `updated`, `deleted`
   - `file_id` optional; omitted means a new file unless a deleted file with the same `relative_uri` is restored
   - `relative_uri`
-  - `file_size`
-  - `file_hash`
-  - `created_time`
-  - `modified_time`
+  - `file_size` required for `created` and `updated`, omitted for `deleted`
+  - `file_hash` required for `created` and `updated`, omitted for `deleted`
+  - `created_time` required for `created` and `updated`, omitted for `deleted`
+  - `modified_time` required for `created` and `updated`, omitted for `deleted`
 
-Example request:
+Validation rules:
+- `action = "created"` requires omitted `file_id` and requires `relative_uri`, `file_size`, `file_hash`, `created_time`, and `modified_time`
+- `action = "updated"` requires `file_id`, `relative_uri`, `file_size`, `file_hash`, `created_time`, and `modified_time`
+- `action = "deleted"` requires `file_id` and `relative_uri`; `file_size`, `file_hash`, `created_time`, and `modified_time` must be omitted
+- unknown `action` values return `400 invalid file action`
+- timestamp-only changes must not be reported as `updated`
+
+Example created request:
 
 ```json
 {
   "files": [
     {
+      "action": "created",
+      "relative_uri": "photos/image026.jpg",
+      "file_size": 200,
+      "file_hash": "new-hash",
+      "created_time": "2026-05-21T12:00:00Z",
+      "modified_time": "2026-05-21T12:00:00Z"
+    }
+  ]
+}
+```
+
+Example updated request:
+
+```json
+{
+  "files": [
+    {
+      "action": "updated",
       "file_id": 10,
       "relative_uri": "photos/image025.jpg",
       "file_size": 200,
@@ -1195,11 +1229,26 @@ Example request:
 }
 ```
 
+Example deleted request:
+
+```json
+{
+  "files": [
+    {
+      "action": "deleted",
+      "file_id": 10,
+      "relative_uri": "photos/image025.jpg"
+    }
+  ]
+}
+```
+
 Successful response:
 - `204 No Content`
 
 Possible errors:
 - `400` invalid JSON payload
+- `400` invalid file action
 - `401` missing authenticated node
 - `403` disabled node
 - `403` revoked node

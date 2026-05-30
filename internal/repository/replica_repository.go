@@ -22,6 +22,7 @@ func NewReplicaRepository(db *gorm.DB) *ReplicaRepository {
 
 type ReplicaFileUpdate struct {
 	FileID       *uint
+	Action       model.ReplicaFileAction
 	RelativeURI  string
 	FileSize     int64
 	FileHash     string
@@ -407,6 +408,17 @@ func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaF
 
 		affectedReplicaIDs := make(map[uint]struct{})
 		for _, update := range updates {
+			if update.Action == model.ReplicaFileActionDeleted {
+				affected, err := r.handleDeletedReportedFile(tx, replica, update)
+				if err != nil {
+					return err
+				}
+				for _, replicaID := range affected {
+					affectedReplicaIDs[replicaID] = struct{}{}
+				}
+				continue
+			}
+
 			handled, err := r.handleNoContentReportedFile(tx, replica, update)
 			if err != nil {
 				return err
@@ -552,6 +564,82 @@ func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaF
 	return commands, err
 }
 
+func (r *ReplicaRepository) handleDeletedReportedFile(tx *gorm.DB, replica model.Replica, update ReplicaFileUpdate) ([]uint, error) {
+	if update.FileID == nil {
+		return nil, ErrInvalidReplicaFileUpdate
+	}
+
+	var file model.InventoryFile
+	if err := tx.First(&file, *update.FileID).Error; err != nil {
+		return nil, err
+	}
+	if file.InventoryID != replica.InventoryID || file.RelativeURI != update.RelativeURI {
+		return nil, ErrInvalidReplicaFileUpdate
+	}
+
+	if file.Status == model.InventoryFileStatusDeleted {
+		return nil, r.upsertSynchronizedReplicaFile(tx, replica.ID, file.ID, file.Version)
+	}
+
+	oldVersion := file.Version
+	file.Version++
+	file.Status = model.InventoryFileStatusDeleted
+	if err := tx.Save(&file).Error; err != nil {
+		return nil, err
+	}
+
+	journal := model.FileJournal{
+		FileID:      file.ID,
+		InventoryID: file.InventoryID,
+		ReplicaID:   replica.ID,
+		Version:     oldVersion,
+		Action:      model.FileJournalActionDeleted,
+		Timestamp:   time.Now().UTC(),
+	}
+	if err := tx.Create(&journal).Error; err != nil {
+		return nil, err
+	}
+
+	if err := r.upsertSynchronizedReplicaFile(tx, replica.ID, file.ID, file.Version); err != nil {
+		return nil, err
+	}
+
+	var destinationReplicas []model.Replica
+	if err := tx.
+		Where("inventory_id = ? AND id <> ? AND status = ?", replica.InventoryID, replica.ID, model.ReplicaStatusActive).
+		Order("id asc").
+		Find(&destinationReplicas).Error; err != nil {
+		return nil, err
+	}
+	affectedReplicaIDs := make([]uint, 0, len(destinationReplicas))
+	for _, destinationReplica := range destinationReplicas {
+		var destinationReplicaFile model.ReplicaFile
+		err := tx.Where("file_id = ? AND replica_id = ?", file.ID, destinationReplica.ID).First(&destinationReplicaFile).Error
+		switch {
+		case err == nil:
+			destinationReplicaFile.Status = model.ReplicaFileStatusPending
+			if err := tx.Save(&destinationReplicaFile).Error; err != nil {
+				return nil, err
+			}
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			destinationReplicaFile = model.ReplicaFile{
+				FileID:    file.ID,
+				ReplicaID: destinationReplica.ID,
+				Version:   0,
+				Status:    model.ReplicaFileStatusPending,
+			}
+			if err := tx.Create(&destinationReplicaFile).Error; err != nil {
+				return nil, err
+			}
+		default:
+			return nil, err
+		}
+		affectedReplicaIDs = append(affectedReplicaIDs, destinationReplica.ID)
+	}
+
+	return affectedReplicaIDs, nil
+}
+
 func (r *ReplicaRepository) handleNoContentReportedFile(tx *gorm.DB, replica model.Replica, update ReplicaFileUpdate) (bool, error) {
 	var file model.InventoryFile
 	var err error
@@ -577,21 +665,35 @@ func (r *ReplicaRepository) handleNoContentReportedFile(tx *gorm.DB, replica mod
 
 	var replicaFile model.ReplicaFile
 	err = tx.Where("file_id = ? AND replica_id = ?", file.ID, replica.ID).First(&replicaFile).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return true, r.upsertSynchronizedReplicaFile(tx, replica.ID, file.ID, file.Version)
+	}
+	if err != nil {
+		return false, err
+	}
+	replicaFile.Version = file.Version
+	replicaFile.Status = model.ReplicaFileStatusSynchronized
+	return true, tx.Save(&replicaFile).Error
+}
+
+func (r *ReplicaRepository) upsertSynchronizedReplicaFile(tx *gorm.DB, replicaID, fileID, version uint) error {
+	var replicaFile model.ReplicaFile
+	err := tx.Where("file_id = ? AND replica_id = ?", fileID, replicaID).First(&replicaFile).Error
 	switch {
 	case err == nil:
-		replicaFile.Version = file.Version
+		replicaFile.Version = version
 		replicaFile.Status = model.ReplicaFileStatusSynchronized
-		return true, tx.Save(&replicaFile).Error
+		return tx.Save(&replicaFile).Error
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		replicaFile = model.ReplicaFile{
-			FileID:    file.ID,
-			ReplicaID: replica.ID,
-			Version:   file.Version,
+			FileID:    fileID,
+			ReplicaID: replicaID,
+			Version:   version,
 			Status:    model.ReplicaFileStatusSynchronized,
 		}
-		return true, tx.Create(&replicaFile).Error
+		return tx.Create(&replicaFile).Error
 	default:
-		return false, err
+		return err
 	}
 }
 

@@ -503,6 +503,10 @@ func TestClientReportReplicaFilesUsesInternalEndpoint(t *testing.T) {
 	fileID := uint(10)
 	created := time.Date(2026, 5, 21, 11, 0, 0, 0, time.UTC)
 	modified := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	size := int64(200)
+	hash := "hash"
+	newSize := int64(300)
+	newHash := "new-hash"
 	var gotBody struct {
 		Files []ReplicaFileReport `json:"files"`
 	}
@@ -552,17 +556,17 @@ func TestClientReportReplicaFilesUsesInternalEndpoint(t *testing.T) {
 		{
 			FileID:       &fileID,
 			RelativeURI:  "album/img.jpg",
-			FileSize:     200,
-			FileHash:     "hash",
-			CreatedTime:  created,
-			ModifiedTime: modified,
+			FileSize:     &size,
+			FileHash:     &hash,
+			CreatedTime:  &created,
+			ModifiedTime: &modified,
 		},
 		{
 			RelativeURI:  "album/new.jpg",
-			FileSize:     300,
-			FileHash:     "new-hash",
-			CreatedTime:  created,
-			ModifiedTime: modified,
+			FileSize:     &newSize,
+			FileHash:     &newHash,
+			CreatedTime:  &created,
+			ModifiedTime: &modified,
 		},
 	})
 	if err != nil {
@@ -578,17 +582,17 @@ func TestClientReportReplicaFilesUsesInternalEndpoint(t *testing.T) {
 	if gotBody.Files[0].RelativeURI != "album/img.jpg" {
 		t.Fatalf("gotBody.Files[0].RelativeURI = %q, want album/img.jpg", gotBody.Files[0].RelativeURI)
 	}
-	if gotBody.Files[0].FileSize != 200 {
-		t.Fatalf("gotBody.Files[0].FileSize = %d, want 200", gotBody.Files[0].FileSize)
+	if gotBody.Files[0].FileSize == nil || *gotBody.Files[0].FileSize != 200 {
+		t.Fatalf("gotBody.Files[0].FileSize = %v, want 200", gotBody.Files[0].FileSize)
 	}
-	if gotBody.Files[0].FileHash != "hash" {
-		t.Fatalf("gotBody.Files[0].FileHash = %q, want hash", gotBody.Files[0].FileHash)
+	if gotBody.Files[0].FileHash == nil || *gotBody.Files[0].FileHash != "hash" {
+		t.Fatalf("gotBody.Files[0].FileHash = %v, want hash", gotBody.Files[0].FileHash)
 	}
-	if !gotBody.Files[0].CreatedTime.Equal(created) {
-		t.Fatalf("gotBody.Files[0].CreatedTime = %s, want %s", gotBody.Files[0].CreatedTime, created)
+	if gotBody.Files[0].CreatedTime == nil || !gotBody.Files[0].CreatedTime.Equal(created) {
+		t.Fatalf("gotBody.Files[0].CreatedTime = %v, want %s", gotBody.Files[0].CreatedTime, created)
 	}
-	if !gotBody.Files[0].ModifiedTime.Equal(modified) {
-		t.Fatalf("gotBody.Files[0].ModifiedTime = %s, want %s", gotBody.Files[0].ModifiedTime, modified)
+	if gotBody.Files[0].ModifiedTime == nil || !gotBody.Files[0].ModifiedTime.Equal(modified) {
+		t.Fatalf("gotBody.Files[0].ModifiedTime = %v, want %s", gotBody.Files[0].ModifiedTime, modified)
 	}
 	if gotBody.Files[1].FileID != nil {
 		t.Fatalf("gotBody.Files[1].FileID = %v, want nil", gotBody.Files[1].FileID)
@@ -646,13 +650,15 @@ func TestClientReportReplicaFilesRefreshesExpiredToken(t *testing.T) {
 	client.refreshTokenExpiresAt = time.Now().UTC().Add(time.Hour)
 	client.mu.Unlock()
 
+	size := int64(300)
+	hash := "new-hash"
 	err = client.ReportReplicaFiles(context.Background(), 7, []ReplicaFileReport{
 		{
 			RelativeURI:  "album/new.jpg",
-			FileSize:     300,
-			FileHash:     "new-hash",
-			CreatedTime:  created,
-			ModifiedTime: modified,
+			FileSize:     &size,
+			FileHash:     &hash,
+			CreatedTime:  &created,
+			ModifiedTime: &modified,
 		},
 	})
 	if err != nil {

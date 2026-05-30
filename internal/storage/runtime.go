@@ -248,10 +248,25 @@ func (r *Runtime) startReplicaWatchers(ctx context.Context, replicas []apiclient
 }
 
 func (r *Runtime) reportWatcherChange(ctx context.Context, replica apiclient.Replica, change FileChange) error {
-	if change.ChangeType != FileChangeTypeCreated && change.ChangeType != FileChangeTypeModified {
+	if change.ChangeType != FileChangeTypeCreated && change.ChangeType != FileChangeTypeModified && change.ChangeType != FileChangeTypeDeleted {
 		return nil
 	}
 	if strings.TrimSpace(change.RelativeURI) == "" {
+		return nil
+	}
+
+	if change.ChangeType == FileChangeTypeDeleted {
+		report, ok := deletedReplicaFileReport(r.replicaFilesSnapshot(replica.ID), change.RelativeURI)
+		if !ok {
+			return nil
+		}
+		if err := r.client.ReportReplicaFiles(ctx, replica.ID, []apiclient.ReplicaFileReport{report}); err != nil {
+			return err
+		}
+		if _, err := r.refreshReplicaFiles(ctx, replica.ID); err != nil {
+			return err
+		}
+		log.Printf("storage runtime watcher reported files replica_id=%d count=%d", replica.ID, 1)
 		return nil
 	}
 
@@ -267,7 +282,7 @@ func (r *Runtime) reportWatcherChange(ctx context.Context, replica apiclient.Rep
 		return nil
 	}
 
-	reports := replicaFileReports(r.replicaFilesSnapshot(replica.ID), []FileState{state})
+	reports := replicaFileReportsForStates(r.replicaFilesSnapshot(replica.ID), []FileState{state}, false)
 	if len(reports) == 0 {
 		return nil
 	}
@@ -541,6 +556,35 @@ func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Comman
 
 	var failures []string
 	for _, pendingFile := range pendingFiles {
+		if pendingFile.InventoryStatus == "deleted" {
+			if err := writer.Delete(ctx, destination.URI, pendingFile.RelativeURI); err != nil {
+				failure := fmt.Errorf("delete replica_id=%d file_id=%d relative_uri=%s: %w", payload.DestinationReplicaID, pendingFile.FileID, pendingFile.RelativeURI, err)
+				if isReconcileAuthError(err) {
+					return failure
+				}
+				if isReconcileFileError(err) {
+					if markErr := r.markReplicaFileError(ctx, payload.DestinationReplicaID, pendingFile.FileID, failure); markErr != nil {
+						return markErr
+					}
+				}
+				failures = append(failures, failure.Error())
+				continue
+			}
+
+			version := pendingFile.InventoryVersion
+			if err := r.client.UpdateReplicaFileStatus(ctx, payload.DestinationReplicaID, pendingFile.FileID, "synchronized", &version, nil); err != nil {
+				failure := fmt.Errorf("mark synchronized replica_id=%d file_id=%d version=%d: %w", payload.DestinationReplicaID, pendingFile.FileID, version, err)
+				if isReconcileAuthError(err) {
+					return failure
+				}
+				failures = append(failures, failure.Error())
+				continue
+			}
+			r.markLocalReplicaFileSynchronized(payload.DestinationReplicaID, pendingFile.FileID, version)
+			log.Printf("storage runtime reconcile_replica deleted file replica_id=%d file_id=%d relative_uri=%s version=%d", payload.DestinationReplicaID, pendingFile.FileID, pendingFile.RelativeURI, version)
+			continue
+		}
+
 		token := r.replicaTransferToken(payload.DestinationReplicaID)
 		content, err := r.client.TransferReplicaFileContent(ctx, payload.SourceNodeAddress, payload.SourceReplicaID, pendingFile.FileID, pendingFile.InventoryVersion, token)
 		if err != nil {
@@ -686,6 +730,10 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 }
 
 func replicaFileReports(files []apiclient.ReplicaInventoryFile, states []FileState) []apiclient.ReplicaFileReport {
+	return replicaFileReportsForStates(files, states, true)
+}
+
+func replicaFileReportsForStates(files []apiclient.ReplicaInventoryFile, states []FileState, includeDeletes bool) []apiclient.ReplicaFileReport {
 	activeFilesByURI := make(map[string]apiclient.ReplicaInventoryFile, len(files))
 	for _, file := range files {
 		if file.InventoryStatus != "active" {
@@ -695,26 +743,66 @@ func replicaFileReports(files []apiclient.ReplicaInventoryFile, states []FileSta
 	}
 
 	reports := make([]apiclient.ReplicaFileReport, 0)
+	seenURIs := make(map[string]struct{}, len(states))
 	for _, state := range states {
+		seenURIs[state.RelativeURI] = struct{}{}
 		file, ok := activeFilesByURI[state.RelativeURI]
 		if ok && sameReplicaFileContent(file, state) {
 			continue
 		}
 
-		report := apiclient.ReplicaFileReport{
-			RelativeURI:  state.RelativeURI,
-			FileSize:     state.Size,
-			FileHash:     state.Hash,
-			CreatedTime:  state.Created,
-			ModifiedTime: state.Modified,
-		}
+		action := "created"
+		var fileID *uint
 		if ok {
-			fileID := file.FileID
-			report.FileID = &fileID
+			action = "updated"
+			id := file.FileID
+			fileID = &id
+		}
+		fileSize := state.Size
+		fileHash := state.Hash
+		createdTime := state.Created
+		modifiedTime := state.Modified
+		report := apiclient.ReplicaFileReport{
+			Action:       action,
+			RelativeURI:  state.RelativeURI,
+			FileID:       fileID,
+			FileSize:     &fileSize,
+			FileHash:     &fileHash,
+			CreatedTime:  &createdTime,
+			ModifiedTime: &modifiedTime,
 		}
 		reports = append(reports, report)
 	}
+	if includeDeletes {
+		for _, file := range files {
+			if file.InventoryStatus != "active" {
+				continue
+			}
+			if _, ok := seenURIs[file.RelativeURI]; ok {
+				continue
+			}
+			report, ok := deletedReplicaFileReport([]apiclient.ReplicaInventoryFile{file}, file.RelativeURI)
+			if ok {
+				reports = append(reports, report)
+			}
+		}
+	}
 	return reports
+}
+
+func deletedReplicaFileReport(files []apiclient.ReplicaInventoryFile, relativeURI string) (apiclient.ReplicaFileReport, bool) {
+	for _, file := range files {
+		if file.InventoryStatus != "active" || file.RelativeURI != relativeURI {
+			continue
+		}
+		fileID := file.FileID
+		return apiclient.ReplicaFileReport{
+			FileID:      &fileID,
+			Action:      "deleted",
+			RelativeURI: file.RelativeURI,
+		}, true
+	}
+	return apiclient.ReplicaFileReport{}, false
 }
 
 func sameReplicaFileContent(file apiclient.ReplicaInventoryFile, state FileState) bool {

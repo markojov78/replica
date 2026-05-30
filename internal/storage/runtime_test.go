@@ -367,6 +367,7 @@ func TestRuntimeScanReplicaReportsCreatedAndChangedFiles(t *testing.T) {
 	var gotReport struct {
 		Files []struct {
 			FileID       *uint     `json:"file_id"`
+			Action       string    `json:"action"`
 			RelativeURI  string    `json:"relative_uri"`
 			FileSize     int64     `json:"file_size"`
 			FileHash     string    `json:"file_hash"`
@@ -567,6 +568,7 @@ func TestRuntimeScanReplicaReportsCreatedAndChangedFiles(t *testing.T) {
 
 			byURI := map[string]struct {
 				FileID       *uint     `json:"file_id"`
+				Action       string    `json:"action"`
 				RelativeURI  string    `json:"relative_uri"`
 				FileSize     int64     `json:"file_size"`
 				FileHash     string    `json:"file_hash"`
@@ -587,6 +589,9 @@ func TestRuntimeScanReplicaReportsCreatedAndChangedFiles(t *testing.T) {
 			if changed.FileHash != changedHash {
 				t.Fatalf("changed.FileHash = %q, want %q", changed.FileHash, changedHash)
 			}
+			if changed.Action != "updated" {
+				t.Fatalf("changed.Action = %q, want updated", changed.Action)
+			}
 
 			created, ok := byURI["new.txt"]
 			if !ok {
@@ -597,6 +602,9 @@ func TestRuntimeScanReplicaReportsCreatedAndChangedFiles(t *testing.T) {
 			}
 			if created.FileHash != newHash {
 				t.Fatalf("created.FileHash = %q, want %q", created.FileHash, newHash)
+			}
+			if created.Action != "created" {
+				t.Fatalf("created.Action = %q, want created", created.Action)
 			}
 			return
 		}
@@ -754,6 +762,112 @@ func TestRuntimeReconcileReplicaTransfersPendingFiles(t *testing.T) {
 	}
 	if string(data) != "content" {
 		t.Fatalf("copied content = %q, want content", string(data))
+	}
+	if len(statusUpdates) != 1 || statusUpdates[0].Status != "synchronized" || statusUpdates[0].Version != 5 {
+		t.Fatalf("statusUpdates = %+v, want synchronized version=5", statusUpdates)
+	}
+	if !commandCompleted {
+		t.Fatal("command was not marked completed")
+	}
+}
+
+func TestRuntimeReconcileReplicaDeletesPendingDeletedFiles(t *testing.T) {
+	destinationRoot := t.TempDir()
+	localPath := filepath.Join(destinationRoot, "deleted.txt")
+	if err := os.WriteFile(localPath, []byte("old content"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	type replicaFileStatusUpdate struct {
+		Status  string
+		Version uint
+	}
+	var statusUpdates []replicaFileStatusUpdate
+	commandCompleted := false
+	contentRequested := false
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":                  "node-a",
+				"access_token":             "access-token",
+				"refresh_token":            "refresh-token",
+				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
+				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/internal/replicas":
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{"id": 4, "inventory_id": 2, "node_id": "node-a", "uri": destinationRoot, "status": "active", "type": "filesystem"},
+			})
+		case "/internal/replica/4/files":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"files": []map[string]any{
+					{
+						"file_id":           10,
+						"replica_id":        4,
+						"inventory_id":      2,
+						"relative_uri":      "deleted.txt",
+						"size":              0,
+						"hash":              "hash",
+						"inventory_status":  "deleted",
+						"inventory_version": 5,
+						"replica_status":    "pending",
+						"replica_version":   4,
+						"created":           "2026-05-21T11:00:00Z",
+						"modified":          "2026-05-21T12:00:00Z",
+					},
+				},
+			})
+		case "/internal/replicas/3/files/10/content":
+			contentRequested = true
+			http.Error(w, "should not transfer deleted file", http.StatusInternalServerError)
+		case "/internal/replica/4/files/10":
+			var body struct {
+				Status  string `json:"status"`
+				Version uint   `json:"version"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("Decode(status update) error = %v", err)
+			}
+			statusUpdates = append(statusUpdates, replicaFileStatusUpdate{Status: body.Status, Version: body.Version})
+			w.WriteHeader(http.StatusNoContent)
+		case "/internal/commands/34":
+			var body struct {
+				Status string `json:"status"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("Decode(command update) error = %v", err)
+			}
+			if body.Status != "completed" {
+				t.Fatalf("command status = %q, want completed", body.Status)
+			}
+			commandCompleted = true
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 34, "node_id": "node-a", "type": "reconcile_replica", "status": "completed"})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	runtime := newRuntimeForTest(t, server.URL)
+	payloadData := reconcilePayloadForTest(t, server.URL)
+
+	ok := runtime.handleCommand(context.Background(), apiclient.Command{
+		ID:      34,
+		NodeID:  "node-a",
+		Type:    "reconcile_replica",
+		Status:  "pending",
+		Payload: payloadData,
+	})
+	if !ok {
+		t.Fatal("handleCommand() = false, want true")
+	}
+	if contentRequested {
+		t.Fatal("content endpoint was requested for deleted file")
+	}
+	if _, err := os.Stat(localPath); !os.IsNotExist(err) {
+		t.Fatalf("Stat(localPath) error = %v, want not exist", err)
 	}
 	if len(statusUpdates) != 1 || statusUpdates[0].Status != "synchronized" || statusUpdates[0].Version != 5 {
 		t.Fatalf("statusUpdates = %+v, want synchronized version=5", statusUpdates)
@@ -1055,6 +1169,7 @@ func TestRuntimeReportsWatcherCreatedFile(t *testing.T) {
 	var gotReport struct {
 		Files []struct {
 			FileID      *uint  `json:"file_id"`
+			Action      string `json:"action"`
 			RelativeURI string `json:"relative_uri"`
 			FileSize    int64  `json:"file_size"`
 			FileHash    string `json:"file_hash"`
@@ -1143,7 +1258,7 @@ func TestRuntimeReportsWatcherCreatedFile(t *testing.T) {
 	if gotReport.Files[0].FileID != nil {
 		t.Fatalf("FileID = %v, want nil for new file", gotReport.Files[0].FileID)
 	}
-	if gotReport.Files[0].RelativeURI != "new.txt" || gotReport.Files[0].FileSize != 7 || gotReport.Files[0].FileHash == "" {
+	if gotReport.Files[0].Action != "created" || gotReport.Files[0].RelativeURI != "new.txt" || gotReport.Files[0].FileSize != 7 || gotReport.Files[0].FileHash == "" {
 		t.Fatalf("reported file = %+v, want new.txt size=7 with hash", gotReport.Files[0])
 	}
 }
@@ -1200,8 +1315,33 @@ func TestReplicaFileReportsReportHashDifference(t *testing.T) {
 	if len(reports) != 1 {
 		t.Fatalf("len(reports) = %d, want 1", len(reports))
 	}
-	if reports[0].FileID == nil || *reports[0].FileID != fileID || reports[0].FileHash != "new-hash" {
+	if reports[0].FileID == nil || *reports[0].FileID != fileID || reports[0].FileHash == nil || *reports[0].FileHash != "new-hash" || reports[0].Action != "updated" {
 		t.Fatalf("reports[0] = %+v, want file_id=%d hash=new-hash", reports[0], fileID)
+	}
+}
+
+func TestReplicaFileReportsReportDeletedMissingFile(t *testing.T) {
+	fileID := uint(10)
+	reports := replicaFileReports(
+		[]apiclient.ReplicaInventoryFile{
+			{
+				FileID:          fileID,
+				RelativeURI:     "missing.txt",
+				Size:            7,
+				Hash:            "hash",
+				InventoryStatus: "active",
+			},
+		},
+		nil,
+	)
+	if len(reports) != 1 {
+		t.Fatalf("len(reports) = %d, want 1", len(reports))
+	}
+	if reports[0].Action != "deleted" || reports[0].FileID == nil || *reports[0].FileID != fileID || reports[0].RelativeURI != "missing.txt" {
+		t.Fatalf("reports[0] = %+v, want deleted missing.txt file_id=%d", reports[0], fileID)
+	}
+	if reports[0].FileSize != nil || reports[0].FileHash != nil || reports[0].CreatedTime != nil || reports[0].ModifiedTime != nil {
+		t.Fatalf("reports[0] = %+v, want deleted report without content fields", reports[0])
 	}
 }
 

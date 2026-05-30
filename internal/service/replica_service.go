@@ -356,20 +356,11 @@ func (s *ReplicaService) ReportFileChanges(replicaID uint, nodeID string, change
 
 	updates := make([]repository.ReplicaFileUpdate, 0, len(changes))
 	for _, change := range changes {
-		relativeURI := strings.TrimSpace(change.RelativeURI)
-		fileHash := strings.TrimSpace(change.FileHash)
-		if relativeURI == "" || fileHash == "" || change.FileSize < 0 || change.CreatedTime.IsZero() || change.ModifiedTime.IsZero() ||
-			(change.FileID != nil && *change.FileID == 0) {
-			return ErrInvalidReplicaFileUpdate
+		update, err := replicaFileUpdateFromChange(change)
+		if err != nil {
+			return err
 		}
-		updates = append(updates, repository.ReplicaFileUpdate{
-			FileID:       change.FileID,
-			RelativeURI:  relativeURI,
-			FileSize:     change.FileSize,
-			FileHash:     fileHash,
-			CreatedTime:  change.CreatedTime,
-			ModifiedTime: change.ModifiedTime,
-		})
+		updates = append(updates, update)
 	}
 
 	if len(updates) == 0 {
@@ -393,6 +384,57 @@ func (s *ReplicaService) ReportFileChanges(replicaID uint, nodeID string, change
 	}
 
 	return nil
+}
+
+func replicaFileUpdateFromChange(change ReplicaFileChangeInput) (repository.ReplicaFileUpdate, error) {
+	relativeURI := strings.TrimSpace(change.RelativeURI)
+	action := model.ReplicaFileAction(strings.TrimSpace(change.Action))
+	fileHash := strings.TrimSpace(change.FileHash)
+
+	if relativeURI == "" || (change.FileID != nil && *change.FileID == 0) {
+		return repository.ReplicaFileUpdate{}, ErrInvalidReplicaFileUpdate
+	}
+	if action != "" {
+		switch action {
+		case model.ReplicaFileActionCreated:
+			if change.FileID != nil || !hasContentReportFields(change, true) {
+				return repository.ReplicaFileUpdate{}, ErrInvalidReplicaFileUpdate
+			}
+		case model.ReplicaFileActionUpdated:
+			if change.FileID == nil || !hasContentReportFields(change, true) {
+				return repository.ReplicaFileUpdate{}, ErrInvalidReplicaFileUpdate
+			}
+		case model.ReplicaFileActionDeleted:
+			if change.FileID == nil || change.FileSizeSet || change.FileHashSet || change.CreatedTimeSet || change.ModifiedTimeSet {
+				return repository.ReplicaFileUpdate{}, ErrInvalidReplicaFileUpdate
+			}
+		default:
+			return repository.ReplicaFileUpdate{}, ErrInvalidReplicaFileAction
+		}
+	} else if !hasContentReportFields(change, false) {
+		return repository.ReplicaFileUpdate{}, ErrInvalidReplicaFileUpdate
+	}
+
+	return repository.ReplicaFileUpdate{
+		FileID:       change.FileID,
+		Action:       action,
+		RelativeURI:  relativeURI,
+		FileSize:     change.FileSize,
+		FileHash:     fileHash,
+		CreatedTime:  change.CreatedTime,
+		ModifiedTime: change.ModifiedTime,
+	}, nil
+}
+
+func hasContentReportFields(change ReplicaFileChangeInput, requirePresence bool) bool {
+	fileHash := strings.TrimSpace(change.FileHash)
+	if requirePresence && (!change.FileSizeSet || !change.FileHashSet || !change.CreatedTimeSet || !change.ModifiedTimeSet) {
+		return false
+	}
+	return change.FileSize >= 0 &&
+		fileHash != "" &&
+		!change.CreatedTime.IsZero() &&
+		!change.ModifiedTime.IsZero()
 }
 
 func (s *ReplicaService) UpdateFileStatus(replicaID, fileID uint, nodeID, statusValue string, version *uint, errorMessage *string) error {

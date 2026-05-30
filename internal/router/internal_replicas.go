@@ -68,14 +68,28 @@ func registerInternalReplicaRoutes(api huma.API, svc services) {
 
 		changes := make([]service.ReplicaFileChangeInput, 0, len(input.Body.Files))
 		for _, file := range input.Body.Files {
-			changes = append(changes, service.ReplicaFileChangeInput{
-				FileID:       file.FileID,
-				RelativeURI:  file.RelativeURI,
-				FileSize:     file.FileSize,
-				FileHash:     file.FileHash,
-				CreatedTime:  file.CreatedTime,
-				ModifiedTime: file.ModifiedTime,
-			})
+			change := service.ReplicaFileChangeInput{
+				FileID:          file.FileID,
+				Action:          file.Action,
+				RelativeURI:     file.RelativeURI,
+				FileSizeSet:     file.FileSize != nil,
+				FileHashSet:     file.FileHash != nil,
+				CreatedTimeSet:  file.CreatedTime != nil,
+				ModifiedTimeSet: file.ModifiedTime != nil,
+			}
+			if file.FileSize != nil {
+				change.FileSize = *file.FileSize
+			}
+			if file.FileHash != nil {
+				change.FileHash = *file.FileHash
+			}
+			if file.CreatedTime != nil {
+				change.CreatedTime = *file.CreatedTime
+			}
+			if file.ModifiedTime != nil {
+				change.ModifiedTime = *file.ModifiedTime
+			}
+			changes = append(changes, change)
 		}
 
 		if err := svc.replicas.ReportFileChanges(input.ReplicaID, node.ID, changes); err != nil {
@@ -140,12 +154,13 @@ type reportReplicaFilesInput struct {
 	ReplicaID     uint   `path:"replica_id"`
 	Body          struct {
 		Files []struct {
-			FileID       *uint     `json:"file_id,omitempty"`
-			RelativeURI  string    `json:"relative_uri" minLength:"1"`
-			FileSize     int64     `json:"file_size"`
-			FileHash     string    `json:"file_hash" minLength:"1"`
-			CreatedTime  time.Time `json:"created_time"`
-			ModifiedTime time.Time `json:"modified_time"`
+			FileID       *uint      `json:"file_id,omitempty"`
+			Action       string     `json:"action,omitempty"`
+			RelativeURI  string     `json:"relative_uri" minLength:"1"`
+			FileSize     *int64     `json:"file_size,omitempty"`
+			FileHash     *string    `json:"file_hash,omitempty"`
+			CreatedTime  *time.Time `json:"created_time,omitempty"`
+			ModifiedTime *time.Time `json:"modified_time,omitempty"`
 		} `json:"files"`
 	}
 }

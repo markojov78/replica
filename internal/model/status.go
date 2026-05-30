@@ -7,6 +7,7 @@ type FileJournalAction string
 type ReplicaStatus string
 type ReplicaType string
 type ReplicaFileStatus string
+type ReplicaFileAction string
 type ShareStatus string
 type UserStatus string
 type RoleStatus string
@@ -56,6 +57,12 @@ const (
 	ReplicaFileStatusSynchronized ReplicaFileStatus = "synchronized"
 	ReplicaFileStatusConflict     ReplicaFileStatus = "conflict"
 	ReplicaFileStatusError        ReplicaFileStatus = "error"
+)
+
+const (
+	ReplicaFileActionCreated ReplicaFileAction = "created"
+	ReplicaFileActionUpdated ReplicaFileAction = "updated"
+	ReplicaFileActionDeleted ReplicaFileAction = "deleted"
 )
 
 const (
