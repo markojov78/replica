@@ -398,13 +398,12 @@ func (r *Runtime) handleCommand(ctx context.Context, command apiclient.Command) 
 			return false
 		}
 		return r.markCommandCompleted(ctx, command.ID)
-	case "reconcile_replica":
-		//if err := r.reconcileReplicaPlaceholder(command); err != nil {
-		//	r.markCommandFailed(ctx, command.ID, err)
-		//	return false
-		//}
-		//return r.markCommandCompleted(ctx, command.ID)
-		return false // TODO: remove this after implementation
+	//case "reconcile_replica":
+	//if err := r.reconcileReplicaPlaceholder(command); err != nil {
+	//	r.markCommandFailed(ctx, command.ID, err)
+	//	return false
+	//}
+	//return r.markCommandCompleted(ctx, command.ID)
 	default:
 		log.Printf("storage runtime command type not implemented id=%d type=%s", command.ID, command.Type)
 		return false
@@ -413,19 +412,6 @@ func (r *Runtime) handleCommand(ctx context.Context, command apiclient.Command) 
 
 type scanReplicaCommandPayload struct {
 	ReplicaID uint `json:"replica_id"`
-}
-
-func (r *Runtime) reconcileReplicaPlaceholder(command apiclient.Command) error {
-	var payload scanReplicaCommandPayload
-	if err := json.Unmarshal(command.Payload, &payload); err != nil {
-		return fmt.Errorf("invalid reconcile_replica payload: %w", err)
-	}
-	if payload.ReplicaID == 0 {
-		return fmt.Errorf("invalid reconcile_replica payload: missing replica_id")
-	}
-
-	log.Printf("storage runtime reconcile_replica command received id=%d replica_id=%d: not implemented", command.ID, payload.ReplicaID)
-	return fmt.Errorf("reconcile_replica is not implemented")
 }
 
 func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) error {

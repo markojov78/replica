@@ -223,9 +223,14 @@ func (r *ReplicaRepository) ListFiles(replicaID uint, page, perPage int, filter 
 	return files, total, nil
 }
 
-func (r *ReplicaRepository) ListInventoryFiles(replicaID uint) ([]ReplicaInventoryFile, error) {
+func (r *ReplicaRepository) ListInventoryFiles(replicaID uint, filters ...ReplicaFileListFilter) ([]ReplicaInventoryFile, error) {
+	var filter ReplicaFileListFilter
+	if len(filters) > 0 {
+		filter = filters[0]
+	}
+
 	var files []ReplicaInventoryFile
-	err := r.db.
+	query := r.db.
 		Table("replica_files").
 		Select(`
 			replica_files.file_id AS file_id,
@@ -242,7 +247,11 @@ func (r *ReplicaRepository) ListInventoryFiles(replicaID uint) ([]ReplicaInvento
 			inventory_files.modified AS modified
 		`).
 		Joins("JOIN inventory_files ON inventory_files.id = replica_files.file_id").
-		Where("replica_files.replica_id = ?", replicaID).
+		Where("replica_files.replica_id = ?", replicaID)
+	if filter.Status != "" {
+		query = query.Where("replica_files.status = ?", filter.Status)
+	}
+	err := query.
 		Order("inventory_files.relative_uri asc").
 		Scan(&files).Error
 	if err != nil {
@@ -253,6 +262,19 @@ func (r *ReplicaRepository) ListInventoryFiles(replicaID uint) ([]ReplicaInvento
 
 func (r *ReplicaRepository) Update(replica *model.Replica) error {
 	return r.db.Save(replica).Error
+}
+
+func (r *ReplicaRepository) UpdateFileStatus(replicaID, fileID uint, status model.ReplicaFileStatus) error {
+	result := r.db.Model(&model.ReplicaFile{}).
+		Where("replica_id = ? AND file_id = ?", replicaID, fileID).
+		Update("status", status)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaFileUpdate) error {

@@ -591,6 +591,54 @@ func TestInternalReplicaFilesReturnsInventoryAndReplicaMetadata(t *testing.T) {
 	}
 }
 
+func TestInternalReplicaFilesFiltersByStatus(t *testing.T) {
+	database := openRouterTestDB(t)
+	handler, accessToken, replica, pendingFile := newInternalReplicaFilesFilterTestHandler(t, database)
+
+	req := httptest.NewRequest(http.MethodGet, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files?status=pending", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+
+	var body struct {
+		Files []struct {
+			FileID        uint   `json:"file_id"`
+			ReplicaStatus string `json:"replica_status"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(body.Files) != 1 {
+		t.Fatalf("len(body.Files) = %d, want 1", len(body.Files))
+	}
+	if body.Files[0].FileID != pendingFile.ID || body.Files[0].ReplicaStatus != string(model.ReplicaFileStatusPending) {
+		t.Fatalf("file = %+v, want pending file_id=%d", body.Files[0], pendingFile.ID)
+	}
+}
+
+func TestInternalReplicaFilesRejectsInvalidStatusFilter(t *testing.T) {
+	database := openRouterTestDB(t)
+	handler, accessToken, replica, _ := newInternalReplicaFilesFilterTestHandler(t, database)
+
+	req := httptest.NewRequest(http.MethodGet, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files?status=invalid", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusBadRequest, recorder.Body.String())
+	}
+}
+
 func TestPublicReplicasListIsPaginated(t *testing.T) {
 	database := openRouterTestDB(t)
 
@@ -1234,6 +1282,208 @@ func TestInternalReplicaFilesReportUpdatesCoordinatorState(t *testing.T) {
 	if pendingReplica.Status != model.ReplicaFileStatusPending {
 		t.Fatalf("pendingReplica.Status = %q, want %q", pendingReplica.Status, model.ReplicaFileStatusPending)
 	}
+}
+
+func TestInternalReplicaFilePatchUpdatesStatus(t *testing.T) {
+	database := openRouterTestDB(t)
+	handler, accessToken, replica, file := newInternalReplicaFileStatusTestHandler(t, database)
+
+	req := httptest.NewRequest(http.MethodPatch, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files/"+strconv.FormatUint(uint64(file.ID), 10), strings.NewReader(`{"status":"error","error":"copy failed"}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-API-Version", "1")
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusNoContent, recorder.Body.String())
+	}
+
+	var replicaFile model.ReplicaFile
+	if err := database.Where("replica_id = ? AND file_id = ?", replica.ID, file.ID).First(&replicaFile).Error; err != nil {
+		t.Fatalf("First(replicaFile) error = %v", err)
+	}
+	if replicaFile.Status != model.ReplicaFileStatusError {
+		t.Fatalf("replicaFile.Status = %q, want %q", replicaFile.Status, model.ReplicaFileStatusError)
+	}
+}
+
+func TestInternalReplicaFilePatchRejectsInvalidStatus(t *testing.T) {
+	database := openRouterTestDB(t)
+	handler, accessToken, replica, file := newInternalReplicaFileStatusTestHandler(t, database)
+
+	req := httptest.NewRequest(http.MethodPatch, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files/"+strconv.FormatUint(uint64(file.ID), 10), strings.NewReader(`{"status":"invalid"}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-API-Version", "1")
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusBadRequest, recorder.Body.String())
+	}
+
+	var replicaFile model.ReplicaFile
+	if err := database.Where("replica_id = ? AND file_id = ?", replica.ID, file.ID).First(&replicaFile).Error; err != nil {
+		t.Fatalf("First(replicaFile) error = %v", err)
+	}
+	if replicaFile.Status != model.ReplicaFileStatusPending {
+		t.Fatalf("replicaFile.Status = %q, want unchanged %q", replicaFile.Status, model.ReplicaFileStatusPending)
+	}
+}
+
+func newInternalReplicaFileStatusTestHandler(t *testing.T, database *gorm.DB) (http.Handler, string, model.Replica, model.InventoryFile) {
+	t.Helper()
+
+	hashedSecret, err := security.HashPassword("node-secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	if err := database.Create(&model.Node{ID: "node-a", Status: model.NodeStatusOffline, Secret: hashedSecret}).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+
+	inventory := model.Inventory{Name: "Photos", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(&inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+
+	replica := model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-a",
+		URI:         "/data/photos",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(&replica).Error; err != nil {
+		t.Fatalf("Create(replica) error = %v", err)
+	}
+
+	file := model.InventoryFile{
+		InventoryID: inventory.ID,
+		RelativeURI: "album/img.jpg",
+		Status:      model.InventoryFileStatusActive,
+		Size:        100,
+		Hash:        "hash",
+		Version:     3,
+		Created:     time.Date(2026, 5, 21, 11, 0, 0, 0, time.UTC),
+		Modified:    time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC),
+	}
+	if err := database.Create(&file).Error; err != nil {
+		t.Fatalf("Create(file) error = %v", err)
+	}
+	if err := database.Create(&model.ReplicaFile{
+		FileID:    file.ID,
+		ReplicaID: replica.ID,
+		Version:   0,
+		Status:    model.ReplicaFileStatusPending,
+	}).Error; err != nil {
+		t.Fatalf("Create(replicaFile) error = %v", err)
+	}
+
+	authService := newRouterTestAuthService(database)
+	pair, err := authService.NodeLogin("node-a", "node-secret")
+	if err != nil {
+		t.Fatalf("NodeLogin() error = %v", err)
+	}
+
+	nodeService := service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	inventoryRepo := repository.NewInventoryRepository(database)
+	handler := New(
+		config.Config{},
+		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
+		authService,
+		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
+		service.NewRoleService(repository.NewRoleRepository(database)),
+		nodeService,
+		service.NewInventoryService(inventoryRepo),
+		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService),
+	)
+
+	return handler, pair.AccessToken, replica, file
+}
+
+func newInternalReplicaFilesFilterTestHandler(t *testing.T, database *gorm.DB) (http.Handler, string, model.Replica, model.InventoryFile) {
+	t.Helper()
+
+	hashedSecret, err := security.HashPassword("node-secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	if err := database.Create(&model.Node{ID: "node-a", Status: model.NodeStatusOffline, Secret: hashedSecret}).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+
+	inventory := model.Inventory{Name: "Photos", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(&inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	replica := model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-a",
+		URI:         "/data/photos",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(&replica).Error; err != nil {
+		t.Fatalf("Create(replica) error = %v", err)
+	}
+
+	pendingFile := model.InventoryFile{
+		InventoryID: inventory.ID,
+		RelativeURI: "pending.txt",
+		Status:      model.InventoryFileStatusActive,
+		Size:        100,
+		Hash:        "pending-hash",
+		Version:     3,
+		Created:     time.Date(2026, 5, 21, 11, 0, 0, 0, time.UTC),
+		Modified:    time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC),
+	}
+	synchronizedFile := model.InventoryFile{
+		InventoryID: inventory.ID,
+		RelativeURI: "synchronized.txt",
+		Status:      model.InventoryFileStatusActive,
+		Size:        200,
+		Hash:        "synchronized-hash",
+		Version:     3,
+		Created:     time.Date(2026, 5, 21, 11, 0, 0, 0, time.UTC),
+		Modified:    time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC),
+	}
+	if err := database.Create(&pendingFile).Error; err != nil {
+		t.Fatalf("Create(pendingFile) error = %v", err)
+	}
+	if err := database.Create(&synchronizedFile).Error; err != nil {
+		t.Fatalf("Create(synchronizedFile) error = %v", err)
+	}
+	if err := database.Create(&[]model.ReplicaFile{
+		{FileID: pendingFile.ID, ReplicaID: replica.ID, Version: 0, Status: model.ReplicaFileStatusPending},
+		{FileID: synchronizedFile.ID, ReplicaID: replica.ID, Version: 3, Status: model.ReplicaFileStatusSynchronized},
+	}).Error; err != nil {
+		t.Fatalf("Create(replicaFiles) error = %v", err)
+	}
+
+	authService := newRouterTestAuthService(database)
+	pair, err := authService.NodeLogin("node-a", "node-secret")
+	if err != nil {
+		t.Fatalf("NodeLogin() error = %v", err)
+	}
+
+	nodeService := service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	inventoryRepo := repository.NewInventoryRepository(database)
+	handler := New(
+		config.Config{},
+		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
+		authService,
+		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
+		service.NewRoleService(repository.NewRoleRepository(database)),
+		nodeService,
+		service.NewInventoryService(inventoryRepo),
+		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService),
+	)
+
+	return handler, pair.AccessToken, replica, pendingFile
 }
 
 func openRouterTestDB(t *testing.T) *gorm.DB {

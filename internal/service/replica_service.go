@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"log"
 	"strings"
 
 	"dropoutbox/internal/model"
@@ -199,7 +200,7 @@ func (s *ReplicaService) ListFiles(replicaID uint, page, perPage int, filter Rep
 	}, nil
 }
 
-func (s *ReplicaService) ListInventoryFiles(replicaID uint, nodeID string) ([]ReplicaInventoryFileDetails, error) {
+func (s *ReplicaService) ListInventoryFiles(replicaID uint, nodeID string, filters ...ReplicaFileListFilter) ([]ReplicaInventoryFileDetails, error) {
 	replica, err := s.repo.FindByID(replicaID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -211,7 +212,21 @@ func (s *ReplicaService) ListInventoryFiles(replicaID uint, nodeID string) ([]Re
 		return nil, ErrForbidden
 	}
 
-	files, err := s.repo.ListInventoryFiles(replicaID)
+	var filter ReplicaFileListFilter
+	if len(filters) > 0 {
+		filter = filters[0]
+	}
+	if filter.Status != "" {
+		status := model.ReplicaFileStatus(strings.TrimSpace(filter.Status))
+		if !status.Valid() {
+			return nil, ErrInvalidReplicaFileStatus
+		}
+		filter.Status = string(status)
+	}
+
+	files, err := s.repo.ListInventoryFiles(replicaID, repository.ReplicaFileListFilter{
+		Status: filter.Status,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -324,6 +339,38 @@ func (s *ReplicaService) ReportFileChanges(replicaID uint, nodeID string, change
 		}
 		if errors.Is(err, repository.ErrInvalidReplicaFileUpdate) {
 			return ErrInvalidReplicaFileUpdate
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (s *ReplicaService) UpdateFileStatus(replicaID, fileID uint, nodeID, statusValue string, errorMessage *string) error {
+	replica, err := s.repo.FindByID(replicaID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrReplicaNotFound
+		}
+		return err
+	}
+
+	if strings.TrimSpace(nodeID) == "" || replica.NodeID != strings.TrimSpace(nodeID) {
+		return ErrForbidden
+	}
+
+	status := model.ReplicaFileStatus(strings.TrimSpace(statusValue))
+	if !status.Valid() {
+		return ErrInvalidReplicaFileStatus
+	}
+
+	if errorMessage != nil && strings.TrimSpace(*errorMessage) != "" {
+		log.Printf("replica file status update reported error replica_id=%d file_id=%d status=%s error=%s", replicaID, fileID, status, strings.TrimSpace(*errorMessage))
+	}
+
+	if err := s.repo.UpdateFileStatus(replicaID, fileID, status); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrReplicaFileNotFound
 		}
 		return err
 	}

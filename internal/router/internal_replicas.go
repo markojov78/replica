@@ -42,7 +42,9 @@ func registerInternalReplicaRoutes(api huma.API, svc services) {
 			return nil, mapNodeMeError(err)
 		}
 
-		files, err := svc.replicas.ListInventoryFiles(input.ReplicaID, node.ID)
+		files, err := svc.replicas.ListInventoryFiles(input.ReplicaID, node.ID, service.ReplicaFileListFilter{
+			Status: input.Status,
+		})
 		if err != nil {
 			if err == service.ErrForbidden {
 				return nil, huma.Error403Forbidden("replica does not belong to authenticated node")
@@ -85,6 +87,27 @@ func registerInternalReplicaRoutes(api huma.API, svc services) {
 
 		return &reportReplicaFilesResponse{Status: 204}, nil
 	})
+
+	huma.Patch(api, "/replica/{replica_id}/files/{file_id}", func(ctx context.Context, input *updateReplicaFileStatusInput) (*updateReplicaFileStatusResponse, error) {
+		accessToken, err := bearerToken(input.Authorization)
+		if err != nil {
+			return nil, huma.Error401Unauthorized("missing authenticated node")
+		}
+
+		node, err := svc.auth.Node(accessToken)
+		if err != nil {
+			return nil, mapNodeMeError(err)
+		}
+
+		if err := svc.replicas.UpdateFileStatus(input.ReplicaID, input.FileID, node.ID, input.Body.Status, input.Body.Error); err != nil {
+			if err == service.ErrForbidden {
+				return nil, huma.Error403Forbidden("replica does not belong to authenticated node")
+			}
+			return nil, mapInventoryError(err, svc.inventories)
+		}
+
+		return &updateReplicaFileStatusResponse{Status: 204}, nil
+	})
 }
 
 type listOwnReplicasInput struct {
@@ -100,6 +123,7 @@ type listReplicaInventoryFilesInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
 	ReplicaID     uint   `path:"replica_id"`
+	Status        string `query:"status"`
 }
 
 type listReplicaInventoryFilesResponse struct {
@@ -127,5 +151,20 @@ type reportReplicaFilesInput struct {
 }
 
 type reportReplicaFilesResponse struct {
+	Status int `status:"204"`
+}
+
+type updateReplicaFileStatusInput struct {
+	versionHeader
+	Authorization string `header:"Authorization"`
+	ReplicaID     uint   `path:"replica_id"`
+	FileID        uint   `path:"file_id"`
+	Body          struct {
+		Status string  `json:"status" minLength:"1"`
+		Error  *string `json:"error,omitempty"`
+	}
+}
+
+type updateReplicaFileStatusResponse struct {
 	Status int `status:"204"`
 }

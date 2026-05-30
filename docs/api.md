@@ -1098,11 +1098,23 @@ Behavior:
 - resolves the current node from the auth token
 - verifies the replica belongs to the authenticated node
 - returns an unpaginated `files` list intended for storage-node volatile state hydration
+- filters by `replica_files.status` when the optional `status` query parameter is provided
 - joins `replica_files` with `inventory_files`
 - includes file metadata from `inventory_files`
 - includes replica-local `status` and `version` from `replica_files`
 
 The response deliberately uses separate `inventory_*` and `replica_*` fields because inventory file version/status and replica file version/status can differ.
+
+Query parameters:
+- `status` optional, one of `changed`, `pending`, `synchronized`, `conflict`, `error`
+
+Example request:
+
+```http
+GET /internal/replica/7/files?status=pending
+Authorization: Bearer node-access-token-value
+X-API-Version: 1
+```
 
 Example response:
 
@@ -1128,6 +1140,7 @@ Example response:
 ```
 
 Possible errors:
+- `400` invalid replica file status
 - `401` missing authenticated node
 - `403` disabled node
 - `403` revoked node
@@ -1194,6 +1207,46 @@ Possible errors:
 - `400` invalid replica file update
 - `404` replica not found
 - `404` inventory file not found
+
+#### PATCH /replica/{id}/files/{file_id}
+Updates local status for one file on a replica owned by the authenticated storage node.
+
+Behavior:
+- validates the bearer node JWT
+- resolves the current node from the auth token
+- verifies the replica belongs to the authenticated node
+- validates `status` against `ReplicaFileStatus` values: `changed`, `pending`, `synchronized`, `conflict`, `error`
+- updates only `replica_files.status` for `(replica_id, file_id)`
+- if `error` is provided, logs the message on the coordinator for now
+- does not update `inventory_files`
+- does not create file journal entries
+- does not persist the error message yet
+
+Request body:
+- `status` required
+- `error` optional
+
+Example request:
+
+```json
+{
+  "status": "error",
+  "error": "copy failed"
+}
+```
+
+Successful response:
+- `204 No Content`
+
+Possible errors:
+- `400` invalid JSON payload
+- `400` invalid replica file status
+- `401` missing authenticated node
+- `403` disabled node
+- `403` revoked node
+- `403` replica does not belong to authenticated node
+- `404` replica not found
+- `404` replica file not found
 
 ### /replicas/{replica_id}/files/{file_id}/content endpoint
 
