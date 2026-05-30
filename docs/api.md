@@ -1311,6 +1311,3 @@ Possible errors:
 - `403` token is valid but not authorized for the requested source replica
 - `404` local replica or file does not exist
 - `409` local replica file state does not match the requested version
-
-Not implemented in this change:
-- actual `reconcile_replica` file copy logic

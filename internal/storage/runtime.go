@@ -3,9 +3,12 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,10 +28,11 @@ type Runtime struct {
 	wsConnected       atomic.Bool
 	wsDialer          *websocket.Dialer
 
-	stateMu      sync.RWMutex
-	replicas     []apiclient.Replica
-	replicaFiles map[uint][]apiclient.ReplicaInventoryFile
-	transferKey  string
+	stateMu        sync.RWMutex
+	replicas       []apiclient.Replica
+	replicaFiles   map[uint][]apiclient.ReplicaInventoryFile
+	transferKey    string
+	transferTokens map[uint]string
 
 	commandCh chan apiclient.Command
 }
@@ -44,6 +48,7 @@ func NewRuntime(cfg config.Config) (*Runtime, error) {
 		heartbeatInterval: cfg.App.HeartbeatInterval,
 		wsDialer:          websocket.DefaultDialer,
 		replicaFiles:      make(map[uint][]apiclient.ReplicaInventoryFile),
+		transferTokens:    make(map[uint]string),
 		commandCh:         make(chan apiclient.Command, 128),
 	}, nil
 }
@@ -163,6 +168,21 @@ func (r *Runtime) transferTokenPublicKey() string {
 	r.stateMu.RLock()
 	defer r.stateMu.RUnlock()
 	return r.transferKey
+}
+
+func (r *Runtime) setReplicaTransferToken(replicaID uint, token string) {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	if r.transferTokens == nil {
+		r.transferTokens = make(map[uint]string)
+	}
+	r.transferTokens[replicaID] = token
+}
+
+func (r *Runtime) replicaTransferToken(replicaID uint) string {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+	return r.transferTokens[replicaID]
 }
 
 func (r *Runtime) findReplica(replicaID uint) (apiclient.Replica, bool) {
@@ -398,12 +418,12 @@ func (r *Runtime) handleCommand(ctx context.Context, command apiclient.Command) 
 			return false
 		}
 		return r.markCommandCompleted(ctx, command.ID)
-	//case "reconcile_replica":
-	//if err := r.reconcileReplicaPlaceholder(command); err != nil {
-	//	r.markCommandFailed(ctx, command.ID, err)
-	//	return false
-	//}
-	//return r.markCommandCompleted(ctx, command.ID)
+	case "reconcile_replica":
+		if err := r.reconcileReplica(ctx, command); err != nil {
+			r.markCommandFailed(ctx, command.ID, err)
+			return false
+		}
+		return r.markCommandCompleted(ctx, command.ID)
 	default:
 		log.Printf("storage runtime command type not implemented id=%d type=%s", command.ID, command.Type)
 		return false
@@ -412,6 +432,153 @@ func (r *Runtime) handleCommand(ctx context.Context, command apiclient.Command) 
 
 type scanReplicaCommandPayload struct {
 	ReplicaID uint `json:"replica_id"`
+}
+
+type reconcileReplicaCommandPayload struct {
+	SourceNodeAddress    string `json:"source_node_address"`
+	SourceNodeID         string `json:"source_node_id"`
+	SourceReplicaID      uint   `json:"source_replica_id"`
+	DestinationReplicaID uint   `json:"destination_replica_id"`
+	TransferToken        string `json:"transfer_token"`
+}
+
+func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Command) error {
+	var payload reconcileReplicaCommandPayload
+	if err := json.Unmarshal(command.Payload, &payload); err != nil {
+		return fmt.Errorf("invalid reconcile_replica payload: %w", err)
+	}
+	if payload.SourceNodeAddress == "" || payload.SourceNodeID == "" || payload.SourceReplicaID == 0 || payload.DestinationReplicaID == 0 || payload.TransferToken == "" {
+		return fmt.Errorf("invalid reconcile_replica payload: missing required field")
+	}
+	r.setReplicaTransferToken(payload.DestinationReplicaID, payload.TransferToken)
+
+	if _, err := r.refreshLocalState(ctx); err != nil {
+		return err
+	}
+
+	destination, ok := r.findReplica(payload.DestinationReplicaID)
+	if !ok {
+		return fmt.Errorf("destination replica %d not found in local state", payload.DestinationReplicaID)
+	}
+
+	writer, err := GetWriter(ctx, destination.URI)
+	if err != nil {
+		return err
+	}
+
+	pendingFiles, err := r.client.ListReplicaInventoryFiles(ctx, payload.DestinationReplicaID, "pending")
+	if err != nil {
+		return err
+	}
+	for _, pendingFile := range pendingFiles {
+		if pendingFile.InventoryVersion == 0 {
+			return fmt.Errorf("replica %d file %d has missing inventory version", payload.DestinationReplicaID, pendingFile.FileID)
+		}
+	}
+
+	var failures []string
+	for _, pendingFile := range pendingFiles {
+		token := r.replicaTransferToken(payload.DestinationReplicaID)
+		content, err := r.client.TransferReplicaFileContent(ctx, payload.SourceNodeAddress, payload.SourceReplicaID, pendingFile.FileID, pendingFile.InventoryVersion, token)
+		if err != nil {
+			failure := fmt.Errorf("transfer replica_id=%d file_id=%d version=%d: %w", payload.DestinationReplicaID, pendingFile.FileID, pendingFile.InventoryVersion, err)
+			if isReconcileAuthError(err) {
+				return failure
+			}
+			if isReconcileFileError(err) {
+				if markErr := r.markReplicaFileError(ctx, payload.DestinationReplicaID, pendingFile.FileID, failure); markErr != nil {
+					return markErr
+				}
+			}
+			failures = append(failures, failure.Error())
+			continue
+		}
+
+		saveErr := writer.Save(ctx, destination.URI, pendingFile.RelativeURI, content)
+		closeErr := content.Close()
+		if saveErr != nil {
+			failure := fmt.Errorf("write replica_id=%d file_id=%d relative_uri=%s: %w", payload.DestinationReplicaID, pendingFile.FileID, pendingFile.RelativeURI, saveErr)
+			if isReconcileAuthError(saveErr) {
+				return failure
+			}
+			if isReconcileFileError(saveErr) {
+				if markErr := r.markReplicaFileError(ctx, payload.DestinationReplicaID, pendingFile.FileID, failure); markErr != nil {
+					return markErr
+				}
+			}
+			failures = append(failures, failure.Error())
+			continue
+		}
+		if closeErr != nil {
+			failure := fmt.Errorf("close transfer content replica_id=%d file_id=%d: %w", payload.DestinationReplicaID, pendingFile.FileID, closeErr)
+			if isReconcileAuthError(closeErr) {
+				return failure
+			}
+			if isReconcileFileError(closeErr) {
+				if markErr := r.markReplicaFileError(ctx, payload.DestinationReplicaID, pendingFile.FileID, failure); markErr != nil {
+					return markErr
+				}
+			}
+			failures = append(failures, failure.Error())
+			continue
+		}
+
+		version := pendingFile.InventoryVersion
+		if err := r.client.UpdateReplicaFileStatus(ctx, payload.DestinationReplicaID, pendingFile.FileID, "synchronized", &version, nil); err != nil {
+			failure := fmt.Errorf("mark synchronized replica_id=%d file_id=%d version=%d: %w", payload.DestinationReplicaID, pendingFile.FileID, version, err)
+			if isReconcileAuthError(err) {
+				return failure
+			}
+			failures = append(failures, failure.Error())
+			continue
+		}
+		r.markLocalReplicaFileSynchronized(payload.DestinationReplicaID, pendingFile.FileID, version)
+		log.Printf("storage runtime reconcile_replica copied file replica_id=%d file_id=%d relative_uri=%s version=%d", payload.DestinationReplicaID, pendingFile.FileID, pendingFile.RelativeURI, version)
+	}
+
+	if len(failures) > 0 {
+		return fmt.Errorf("reconcile_replica failed files=%d errors=%s", len(failures), strings.Join(failures, "; "))
+	}
+
+	log.Printf("storage runtime reconcile_replica completed replica_id=%d files=%d source_replica_id=%d source_node_id=%s", payload.DestinationReplicaID, len(pendingFiles), payload.SourceReplicaID, payload.SourceNodeID)
+	return nil
+}
+
+func (r *Runtime) markReplicaFileError(ctx context.Context, replicaID, fileID uint, fileErr error) error {
+	message := fileErr.Error()
+	if err := r.client.UpdateReplicaFileStatus(ctx, replicaID, fileID, "error", nil, &message); err != nil {
+		return fmt.Errorf("mark error replica_id=%d file_id=%d: %w", replicaID, fileID, err)
+	}
+	return nil
+}
+
+func isReconcileAuthError(err error) bool {
+	var apiErr *apiclient.APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized
+}
+
+func isReconcileFileError(err error) bool {
+	var apiErr *apiclient.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == http.StatusForbidden || apiErr.StatusCode == http.StatusNotFound
+	}
+	return errors.Is(err, os.ErrPermission) || errors.Is(err, os.ErrNotExist)
+}
+
+func (r *Runtime) markLocalReplicaFileSynchronized(replicaID, fileID, version uint) {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+
+	files := r.replicaFiles[replicaID]
+	for i := range files {
+		if files[i].FileID == fileID {
+			files[i].ReplicaStatus = "synchronized"
+			files[i].ReplicaVersion = version
+			files[i].InventoryVersion = version
+			break
+		}
+	}
+	r.replicaFiles[replicaID] = files
 }
 
 func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) error {

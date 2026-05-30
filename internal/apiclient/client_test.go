@@ -3,6 +3,7 @@ package apiclient
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -86,6 +87,132 @@ func TestClientAuthenticateAndReportAvailability(t *testing.T) {
 	if report.NodeID != "node-a" {
 		t.Fatalf("report.NodeID = %q, want %q", report.NodeID, "node-a")
 	}
+}
+
+func TestClientListReplicaInventoryFilesSupportsStatusFilter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/auth/login":
+			_ = json.NewEncoder(w).Encode(NodeTokenPair{
+				NodeID:                "node-a",
+				AccessToken:           "access-token",
+				RefreshToken:          "refresh-token",
+				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
+				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
+			})
+		case "/internal/replica/7/files":
+			if got := r.URL.Query().Get("status"); got != "pending" {
+				t.Fatalf("status query = %q, want pending", got)
+			}
+			_ = json.NewEncoder(w).Encode(ReplicaInventoryFileList{
+				Files: []ReplicaInventoryFile{{FileID: 10, ReplicaID: 7, ReplicaStatus: "pending"}},
+			})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	files, err := client.ListReplicaInventoryFiles(context.Background(), 7, "pending")
+	if err != nil {
+		t.Fatalf("ListReplicaInventoryFiles() error = %v", err)
+	}
+	if len(files) != 1 || files[0].FileID != 10 {
+		t.Fatalf("files = %+v, want file_id=10", files)
+	}
+}
+
+func TestClientUpdateReplicaFileStatusUsesInternalEndpoint(t *testing.T) {
+	var gotBody struct {
+		Status  string `json:"status"`
+		Version uint   `json:"version"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/auth/login":
+			_ = json.NewEncoder(w).Encode(NodeTokenPair{
+				NodeID:                "node-a",
+				AccessToken:           "access-token",
+				RefreshToken:          "refresh-token",
+				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
+				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
+			})
+		case "/internal/replica/7/files/10":
+			if r.Method != http.MethodPatch {
+				t.Fatalf("method = %s, want PATCH", r.Method)
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
+				t.Fatalf("Authorization = %q, want Bearer access-token", got)
+			}
+			if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+				t.Fatalf("Decode() error = %v", err)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	version := uint(5)
+	client := newTestClient(t, server.URL)
+	if err := client.UpdateReplicaFileStatus(context.Background(), 7, 10, "synchronized", &version, nil); err != nil {
+		t.Fatalf("UpdateReplicaFileStatus() error = %v", err)
+	}
+	if gotBody.Status != "synchronized" || gotBody.Version != 5 {
+		t.Fatalf("request body = %+v, want synchronized version=5", gotBody)
+	}
+}
+
+func TestClientTransferReplicaFileContentUsesSourceNodeEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/internal/replicas/3/files/10/content" {
+			t.Fatalf("path = %q, want transfer endpoint", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("version"); got != "5" {
+			t.Fatalf("version query = %q, want 5", got)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer transfer-token" {
+			t.Fatalf("Authorization = %q, want Bearer transfer-token", got)
+		}
+		_, _ = w.Write([]byte("content"))
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, "http://coordinator.invalid")
+	body, err := client.TransferReplicaFileContent(context.Background(), server.URL, 3, 10, 5, "transfer-token")
+	if err != nil {
+		t.Fatalf("TransferReplicaFileContent() error = %v", err)
+	}
+	defer body.Close()
+
+	data, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if string(data) != "content" {
+		t.Fatalf("body = %q, want content", string(data))
+	}
+}
+
+func newTestClient(t *testing.T, coordinatorURL string) *Client {
+	t.Helper()
+	client, err := New(config.Config{
+		App: config.AppConfig{
+			NodeID:         "node-a",
+			CoordinatorURL: coordinatorURL,
+			NodeAddress:    "https://node-address:8081",
+		},
+		Auth: config.AuthConfig{
+			NodeSecret: "node-secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	return client
 }
 
 func TestClientUpdateCommandUsesInternalEndpoint(t *testing.T) {

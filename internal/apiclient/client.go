@@ -323,13 +323,18 @@ func (c *Client) ListReplicaFiles(ctx context.Context, replicaID uint, page, cou
 	return &files, nil
 }
 
-func (c *Client) ListReplicaInventoryFiles(ctx context.Context, replicaID uint) ([]ReplicaInventoryFile, error) {
+func (c *Client) ListReplicaInventoryFiles(ctx context.Context, replicaID uint, statuses ...string) ([]ReplicaInventoryFile, error) {
 	accessToken, err := c.ensureAccessToken(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	path := fmt.Sprintf("/internal/replica/%d/files", replicaID)
+	if len(statuses) > 0 && strings.TrimSpace(statuses[0]) != "" {
+		query := url.Values{}
+		query.Set("status", strings.TrimSpace(statuses[0]))
+		path += "?" + query.Encode()
+	}
 
 	var fileList ReplicaInventoryFileList
 	if err := c.doAuthenticatedJSON(ctx, http.MethodGet, path, nil, accessToken, &fileList); err != nil {
@@ -347,6 +352,80 @@ func (c *Client) ListReplicaInventoryFiles(ctx context.Context, replicaID uint) 
 	}
 
 	return fileList.Files, nil
+}
+
+func (c *Client) UpdateReplicaFileStatus(ctx context.Context, replicaID, fileID uint, status string, version *uint, lastError *string) error {
+	accessToken, err := c.ensureAccessToken(ctx)
+	if err != nil {
+		return err
+	}
+
+	path := fmt.Sprintf("/internal/replica/%d/files/%d", replicaID, fileID)
+	reqBody := map[string]any{
+		"status": status,
+	}
+	if version != nil {
+		reqBody["version"] = *version
+	}
+	if lastError != nil {
+		reqBody["error"] = *lastError
+	}
+
+	if err := c.doAuthenticatedJSON(ctx, http.MethodPatch, path, reqBody, accessToken, nil); err != nil {
+		if apiErr, ok := err.(*APIError); ok && apiErr.StatusCode == http.StatusUnauthorized {
+			accessToken, err = c.refreshOrAuthenticate(ctx)
+			if err != nil {
+				return err
+			}
+			if err := c.doAuthenticatedJSON(ctx, http.MethodPatch, path, reqBody, accessToken, nil); err != nil {
+				return err
+			}
+			return nil
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (c *Client) TransferReplicaFileContent(ctx context.Context, sourceNodeAddress string, replicaID, fileID, version uint, transferToken string) (io.ReadCloser, error) {
+	base := strings.TrimRight(strings.TrimSpace(sourceNodeAddress), "/")
+	if base == "" {
+		return nil, errors.New("missing source node address")
+	}
+	if strings.TrimSpace(transferToken) == "" {
+		return nil, errors.New("missing transfer token")
+	}
+
+	query := url.Values{}
+	query.Set("version", strconv.FormatUint(uint64(version), 10))
+	requestURL := fmt.Sprintf("%s/internal/replicas/%d/files/%d/content?%s", base, replicaID, fileID, query.Encode())
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-API-Version", apiVersion)
+	req.Header.Set("Authorization", "Bearer "+transferToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		return nil, &APIError{
+			StatusCode: resp.StatusCode,
+			Body:       strings.TrimSpace(string(data)),
+		}
+	}
+
+	return resp.Body, nil
 }
 
 func (c *Client) ReportReplicaFiles(ctx context.Context, replicaID uint, files []ReplicaFileReport) error {
