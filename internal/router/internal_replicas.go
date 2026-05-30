@@ -99,7 +99,7 @@ func registerInternalReplicaRoutes(api huma.API, svc services) {
 			return nil, mapNodeMeError(err)
 		}
 
-		if err := svc.replicas.UpdateFileStatus(input.ReplicaID, input.FileID, node.ID, input.Body.Status, input.Body.Error); err != nil {
+		if err := svc.replicas.UpdateFileStatus(input.ReplicaID, input.FileID, node.ID, input.Body.Status, input.Body.Version, input.Body.Error); err != nil {
 			if err == service.ErrForbidden {
 				return nil, huma.Error403Forbidden("replica does not belong to authenticated node")
 			}
@@ -160,8 +160,9 @@ type updateReplicaFileStatusInput struct {
 	ReplicaID     uint   `path:"replica_id"`
 	FileID        uint   `path:"file_id"`
 	Body          struct {
-		Status string  `json:"status" minLength:"1"`
-		Error  *string `json:"error,omitempty"`
+		Status  string  `json:"status" minLength:"1"`
+		Version *uint   `json:"version,omitempty"`
+		Error   *string `json:"error,omitempty"`
 	}
 }
 

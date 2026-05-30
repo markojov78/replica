@@ -75,7 +75,7 @@ func main() {
 		roleService = service.NewRoleService(roleRepo)
 		nodeService = service.NewNodeService(nodeRepo, nodeCommandRepo)
 		inventoryService = service.NewInventoryService(inventoryRepo, nodeService)
-		replicaService = service.NewReplicaService(replicaRepo, inventoryRepo, nodeService)
+		replicaService = service.NewReplicaService(replicaRepo, inventoryRepo, nodeService, settingService)
 	}
 
 	handler := router.New(

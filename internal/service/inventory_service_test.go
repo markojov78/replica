@@ -98,6 +98,12 @@ func TestInventoryServiceCreateReplicaPopulatesPendingFilesAndCommand(t *testing
 	if err := database.Create(inventory).Error; err != nil {
 		t.Fatalf("Create(inventory) error = %v", err)
 	}
+	if err := database.Create(&[]model.Node{
+		{ID: "node-a", Status: model.NodeStatusOffline, Secret: "secret", Address: "https://node-a.example"},
+		{ID: "node-b", Status: model.NodeStatusOffline, Secret: "secret", Address: "https://node-b.example"},
+	}).Error; err != nil {
+		t.Fatalf("Create(nodes) error = %v", err)
+	}
 
 	files := []model.InventoryFile{
 		{
@@ -124,10 +130,46 @@ func TestInventoryServiceCreateReplicaPopulatesPendingFilesAndCommand(t *testing
 	if err := database.Create(&files).Error; err != nil {
 		t.Fatalf("Create(files) error = %v", err)
 	}
+	sourceReplica := model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-a",
+		URI:         "/data/photos",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(&sourceReplica).Error; err != nil {
+		t.Fatalf("Create(sourceReplica) error = %v", err)
+	}
+	if err := database.Create(&[]model.ReplicaFile{
+		{FileID: files[0].ID, ReplicaID: sourceReplica.ID, Version: 3, Status: model.ReplicaFileStatusSynchronized},
+		{FileID: files[1].ID, ReplicaID: sourceReplica.ID, Version: 4, Status: model.ReplicaFileStatusSynchronized},
+	}).Error; err != nil {
+		t.Fatalf("Create(sourceReplicaFiles) error = %v", err)
+	}
+	sameNodeSourceReplica := model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-b",
+		URI:         "/data/local-cache",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(&sameNodeSourceReplica).Error; err != nil {
+		t.Fatalf("Create(sameNodeSourceReplica) error = %v", err)
+	}
+	if err := database.Create(&[]model.ReplicaFile{
+		{FileID: files[0].ID, ReplicaID: sameNodeSourceReplica.ID, Version: 3, Status: model.ReplicaFileStatusSynchronized},
+		{FileID: files[1].ID, ReplicaID: sameNodeSourceReplica.ID, Version: 4, Status: model.ReplicaFileStatusSynchronized},
+	}).Error; err != nil {
+		t.Fatalf("Create(sameNodeSourceReplicaFiles) error = %v", err)
+	}
+	settingService := NewSettingService(repository.NewSettingRepository(database))
+	if err := settingService.EnsureTransferKeys(); err != nil {
+		t.Fatalf("EnsureTransferKeys() error = %v", err)
+	}
 
 	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
 	inventoryRepo := repository.NewInventoryRepository(database)
-	svc := NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService)
+	svc := NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService, settingService)
 
 	replica, err := svc.Create(CreateReplicaInput{
 		InventoryID: inventory.ID,
@@ -166,14 +208,15 @@ func TestInventoryServiceCreateReplicaPopulatesPendingFilesAndCommand(t *testing
 		t.Fatalf("command.Status = %q, want %q", command.Status, model.NodeCommandStatusPending)
 	}
 
-	var payload struct {
-		ReplicaID uint `json:"replica_id"`
-	}
+	var payload ReconcileReplicaCommandPayload
 	if err := json.Unmarshal(command.Payload, &payload); err != nil {
 		t.Fatalf("Unmarshal(command.Payload) error = %v", err)
 	}
-	if payload.ReplicaID != replica.ID {
-		t.Fatalf("payload.ReplicaID = %d, want %d", payload.ReplicaID, replica.ID)
+	if payload.DestinationReplicaID != replica.ID {
+		t.Fatalf("payload.DestinationReplicaID = %d, want %d", payload.DestinationReplicaID, replica.ID)
+	}
+	if payload.SourceReplicaID != sameNodeSourceReplica.ID || payload.SourceNodeID != "node-b" || payload.SourceNodeAddress != "https://node-b.example" || payload.TransferToken == "" {
+		t.Fatalf("payload = %+v, want source replica/node/address and transfer token", payload)
 	}
 }
 
@@ -197,6 +240,12 @@ func TestReplicaServiceCreateValidatesUpstreamReplica(t *testing.T) {
 	if err := database.Create(inventoryB).Error; err != nil {
 		t.Fatalf("Create(inventoryB) error = %v", err)
 	}
+	if err := database.Create(&[]model.Node{
+		{ID: "node-a", Status: model.NodeStatusOffline, Secret: "secret", Address: "https://node-a.example"},
+		{ID: "node-c", Status: model.NodeStatusOffline, Secret: "secret", Address: "https://node-c.example"},
+	}).Error; err != nil {
+		t.Fatalf("Create(nodes) error = %v", err)
+	}
 	upstream := &model.Replica{
 		InventoryID: inventoryA.ID,
 		NodeID:      "node-a",
@@ -218,7 +267,11 @@ func TestReplicaServiceCreateValidatesUpstreamReplica(t *testing.T) {
 		t.Fatalf("Create(foreignUpstream) error = %v", err)
 	}
 
-	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
+	settingService := NewSettingService(repository.NewSettingRepository(database))
+	if err := settingService.EnsureTransferKeys(); err != nil {
+		t.Fatalf("EnsureTransferKeys() error = %v", err)
+	}
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database), settingService)
 	upstreamID := upstream.ID
 	replica, err := svc.Create(CreateReplicaInput{
 		InventoryID:       inventoryA.ID,

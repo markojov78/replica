@@ -395,15 +395,24 @@ This says:
 A replica is up to date.  
 B replica needs update.  
 
-#### 4) Replication worker finds pending target
-It queries:  
-`replica_files where status = pending`  
-Then compares:  
-`replica_files.version < inventory_files.version`  
-So it knows:  
-`copy file_id=10 version=3 to replica B`  
-`copy file_id=11 version=3 to replica B`  
-Source can be replica A, or any synchronized replica with version 3.
+#### 4) Coordinator creates `reconcile_replica` command
+The coordinator finds pending `replica_files` for replica B and selects a source replica.
+
+For downstream replicas (`upstream_replica_id != null`), the upstream replica is the only valid source.
+
+For base replicas (`upstream_replica_id == null`), candidates must belong to the same inventory, be base replicas, be active, not be replica B, and have synchronized `replica_files` with versions above the pending destination versions. Same-node candidates are preferred first, then candidates on the most recently seen node.
+
+The command payload tells the destination storage node which source to use and includes a short-lived replica-scoped transfer token:
+
+```json
+{
+  "source_node_address": "https://192.168.1.15:8080",
+  "source_node_id": "node_laptop",
+  "source_replica_id": 3,
+  "destination_replica_id": 4,
+  "transfer_token": "<signed-jwt>"
+}
+```
 
 #### 5) File data is transferred
 Storage service copies actual data:  

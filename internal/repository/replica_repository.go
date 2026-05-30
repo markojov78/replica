@@ -45,6 +45,15 @@ type ReplicaInventoryFile struct {
 	Modified         time.Time
 }
 
+type ReconcileSource struct {
+	ReplicaID     uint
+	NodeID        string
+	NodeAddress   string
+	NewestVersion uint
+}
+
+type ReconcilePayloadBuilder func(destination model.Replica, source ReconcileSource) (json.RawMessage, error)
+
 func (r *ReplicaRepository) List() ([]model.Replica, error) {
 	var replicas []model.Replica
 	err := r.db.Order("id asc").Find(&replicas).Error
@@ -55,7 +64,7 @@ func (r *ReplicaRepository) Create(replica *model.Replica) error {
 	return r.db.Create(replica).Error
 }
 
-func (r *ReplicaRepository) CreateWithPendingFiles(replica *model.Replica, command *model.Command) error {
+func (r *ReplicaRepository) CreateWithPendingFiles(replica *model.Replica, command *model.Command, payloadBuilders ...ReconcilePayloadBuilder) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(replica).Error; err != nil {
 			return err
@@ -86,18 +95,115 @@ func (r *ReplicaRepository) CreateWithPendingFiles(replica *model.Replica, comma
 		}
 		command.NodeID = replica.NodeID
 		if command.Type == model.NodeCommandTypeReconcileReplica {
-			payload, err := json.Marshal(map[string]uint{
-				"replica_id": replica.ID,
-			})
-			if err != nil {
-				return err
+			if len(payloadBuilders) > 0 {
+				source, err := r.selectReconcileSource(tx, *replica)
+				if err != nil {
+					return err
+				}
+				payload, err := payloadBuilders[0](*replica, source)
+				if err != nil {
+					return err
+				}
+				command.Payload = payload
+			} else if len(command.Payload) == 0 {
+				payload, err := json.Marshal(struct {
+					DestinationReplicaID uint `json:"destination_replica_id"`
+				}{
+					DestinationReplicaID: replica.ID,
+				})
+				if err != nil {
+					return err
+				}
+				command.Payload = payload
 			}
-			command.Payload = payload
 		} else if len(command.Payload) == 0 {
 			command.Payload = []byte("{}")
 		}
 		return tx.Create(command).Error
 	})
+}
+
+func (r *ReplicaRepository) selectReconcileSource(tx *gorm.DB, destination model.Replica) (ReconcileSource, error) {
+	if destination.UpstreamReplicaID != nil {
+		var source ReconcileSource
+		err := tx.
+			Table("replicas").
+			Select("replicas.id AS replica_id, replicas.node_id AS node_id, nodes.address AS node_address").
+			Joins("JOIN nodes ON nodes.id = replicas.node_id").
+			Where("replicas.id = ?", *destination.UpstreamReplicaID).
+			Scan(&source).Error
+		if err != nil {
+			return ReconcileSource{}, err
+		}
+		if source.ReplicaID == 0 {
+			return ReconcileSource{}, gorm.ErrRecordNotFound
+		}
+		return source, nil
+	}
+
+	var pendingCount int64
+	if err := tx.Model(&model.ReplicaFile{}).
+		Where("replica_id = ? AND status = ?", destination.ID, model.ReplicaFileStatusPending).
+		Count(&pendingCount).Error; err != nil {
+		return ReconcileSource{}, err
+	}
+	if pendingCount == 0 {
+		return ReconcileSource{}, gorm.ErrRecordNotFound
+	}
+
+	source, err := r.selectMultiDirectionalReconcileSource(tx, destination, pendingCount, true)
+	if err == nil {
+		return source, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return ReconcileSource{}, err
+	}
+	return r.selectMultiDirectionalReconcileSource(tx, destination, pendingCount, false)
+}
+
+func (r *ReplicaRepository) selectMultiDirectionalReconcileSource(tx *gorm.DB, destination model.Replica, pendingCount int64, sameNode bool) (ReconcileSource, error) {
+	var source ReconcileSource
+	query := tx.
+		Table("replicas AS candidate").
+		Select(`
+			candidate.id AS replica_id,
+			candidate.node_id AS node_id,
+			nodes.address AS node_address,
+			MAX(source_files.version) AS newest_version
+		`).
+		Joins("JOIN nodes ON nodes.id = candidate.node_id").
+		Joins("JOIN replica_files AS source_files ON source_files.replica_id = candidate.id").
+		Joins("JOIN replica_files AS destination_files ON destination_files.file_id = source_files.file_id AND destination_files.replica_id = ?", destination.ID).
+		Joins("JOIN inventory_files ON inventory_files.id = source_files.file_id").
+		Where("candidate.inventory_id = ?", destination.InventoryID).
+		Where("candidate.upstream_replica_id IS NULL").
+		Where("candidate.id <> ?", destination.ID).
+		Where("candidate.status = ?", model.ReplicaStatusActive).
+		Where("destination_files.status = ?", model.ReplicaFileStatusPending).
+		Where("source_files.status = ?", model.ReplicaFileStatusSynchronized).
+		Where("source_files.version = inventory_files.version").
+		Group("candidate.id, candidate.node_id, nodes.address, nodes.last_seen").
+		Having("COUNT(DISTINCT source_files.file_id) = ?", pendingCount)
+	if sameNode {
+		query = query.
+			Where("candidate.node_id = ?", destination.NodeID).
+			Order("MAX(source_files.version) DESC")
+	} else {
+		query = query.
+			Where("candidate.node_id <> ?", destination.NodeID).
+			Order("nodes.last_seen DESC")
+	}
+	err := query.
+		Order("candidate.id ASC").
+		Limit(1).
+		Scan(&source).Error
+	if err != nil {
+		return ReconcileSource{}, err
+	}
+	if source.ReplicaID == 0 {
+		return ReconcileSource{}, gorm.ErrRecordNotFound
+	}
+	return source, nil
 }
 
 func (r *ReplicaRepository) FindByID(id uint) (*model.Replica, error) {
@@ -264,17 +370,30 @@ func (r *ReplicaRepository) Update(replica *model.Replica) error {
 	return r.db.Save(replica).Error
 }
 
-func (r *ReplicaRepository) UpdateFileStatus(replicaID, fileID uint, status model.ReplicaFileStatus) error {
-	result := r.db.Model(&model.ReplicaFile{}).
-		Where("replica_id = ? AND file_id = ?", replicaID, fileID).
-		Update("status", status)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
-	}
-	return nil
+func (r *ReplicaRepository) UpdateFileStatus(replicaID, fileID uint, status model.ReplicaFileStatus, version *uint) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var replicaFile model.ReplicaFile
+		if err := tx.Where("replica_id = ? AND file_id = ?", replicaID, fileID).First(&replicaFile).Error; err != nil {
+			return err
+		}
+
+		if status == model.ReplicaFileStatusSynchronized {
+			if version == nil {
+				return ErrInvalidReplicaFileUpdate
+			}
+			var inventoryFile model.InventoryFile
+			if err := tx.First(&inventoryFile, fileID).Error; err != nil {
+				return err
+			}
+			if inventoryFile.Version != *version {
+				return ErrInvalidReplicaFileUpdate
+			}
+			replicaFile.Version = *version
+		}
+
+		replicaFile.Status = status
+		return tx.Save(&replicaFile).Error
+	})
 }
 
 func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaFileUpdate) error {

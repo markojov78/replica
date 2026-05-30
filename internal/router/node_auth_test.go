@@ -972,12 +972,11 @@ func TestPublicReplicaCreatePopulatesPendingFilesAndReconcileCommand(t *testing.
 	if err != nil {
 		t.Fatalf("HashPassword() error = %v", err)
 	}
-	if err := database.Create(&model.Node{
-		ID:     "node-b",
-		Status: model.NodeStatusOffline,
-		Secret: hashedSecret,
+	if err := database.Create(&[]model.Node{
+		{ID: "node-a", Status: model.NodeStatusOffline, Secret: hashedSecret, Address: "https://node-a.example"},
+		{ID: "node-b", Status: model.NodeStatusOffline, Secret: hashedSecret, Address: "https://node-b.example"},
 	}).Error; err != nil {
-		t.Fatalf("Create(node) error = %v", err)
+		t.Fatalf("Create(nodes) error = %v", err)
 	}
 
 	hashedPassword, err := security.HashPassword("secret")
@@ -1017,6 +1016,26 @@ func TestPublicReplicaCreatePopulatesPendingFilesAndReconcileCommand(t *testing.
 	if err := database.Create(&files).Error; err != nil {
 		t.Fatalf("Create(files) error = %v", err)
 	}
+	sourceReplica := model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-a",
+		URI:         "/data/photos",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(&sourceReplica).Error; err != nil {
+		t.Fatalf("Create(sourceReplica) error = %v", err)
+	}
+	if err := database.Create(&[]model.ReplicaFile{
+		{FileID: files[0].ID, ReplicaID: sourceReplica.ID, Version: 3, Status: model.ReplicaFileStatusSynchronized},
+		{FileID: files[1].ID, ReplicaID: sourceReplica.ID, Version: 4, Status: model.ReplicaFileStatusSynchronized},
+	}).Error; err != nil {
+		t.Fatalf("Create(sourceReplicaFiles) error = %v", err)
+	}
+	settingService := service.NewSettingService(repository.NewSettingRepository(database))
+	if err := settingService.EnsureTransferKeys(); err != nil {
+		t.Fatalf("EnsureTransferKeys() error = %v", err)
+	}
 
 	authService := newRouterTestAuthService(database)
 	pair, err := authService.Login("jsmith", "secret")
@@ -1034,7 +1053,7 @@ func TestPublicReplicaCreatePopulatesPendingFilesAndReconcileCommand(t *testing.
 		service.NewRoleService(repository.NewRoleRepository(database)),
 		nodeService,
 		service.NewInventoryService(inventoryRepo, nodeService),
-		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService),
+		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService, settingService),
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/replicas", strings.NewReader(`{"inventory_id":`+strconv.FormatUint(uint64(inventory.ID), 10)+`,"node_id":"node-b","uri":"s3://bucket/photos","type":"storage"}`))
@@ -1074,14 +1093,15 @@ func TestPublicReplicaCreatePopulatesPendingFilesAndReconcileCommand(t *testing.
 	if command.Status != model.NodeCommandStatusPending {
 		t.Fatalf("command.Status = %q, want %q", command.Status, model.NodeCommandStatusPending)
 	}
-	var payload struct {
-		ReplicaID uint `json:"replica_id"`
-	}
+	var payload service.ReconcileReplicaCommandPayload
 	if err := json.Unmarshal(command.Payload, &payload); err != nil {
 		t.Fatalf("Unmarshal(command.Payload) error = %v", err)
 	}
-	if payload.ReplicaID != replica.ID {
-		t.Fatalf("payload.ReplicaID = %d, want %d", payload.ReplicaID, replica.ID)
+	if payload.DestinationReplicaID != replica.ID {
+		t.Fatalf("payload.DestinationReplicaID = %d, want %d", payload.DestinationReplicaID, replica.ID)
+	}
+	if payload.SourceReplicaID != sourceReplica.ID || payload.SourceNodeID != "node-a" || payload.SourceNodeAddress != "https://node-a.example" || payload.TransferToken == "" {
+		t.Fatalf("payload = %+v, want source replica/node/address and transfer token", payload)
 	}
 }
 
@@ -1331,6 +1351,65 @@ func TestInternalReplicaFilePatchRejectsInvalidStatus(t *testing.T) {
 	}
 	if replicaFile.Status != model.ReplicaFileStatusPending {
 		t.Fatalf("replicaFile.Status = %q, want unchanged %q", replicaFile.Status, model.ReplicaFileStatusPending)
+	}
+}
+
+func TestInternalReplicaFilePatchSynchronizesWithMatchingVersion(t *testing.T) {
+	database := openRouterTestDB(t)
+	handler, accessToken, replica, file := newInternalReplicaFileStatusTestHandler(t, database)
+
+	req := httptest.NewRequest(http.MethodPatch, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files/"+strconv.FormatUint(uint64(file.ID), 10), strings.NewReader(`{"status":"synchronized","version":3}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-API-Version", "1")
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusNoContent, recorder.Body.String())
+	}
+
+	var replicaFile model.ReplicaFile
+	if err := database.Where("replica_id = ? AND file_id = ?", replica.ID, file.ID).First(&replicaFile).Error; err != nil {
+		t.Fatalf("First(replicaFile) error = %v", err)
+	}
+	if replicaFile.Status != model.ReplicaFileStatusSynchronized || replicaFile.Version != 3 {
+		t.Fatalf("replicaFile = %+v, want synchronized version=3", replicaFile)
+	}
+}
+
+func TestInternalReplicaFilePatchSynchronizeRequiresVersion(t *testing.T) {
+	database := openRouterTestDB(t)
+	handler, accessToken, replica, file := newInternalReplicaFileStatusTestHandler(t, database)
+
+	req := httptest.NewRequest(http.MethodPatch, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files/"+strconv.FormatUint(uint64(file.ID), 10), strings.NewReader(`{"status":"synchronized"}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-API-Version", "1")
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusBadRequest, recorder.Body.String())
+	}
+}
+
+func TestInternalReplicaFilePatchSynchronizeRejectsMismatchedVersion(t *testing.T) {
+	database := openRouterTestDB(t)
+	handler, accessToken, replica, file := newInternalReplicaFileStatusTestHandler(t, database)
+
+	req := httptest.NewRequest(http.MethodPatch, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files/"+strconv.FormatUint(uint64(file.ID), 10), strings.NewReader(`{"status":"synchronized","version":2}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-API-Version", "1")
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusBadRequest, recorder.Body.String())
 	}
 }
 

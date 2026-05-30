@@ -25,7 +25,7 @@ func TestServeReplicaFileContentStreamsValidRequest(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	runtime, token := newTransferTestRuntime(t, root, 7)
+	runtime, token := newTransferTestRuntime(t, root)
 	req := httptest.NewRequest(http.MethodGet, "/internal/replicas/1/files/10/content?version=7", nil)
 	req.SetPathValue("replica_id", "1")
 	req.SetPathValue("file_id", "10")
@@ -51,7 +51,7 @@ func TestServeReplicaFileContentRejectsVersionMismatch(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	runtime, token := newTransferTestRuntime(t, root, 8)
+	runtime, token := newTransferTestRuntime(t, root)
 	req := httptest.NewRequest(http.MethodGet, "/internal/replicas/1/files/10/content?version=8", nil)
 	req.SetPathValue("replica_id", "1")
 	req.SetPathValue("file_id", "10")
@@ -65,7 +65,7 @@ func TestServeReplicaFileContentRejectsVersionMismatch(t *testing.T) {
 	}
 }
 
-func newTransferTestRuntime(t *testing.T, root string, tokenVersion uint) (*Runtime, string) {
+func newTransferTestRuntime(t *testing.T, root string) (*Runtime, string) {
 	t.Helper()
 
 	publicKey, privateKey := newTransferTestKeyPair(t)
@@ -103,12 +103,11 @@ func newTransferTestRuntime(t *testing.T, root string, tokenVersion uint) (*Runt
 	)
 
 	claims := transferTokenClaims{
-		Purpose:         transferTokenPurpose,
-		SourceReplicaID: 1,
-		TargetReplicaID: 2,
-		FileID:          10,
-		Version:         tokenVersion,
-		RelativeURI:     "file.txt",
+		Purpose:           transferTokenPurpose,
+		SourceReplicaID:   1,
+		TargetReplicaID:   2,
+		SourceNodeID:      "node-a",
+		DestinationNodeID: "node-b",
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "coordinator",
 			Subject:   "node-b",

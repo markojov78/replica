@@ -1,9 +1,11 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"log"
 	"strings"
+	"time"
 
 	"dropoutbox/internal/model"
 	"dropoutbox/internal/repository"
@@ -15,14 +17,28 @@ type ReplicaService struct {
 	repo        *repository.ReplicaRepository
 	inventories *repository.InventoryRepository
 	nodes       *NodeService
+	settings    *SettingService
 }
 
-func NewReplicaService(repo *repository.ReplicaRepository, inventoryRepo *repository.InventoryRepository, nodeServices ...*NodeService) *ReplicaService {
+func NewReplicaService(repo *repository.ReplicaRepository, inventoryRepo *repository.InventoryRepository, optionalServices ...any) *ReplicaService {
 	service := &ReplicaService{repo: repo, inventories: inventoryRepo}
-	if len(nodeServices) > 0 {
-		service.nodes = nodeServices[0]
+	for _, optional := range optionalServices {
+		switch svc := optional.(type) {
+		case *NodeService:
+			service.nodes = svc
+		case *SettingService:
+			service.settings = svc
+		}
 	}
 	return service
+}
+
+type ReconcileReplicaCommandPayload struct {
+	SourceNodeAddress    string `json:"source_node_address"`
+	SourceNodeID         string `json:"source_node_id"`
+	SourceReplicaID      uint   `json:"source_replica_id"`
+	DestinationReplicaID uint   `json:"destination_replica_id"`
+	TransferToken        string `json:"transfer_token"`
 }
 
 func (s *ReplicaService) List() ([]model.Replica, error) {
@@ -61,7 +77,7 @@ func (s *ReplicaService) Create(input CreateReplicaInput) (*InventoryReplicaDeta
 		Type:   model.NodeCommandTypeReconcileReplica,
 		Status: model.NodeCommandStatusPending,
 	}
-	if err := s.repo.CreateWithPendingFiles(replica, command); err != nil {
+	if err := s.repo.CreateWithPendingFiles(replica, command, s.reconcilePayloadBuilder()); err != nil {
 		return nil, err
 	}
 	if s.nodes != nil {
@@ -69,6 +85,33 @@ func (s *ReplicaService) Create(input CreateReplicaInput) (*InventoryReplicaDeta
 	}
 
 	return toInventoryReplicaDetails(replica), nil
+}
+
+func (s *ReplicaService) reconcilePayloadBuilder() repository.ReconcilePayloadBuilder {
+	return func(destination model.Replica, source repository.ReconcileSource) (json.RawMessage, error) {
+		if s.settings == nil {
+			return nil, ErrTransferPrivateKeyUnset
+		}
+
+		token, err := s.settings.NewReplicaTransferToken(TransferTokenInput{
+			SourceReplicaID:      source.ReplicaID,
+			DestinationReplicaID: destination.ID,
+			SourceNodeID:         source.NodeID,
+			DestinationNodeID:    destination.NodeID,
+			ExpiresIn:            15 * time.Minute,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return json.Marshal(ReconcileReplicaCommandPayload{
+			SourceNodeAddress:    source.NodeAddress,
+			SourceNodeID:         source.NodeID,
+			SourceReplicaID:      source.ReplicaID,
+			DestinationReplicaID: destination.ID,
+			TransferToken:        token,
+		})
+	}
 }
 
 func (s *ReplicaService) Get(replicaID uint) (*InventoryReplicaDetails, error) {
@@ -346,7 +389,7 @@ func (s *ReplicaService) ReportFileChanges(replicaID uint, nodeID string, change
 	return nil
 }
 
-func (s *ReplicaService) UpdateFileStatus(replicaID, fileID uint, nodeID, statusValue string, errorMessage *string) error {
+func (s *ReplicaService) UpdateFileStatus(replicaID, fileID uint, nodeID, statusValue string, version *uint, errorMessage *string) error {
 	replica, err := s.repo.FindByID(replicaID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -368,9 +411,12 @@ func (s *ReplicaService) UpdateFileStatus(replicaID, fileID uint, nodeID, status
 		log.Printf("replica file status update reported error replica_id=%d file_id=%d status=%s error=%s", replicaID, fileID, status, strings.TrimSpace(*errorMessage))
 	}
 
-	if err := s.repo.UpdateFileStatus(replicaID, fileID, status); err != nil {
+	if err := s.repo.UpdateFileStatus(replicaID, fileID, status, version); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrReplicaFileNotFound
+		}
+		if errors.Is(err, repository.ErrInvalidReplicaFileUpdate) {
+			return ErrInvalidReplicaFileUpdate
 		}
 		return err
 	}

@@ -11,6 +11,8 @@ import (
 
 	"dropoutbox/internal/model"
 	"dropoutbox/internal/repository"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 const (
@@ -20,13 +22,32 @@ const (
 )
 
 var (
-	ErrIncompleteTransferKeys = errors.New("incomplete transfer key settings")
-	ErrTransferPublicKeyUnset = errors.New("transfer public key is not configured")
+	ErrIncompleteTransferKeys    = errors.New("incomplete transfer key settings")
+	ErrTransferPublicKeyUnset    = errors.New("transfer public key is not configured")
+	ErrTransferPrivateKeyUnset   = errors.New("transfer private key is not configured")
+	ErrInvalidTransferPrivateKey = errors.New("invalid transfer private key")
 )
 
 type SettingService struct {
 	settings *repository.SettingRepository
 	now      func() time.Time
+}
+
+type TransferTokenInput struct {
+	SourceReplicaID      uint
+	DestinationReplicaID uint
+	SourceNodeID         string
+	DestinationNodeID    string
+	ExpiresIn            time.Duration
+}
+
+type TransferTokenClaims struct {
+	Purpose              string `json:"purpose"`
+	SourceReplicaID      uint   `json:"source_replica_id"`
+	DestinationReplicaID uint   `json:"destination_replica_id"`
+	SourceNodeID         string `json:"source_node_id"`
+	DestinationNodeID    string `json:"destination_node_id"`
+	jwt.RegisteredClaims
 }
 
 func NewSettingService(settings *repository.SettingRepository) *SettingService {
@@ -47,6 +68,52 @@ func (s *SettingService) TransferPublicKey() (string, error) {
 		return "", err
 	}
 	return setting.Value, nil
+}
+
+func (s *SettingService) TransferPrivateKey() (string, error) {
+	setting, err := s.settings.FindByKey(SettingTransferKeyPrivate)
+	if err != nil {
+		if s.settings.IsNotFound(err) {
+			return "", ErrTransferPrivateKeyUnset
+		}
+		return "", err
+	}
+	return setting.Value, nil
+}
+
+func (s *SettingService) NewReplicaTransferToken(input TransferTokenInput) (string, error) {
+	privateKeyPEM, err := s.TransferPrivateKey()
+	if err != nil {
+		return "", err
+	}
+
+	privateKey, err := parseRSAPrivateKeyPEM(privateKeyPEM)
+	if err != nil {
+		return "", err
+	}
+
+	expiresIn := input.ExpiresIn
+	if expiresIn <= 0 {
+		expiresIn = 15 * time.Minute
+	}
+	now := s.now()
+	claims := TransferTokenClaims{
+		Purpose:              "replica_file_transfer",
+		SourceReplicaID:      input.SourceReplicaID,
+		DestinationReplicaID: input.DestinationReplicaID,
+		SourceNodeID:         input.SourceNodeID,
+		DestinationNodeID:    input.DestinationNodeID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "coordinator",
+			Subject:   input.DestinationNodeID,
+			Audience:  jwt.ClaimStrings{input.SourceNodeID},
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(expiresIn)),
+		},
+	}
+
+	return jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(privateKey)
 }
 
 func (s *SettingService) EnsureTransferKeys() error {
@@ -74,6 +141,19 @@ func (s *SettingService) EnsureTransferKeys() error {
 		{Key: SettingTransferKeyPrivate, Value: privateKey},
 		{Key: SettingTransferKeyCreateTime, Value: s.now().Format(time.RFC3339)},
 	})
+}
+
+func parseRSAPrivateKeyPEM(value string) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode([]byte(value))
+	if block == nil {
+		return nil, ErrInvalidTransferPrivateKey
+	}
+
+	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, ErrInvalidTransferPrivateKey
+	}
+	return privateKey, nil
 }
 
 func generateTransferKeyPairPEM() (string, string, error) {

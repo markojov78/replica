@@ -1216,7 +1216,9 @@ Behavior:
 - resolves the current node from the auth token
 - verifies the replica belongs to the authenticated node
 - validates `status` against `ReplicaFileStatus` values: `changed`, `pending`, `synchronized`, `conflict`, `error`
-- updates only `replica_files.status` for `(replica_id, file_id)`
+- updates `replica_files.status` for `(replica_id, file_id)`
+- when `status = "synchronized"`, requires `version` and verifies it matches `inventory_files.version`
+- when `status = "synchronized"`, updates `replica_files.version` to the verified version
 - if `error` is provided, logs the message on the coordinator for now
 - does not update `inventory_files`
 - does not create file journal entries
@@ -1224,14 +1226,15 @@ Behavior:
 
 Request body:
 - `status` required
+- `version` required only when `status = "synchronized"`
 - `error` optional
 
 Example request:
 
 ```json
 {
-  "status": "error",
-  "error": "copy failed"
+  "status": "synchronized",
+  "version": 5
 }
 ```
 
@@ -1241,6 +1244,7 @@ Successful response:
 Possible errors:
 - `400` invalid JSON payload
 - `400` invalid replica file status
+- `400` invalid replica file update
 - `401` missing authenticated node
 - `403` disabled node
 - `403` revoked node
@@ -1261,7 +1265,8 @@ Behavior:
 - verifies JWT signature and time claims (`iat`, `nbf`, `exp`)
 - verifies token `purpose = "replica_file_transfer"`
 - verifies token audience matches the source node id
-- verifies token `source_replica_id`, `file_id`, and `version` match the request path/query
+- verifies token subject identifies the destination node
+- verifies token `source_replica_id` matches the request path
 - verifies this node owns the requested source replica using local volatile replica state
 - verifies local replica file state matches the requested file/version when that state is available
 - resolves `relative_uri` under the replica URI and rejects path traversal
@@ -1269,7 +1274,7 @@ Behavior:
 
 The `version` query parameter is an authorization and integrity check. Historical versions are not stored or served; the endpoint only serves the current local file if local state matches the requested version.
 
-Transfer tokens are coordinator-issued, short-lived, and scoped to a source replica, target replica, file id, file version, and relative URI. Transfer token generation/signing and passing transfer tokens through replication commands are intentionally not implemented yet.
+Transfer tokens are coordinator-issued, short-lived, and scoped to a source replica, destination replica, source node, and destination node. A single token can authorize multiple file downloads during one `reconcile_replica` operation. Tokens are intentionally not file-specific yet; file/version validation is handled through coordinator state and `replica_files`.
 
 Expected transfer token claims:
 
@@ -1277,10 +1282,9 @@ Expected transfer token claims:
 {
   "purpose": "replica_file_transfer",
   "source_replica_id": 1,
-  "target_replica_id": 2,
-  "file_id": 10,
-  "version": 123,
-  "relative_uri": "album/img001.jpg",
+  "destination_replica_id": 2,
+  "source_node_id": "source-node-id",
+  "destination_node_id": "target-node-id",
   "iss": "coordinator",
   "aud": "source-node-id",
   "sub": "target-node-id",
@@ -1304,11 +1308,9 @@ Successful response:
 
 Possible errors:
 - `401` missing, invalid, expired, or unverifiable transfer token
-- `403` token is valid but not authorized for the requested source replica/file/version
+- `403` token is valid but not authorized for the requested source replica
 - `404` local replica or file does not exist
 - `409` local replica file state does not match the requested version
 
 Not implemented in this change:
-- coordinator transfer-token generation/signing
-- passing transfer tokens through `reconcile_replica` commands
 - actual `reconcile_replica` file copy logic

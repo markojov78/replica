@@ -35,12 +35,12 @@ var (
 )
 
 type transferTokenClaims struct {
-	Purpose         string `json:"purpose"`
-	SourceReplicaID uint   `json:"source_replica_id"`
-	TargetReplicaID uint   `json:"target_replica_id"`
-	FileID          uint   `json:"file_id"`
-	Version         uint   `json:"version"`
-	RelativeURI     string `json:"relative_uri"`
+	Purpose              string `json:"purpose"`
+	SourceReplicaID      uint   `json:"source_replica_id"`
+	DestinationReplicaID uint   `json:"destination_replica_id"`
+	TargetReplicaID      uint   `json:"target_replica_id,omitempty"`
+	SourceNodeID         string `json:"source_node_id"`
+	DestinationNodeID    string `json:"destination_node_id"`
 	jwt.RegisteredClaims
 }
 
@@ -83,7 +83,7 @@ func (r *Runtime) ServeReplicaFileContent(w http.ResponseWriter, req *http.Reque
 }
 
 func (r *Runtime) openReplicaFileContent(req *http.Request, token string, replicaID, fileID, version uint) (*os.File, int64, error) {
-	claims, err := r.verifyTransferToken(token, replicaID, fileID, version)
+	claims, err := r.verifyTransferToken(token, replicaID)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -95,7 +95,7 @@ func (r *Runtime) openReplicaFileContent(req *http.Request, token string, replic
 	if replica.NodeID != r.client.NodeID() {
 		return nil, 0, errTransferReplicaNotFound
 	}
-	if claims.RelativeURI != "" && claims.RelativeURI != replicaFile.RelativeURI {
+	if claims.DestinationReplicaID == 0 && claims.TargetReplicaID == 0 {
 		return nil, 0, errTransferTokenForbidden
 	}
 	if replicaFile.ReplicaVersion != version || replicaFile.ReplicaStatus != "synchronized" {
@@ -128,7 +128,7 @@ func (r *Runtime) openReplicaFileContent(req *http.Request, token string, replic
 	return file, info.Size(), nil
 }
 
-func (r *Runtime) verifyTransferToken(tokenString string, replicaID, fileID, version uint) (*transferTokenClaims, error) {
+func (r *Runtime) verifyTransferToken(tokenString string, replicaID uint) (*transferTokenClaims, error) {
 	publicKeyPEM := r.transferTokenPublicKey()
 	if strings.TrimSpace(publicKeyPEM) == "" {
 		return nil, errTransferKeyMissing
@@ -159,8 +159,7 @@ func (r *Runtime) verifyTransferToken(tokenString string, replicaID, fileID, ver
 
 	if claims.Purpose != transferTokenPurpose ||
 		claims.SourceReplicaID != replicaID ||
-		claims.FileID != fileID ||
-		claims.Version != version {
+		claims.Subject == "" {
 		return nil, errTransferTokenForbidden
 	}
 
