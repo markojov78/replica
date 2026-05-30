@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"sort"
 	"time"
@@ -44,6 +45,11 @@ type Scanner interface {
 
 type Watcher interface {
 	Watch(ctx context.Context, rootURI string) (<-chan FileChange, <-chan error, error)
+}
+
+type Writer interface {
+	Save(ctx context.Context, replicaURI string, relativeURI string, content io.Reader) error
+	Delete(ctx context.Context, replicaURI string, relativeURI string) error
 }
 
 func sortFileStates(states []FileState) {
@@ -148,6 +154,28 @@ func GetWatcher(ctx context.Context, uri string) (Watcher, error) {
 
 	case "file", "":
 		return NewFilesystemWatcher(), nil
+
+	default:
+		return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)
+	}
+}
+
+func GetWriter(ctx context.Context, uri string) (Writer, error) {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return nil, err
+	}
+
+	switch u.Scheme {
+	case "s3":
+		client, err := s3Provider.Client(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return NewS3Writer(client), nil
+
+	case "file", "":
+		return NewFilesystemWriter(), nil
 
 	default:
 		return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)
