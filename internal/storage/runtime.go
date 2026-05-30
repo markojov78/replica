@@ -103,6 +103,13 @@ func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []ap
 			log.Printf("storage runtime state bootstrap failed: %v", err)
 			continue
 		}
+		if err := r.reportStartupLocalChanges(ctx, replicas); err != nil {
+			if !sleepContext(ctx, bootstrapRetryInterval) {
+				return nil, nil, nil, false
+			}
+			log.Printf("storage runtime startup scan failed: %v", err)
+			continue
+		}
 
 		log.Printf("storage runtime connected to coordinator as node_id=%s replicas=%d", r.client.NodeID(), len(replicas))
 		return pair, replicas, report.Commands, true
@@ -136,6 +143,39 @@ func (r *Runtime) refreshReplicaFiles(ctx context.Context, replicaID uint) ([]ap
 	}
 	r.setReplicaFiles(replicaID, files)
 	return files, nil
+}
+
+func (r *Runtime) reportStartupLocalChanges(ctx context.Context, replicas []apiclient.Replica) error {
+	for _, replica := range replicas {
+		if replica.UpstreamReplicaID != nil {
+			log.Printf("storage runtime startup scan skipped downstream replica_id=%d uri=%s", replica.ID, replica.URI)
+			continue
+		}
+
+		scanner, err := GetScanner(ctx, replica.URI)
+		if err != nil {
+			return fmt.Errorf("startup scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
+		}
+		states, err := scanner.Scan(ctx, replica.URI)
+		if err != nil {
+			return fmt.Errorf("startup scan replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
+		}
+
+		reports := replicaFileReports(r.replicaFilesSnapshot(replica.ID), states)
+		if len(reports) == 0 {
+			log.Printf("storage runtime startup scan detected no reportable changes replica_id=%d", replica.ID)
+			continue
+		}
+
+		if err := r.client.ReportReplicaFiles(ctx, replica.ID, reports); err != nil {
+			return fmt.Errorf("startup report replica_id=%d: %w", replica.ID, err)
+		}
+		if _, err := r.refreshReplicaFiles(ctx, replica.ID); err != nil {
+			return fmt.Errorf("startup refresh replica_id=%d: %w", replica.ID, err)
+		}
+		log.Printf("storage runtime startup scan reported files replica_id=%d count=%d", replica.ID, len(reports))
+	}
+	return nil
 }
 
 func (r *Runtime) setLocalState(replicas []apiclient.Replica, replicaFiles map[uint][]apiclient.ReplicaInventoryFile) {

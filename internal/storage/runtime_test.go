@@ -1072,6 +1072,104 @@ func reconcilePayloadForTest(t *testing.T, sourceNodeAddress string) json.RawMes
 	return data
 }
 
+func TestRuntimeReportsStartupLocalChanges(t *testing.T) {
+	replicaRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(replicaRoot, "changed.txt"), []byte("changed"), 0o644); err != nil {
+		t.Fatalf("WriteFile(changed) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(replicaRoot, "unchanged.txt"), []byte("unchanged"), 0o644); err != nil {
+		t.Fatalf("WriteFile(unchanged) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(replicaRoot, "new.txt"), []byte("new"), 0o644); err != nil {
+		t.Fatalf("WriteFile(new) error = %v", err)
+	}
+
+	changedHash, err := hashFileBLAKE3(context.Background(), filepath.Join(replicaRoot, "changed.txt"))
+	if err != nil {
+		t.Fatalf("hashFileBLAKE3(changed) error = %v", err)
+	}
+	unchangedHash, err := hashFileBLAKE3(context.Background(), filepath.Join(replicaRoot, "unchanged.txt"))
+	if err != nil {
+		t.Fatalf("hashFileBLAKE3(unchanged) error = %v", err)
+	}
+
+	var gotReport struct {
+		Files []apiclient.ReplicaFileReport `json:"files"`
+	}
+	reportCalls := 0
+	refreshCalls := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":                  "node-a",
+				"access_token":             "access-token",
+				"refresh_token":            "refresh-token",
+				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
+				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/internal/replica/3/files":
+			switch r.Method {
+			case http.MethodPost:
+				if err := json.NewDecoder(r.Body).Decode(&gotReport); err != nil {
+					t.Fatalf("Decode(report) error = %v", err)
+				}
+				reportCalls++
+				w.WriteHeader(http.StatusNoContent)
+			case http.MethodGet:
+				refreshCalls++
+				_ = json.NewEncoder(w).Encode(map[string]any{"files": []any{}})
+			default:
+				t.Fatalf("method = %s, want GET or POST", r.Method)
+			}
+		default:
+			t.Fatalf("unexpected path %q", r.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	runtime := newRuntimeForTest(t, server.URL)
+	replica := apiclient.Replica{ID: 3, InventoryID: 2, NodeID: "node-a", URI: replicaRoot, Status: "active", Type: "filesystem"}
+	runtime.setLocalState(
+		[]apiclient.Replica{replica},
+		map[uint][]apiclient.ReplicaInventoryFile{
+			3: {
+				{FileID: 10, ReplicaID: 3, InventoryID: 2, RelativeURI: "changed.txt", Size: 3, Hash: "old-hash", InventoryStatus: "active", InventoryVersion: 1, ReplicaStatus: "synchronized", ReplicaVersion: 1},
+				{FileID: 11, ReplicaID: 3, InventoryID: 2, RelativeURI: "unchanged.txt", Size: 9, Hash: unchangedHash, InventoryStatus: "active", InventoryVersion: 1, ReplicaStatus: "synchronized", ReplicaVersion: 1},
+				{FileID: 12, ReplicaID: 3, InventoryID: 2, RelativeURI: "missing.txt", Size: 7, Hash: "missing-hash", InventoryStatus: "active", InventoryVersion: 1, ReplicaStatus: "synchronized", ReplicaVersion: 1},
+			},
+		},
+	)
+
+	if err := runtime.reportStartupLocalChanges(context.Background(), []apiclient.Replica{replica}); err != nil {
+		t.Fatalf("reportStartupLocalChanges() error = %v", err)
+	}
+
+	if reportCalls != 1 || refreshCalls != 1 {
+		t.Fatalf("reportCalls=%d refreshCalls=%d, want 1/1", reportCalls, refreshCalls)
+	}
+	if len(gotReport.Files) != 3 {
+		t.Fatalf("len(gotReport.Files) = %d, want 3; files=%+v", len(gotReport.Files), gotReport.Files)
+	}
+	byURI := make(map[string]apiclient.ReplicaFileReport, len(gotReport.Files))
+	for _, file := range gotReport.Files {
+		byURI[file.RelativeURI] = file
+	}
+	if changed := byURI["changed.txt"]; changed.Action != "updated" || changed.FileID == nil || *changed.FileID != 10 || changed.FileHash == nil || *changed.FileHash != changedHash {
+		t.Fatalf("changed report = %+v, want updated file_id=10 hash=%s", changed, changedHash)
+	}
+	if created := byURI["new.txt"]; created.Action != "created" || created.FileID != nil || created.FileHash == nil || *created.FileHash == "" {
+		t.Fatalf("created report = %+v, want created without file_id", created)
+	}
+	if deleted := byURI["missing.txt"]; deleted.Action != "deleted" || deleted.FileID == nil || *deleted.FileID != 12 || deleted.FileHash != nil || deleted.FileSize != nil {
+		t.Fatalf("deleted report = %+v, want deleted file_id=12 without content fields", deleted)
+	}
+	if _, ok := byURI["unchanged.txt"]; ok {
+		t.Fatalf("unchanged.txt was reported: %+v", byURI["unchanged.txt"])
+	}
+}
+
 func TestRuntimeStartsReplicaWatcherAndLogsChanges(t *testing.T) {
 	logOutput := captureLogs(t)
 	replicaRoot := t.TempDir()
