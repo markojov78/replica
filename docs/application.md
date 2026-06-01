@@ -34,6 +34,14 @@ These are the main functionalities that the service offers:
 * Users can be authenticated or anonymous. Inventory and share can have one or more users and each user can have a list of actions allowed to perform for an inventory or share.  
 * Replicas do not have explicit user's permissions - what can be done to an replica depends on an inventory permissions and replica type
 
+### Key architectural principles
+1. Coordinator database is the source of truth.
+2. Storage services never persist authoritative state.
+3. Node communication is coordinator-centric.
+4. Nodes initiate all coordinator communication.
+5. Replication is orchestrated by coordinator.
+6. Data integrity has priority over availability.
+
 ## Deployment model
 Even though this is a distributed service that works with the distributed data, the main design goal is data integrity 
 over availability, so it requires a designated coordinator node that holds the system state.  
