@@ -746,7 +746,14 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 
 	replica, ok := r.findReplica(payload.ReplicaID)
 	if !ok {
-		return fmt.Errorf("replica %d not found in local state", payload.ReplicaID)
+		if _, err := r.refreshLocalState(ctx); err != nil {
+			return err
+		}
+
+		replica, ok = r.findReplica(payload.ReplicaID)
+		if !ok {
+			return fmt.Errorf("replica %d not found in local state", payload.ReplicaID)
+		}
 	}
 
 	files, err := r.refreshReplicaFiles(ctx, payload.ReplicaID)

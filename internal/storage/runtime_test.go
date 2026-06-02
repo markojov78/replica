@@ -616,6 +616,118 @@ func TestRuntimeScanReplicaReportsCreatedAndChangedFiles(t *testing.T) {
 	t.Fatalf("fileListCalls=%d reportCalls=%d commandUpdateCalls=%d report=%+v", fileListCalls, reportCalls, commandUpdateCalls, gotReport)
 }
 
+func TestRuntimeScanReplicaRefreshesLocalStateBeforeScan(t *testing.T) {
+	replicaRoot := t.TempDir()
+	filePath := filepath.Join(replicaRoot, "file.txt")
+	if err := os.WriteFile(filePath, []byte("content"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	var reported bool
+	var commandCompleted bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":                  "node-a",
+				"access_token":             "access-token",
+				"refresh_token":            "refresh-token",
+				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
+				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/internal/replicas":
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"id":           7,
+					"inventory_id": 3,
+					"node_id":      "node-a",
+					"uri":          replicaRoot,
+					"status":       "active",
+					"type":         "filesystem",
+				},
+			})
+		case "/internal/replica/7/files":
+			switch r.Method {
+			case http.MethodGet:
+				_ = json.NewEncoder(w).Encode(map[string]any{"files": []any{}})
+			case http.MethodPost:
+				var body struct {
+					Files []apiclient.ReplicaFileReport `json:"files"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Fatalf("Decode(report) error = %v", err)
+				}
+				if len(body.Files) != 1 || body.Files[0].RelativeURI != "file.txt" || body.Files[0].Action != "created" {
+					t.Fatalf("reported files = %+v, want created file.txt", body.Files)
+				}
+				reported = true
+				w.WriteHeader(http.StatusNoContent)
+			default:
+				t.Fatalf("method = %s, want GET or POST", r.Method)
+			}
+		case "/internal/commands/118":
+			var body struct {
+				Status string `json:"status"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("Decode(command update) error = %v", err)
+			}
+			if body.Status != "completed" {
+				t.Fatalf("command status = %q, want completed", body.Status)
+			}
+			commandCompleted = true
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":         118,
+				"node_id":    "node-a",
+				"type":       "scan_replica",
+				"status":     "completed",
+				"payload":    map[string]any{"replica_id": 7},
+				"created_at": "2026-06-02T08:03:42Z",
+				"updated_at": "2026-06-02T08:03:43Z",
+			})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	runtime, err := NewRuntime(config.Config{
+		App: config.AppConfig{
+			NodeID:            "node-a",
+			CoordinatorURL:    server.URL,
+			NodeAddress:       "http://node-a:8081",
+			HeartbeatInterval: time.Hour,
+		},
+		Auth: config.AuthConfig{
+			NodeSecret: "node-secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v", err)
+	}
+
+	payload, err := json.Marshal(map[string]any{"replica_id": 7})
+	if err != nil {
+		t.Fatalf("Marshal(payload) error = %v", err)
+	}
+	ok := runtime.handleCommand(context.Background(), apiclient.Command{
+		ID:      118,
+		NodeID:  "node-a",
+		Type:    "scan_replica",
+		Status:  "pending",
+		Payload: payload,
+	})
+	if !ok {
+		t.Fatal("handleCommand() = false, want true")
+	}
+	if !reported {
+		t.Fatal("replica files were not reported")
+	}
+	if !commandCompleted {
+		t.Fatal("command was not marked completed")
+	}
+}
+
 func TestRuntimeReconcileReplicaTransfersPendingFiles(t *testing.T) {
 	destinationRoot := t.TempDir()
 	type replicaFileStatusUpdate struct {
