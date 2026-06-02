@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -33,6 +32,8 @@ var (
 	errTransferUnsupportedURI   = errors.New("replica uri is not a local filesystem path")
 	errTransferInvalidLocalPath = errors.New("resolved file path escapes replica root")
 )
+
+var getTransferReader = GetReader
 
 type transferTokenClaims struct {
 	Purpose              string `json:"purpose"`
@@ -82,7 +83,7 @@ func (r *Runtime) ServeReplicaFileContent(w http.ResponseWriter, req *http.Reque
 	_, _ = io.Copy(w, file)
 }
 
-func (r *Runtime) openReplicaFileContent(req *http.Request, token string, replicaID, fileID, version uint) (*os.File, int64, error) {
+func (r *Runtime) openReplicaFileContent(req *http.Request, token string, replicaID, fileID, version uint) (io.ReadCloser, int64, error) {
 	claims, err := r.verifyTransferToken(token, replicaID)
 	if err != nil {
 		return nil, 0, err
@@ -102,30 +103,11 @@ func (r *Runtime) openReplicaFileContent(req *http.Request, token string, replic
 		return nil, 0, errTransferVersionConflict
 	}
 
-	localPath, err := resolveReplicaFilePath(replica.URI, replicaFile.RelativeURI)
+	reader, err := getTransferReader(req.Context(), replica.URI)
 	if err != nil {
 		return nil, 0, err
 	}
-
-	info, err := os.Stat(localPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, 0, errTransferFileNotFound
-		}
-		return nil, 0, err
-	}
-	if info.IsDir() {
-		return nil, 0, errTransferFileNotFound
-	}
-
-	file, err := os.Open(localPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, 0, errTransferFileNotFound
-		}
-		return nil, 0, err
-	}
-	return file, info.Size(), nil
+	return reader.Open(req.Context(), replica.URI, replicaFile.RelativeURI)
 }
 
 func (r *Runtime) verifyTransferToken(tokenString string, replicaID uint) (*transferTokenClaims, error) {
@@ -249,6 +231,8 @@ func resolveReplicaFilePath(rootURI, relativeURI string) (string, error) {
 	return fullPath, nil
 }
 
+// localFilesystemPath converts a local path or file:// URI into a filesystem path.
+// Only local filesystem locations are supported; remote or unsupported URI schemes return an error.
 func localFilesystemPath(rootURI string) (string, error) {
 	parsed, err := url.Parse(rootURI)
 	if err != nil {

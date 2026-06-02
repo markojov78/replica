@@ -1,14 +1,17 @@
 package storage
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,6 +66,65 @@ func TestServeReplicaFileContentRejectsVersionMismatch(t *testing.T) {
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusConflict)
 	}
+}
+
+func TestServeReplicaFileContentStreamsS3ReplicaThroughReader(t *testing.T) {
+	runtime, token := newTransferTestRuntime(t, "s3://bucket/root")
+	runtime.setLocalState(
+		[]apiclient.Replica{{
+			ID:     1,
+			NodeID: "node-a",
+			URI:    "s3://bucket/root",
+		}},
+		map[uint][]apiclient.ReplicaInventoryFile{
+			1: {{
+				FileID:         10,
+				ReplicaID:      1,
+				RelativeURI:    "file.txt",
+				ReplicaStatus:  "synchronized",
+				ReplicaVersion: 7,
+			}},
+		},
+	)
+
+	original := getTransferReader
+	t.Cleanup(func() { getTransferReader = original })
+	getTransferReader = func(_ context.Context, uri string) (Reader, error) {
+		if uri != "s3://bucket/root" {
+			t.Fatalf("reader uri = %q, want s3://bucket/root", uri)
+		}
+		return mockTransferReader{
+			content: "s3 content",
+			size:    int64(len("s3 content")),
+		}, nil
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/internal/replicas/1/files/10/content?version=7", nil)
+	req.SetPathValue("replica_id", "1")
+	req.SetPathValue("file_id", "10")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	runtime.ServeReplicaFileContent(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
+	}
+	if rec.Body.String() != "s3 content" {
+		t.Fatalf("body = %q, want s3 content", rec.Body.String())
+	}
+	if rec.Header().Get("Content-Length") != "10" {
+		t.Fatalf("Content-Length = %q, want 10", rec.Header().Get("Content-Length"))
+	}
+}
+
+type mockTransferReader struct {
+	content string
+	size    int64
+}
+
+func (m mockTransferReader) Open(_ context.Context, _ string, _ string) (io.ReadCloser, int64, error) {
+	return io.NopCloser(strings.NewReader(m.content)), m.size, nil
 }
 
 func newTransferTestRuntime(t *testing.T, root string) (*Runtime, string) {

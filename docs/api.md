@@ -1307,7 +1307,7 @@ Possible errors:
 This endpoint is served by storage nodes when `app.storage = true`. It is not a coordinator-relayed download endpoint.
 
 #### GET /replicas/{replica_id}/files/{file_id}/content?version=123
-Streams local replica file content from a source storage node to a target storage node.
+Streams replica file content from a source storage node to a target storage node.
 
 Behavior:
 - requires `Authorization: Bearer <transfer-token>`
@@ -1319,7 +1319,7 @@ Behavior:
 - verifies token `source_replica_id` matches the request path
 - verifies this node owns the requested source replica using local volatile replica state
 - verifies local replica file state matches the requested file/version when that state is available
-- resolves `relative_uri` under the replica URI and rejects path traversal
+- resolves `relative_uri` under the replica URI using the source replica storage backend and rejects path traversal
 - streams the file without loading the full file into memory
 
 The `version` query parameter is an authorization and integrity check. Historical versions are not stored or served; the endpoint only serves the current local file if local state matches the requested version.

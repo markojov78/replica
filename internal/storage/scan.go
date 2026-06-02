@@ -47,6 +47,10 @@ type Watcher interface {
 	Watch(ctx context.Context, rootURI string) (<-chan FileChange, <-chan error, error)
 }
 
+type Reader interface {
+	Open(ctx context.Context, replicaURI string, relativeURI string) (io.ReadCloser, int64, error)
+}
+
 type Writer interface {
 	Save(ctx context.Context, replicaURI string, relativeURI string, content io.Reader, size int64) error
 	Delete(ctx context.Context, replicaURI string, relativeURI string) error
@@ -179,5 +183,27 @@ func GetWriter(ctx context.Context, uri string) (Writer, error) {
 
 	default:
 		return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)
+	}
+}
+
+func GetReader(ctx context.Context, uri string) (Reader, error) {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return nil, err
+	}
+
+	switch u.Scheme {
+	case "s3":
+		client, err := s3Provider.Client(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return NewS3Reader(client), nil
+
+	case "file", "":
+		return NewFilesystemReader(), nil
+
+	default:
+		return nil, errTransferUnsupportedURI
 	}
 }
