@@ -48,7 +48,7 @@ type Watcher interface {
 }
 
 type Writer interface {
-	Save(ctx context.Context, replicaURI string, relativeURI string, content io.Reader) error
+	Save(ctx context.Context, replicaURI string, relativeURI string, content io.Reader, size int64) error
 	Delete(ctx context.Context, replicaURI string, relativeURI string) error
 }
 

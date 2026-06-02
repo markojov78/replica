@@ -212,6 +212,8 @@ to the coordinator.
 
 The coordinator validates the reported change, updates authoritative inventory state and determines whether replication actions are required on other replicas.
 
+For a multi-directional replica (`upstream_replica_id = null`), local changes are authoritative only for files where that replica is already synchronized to the current inventory version. A replica file with `pending`, `changed`, `conflict` or `error` status, or with an older version, is not allowed to change authoritative inventory state for that file. This prevents a newly-created multidirectional replica from reporting missing files as deletes before its initial reconciliation has completed.
+
 Storage services do not independently decide global synchronization state.
 
 #### Data transfer between nodes

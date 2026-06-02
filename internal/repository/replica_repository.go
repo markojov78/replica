@@ -431,6 +431,15 @@ func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaF
 			if err != nil {
 				return err
 			}
+			if !created && !restored {
+				authoritative, err := r.replicaFileIsAuthoritative(tx, replica.ID, file.ID, file.Version)
+				if err != nil {
+					return err
+				}
+				if !authoritative {
+					continue
+				}
+			}
 
 			oldVersion := file.Version
 			if created {
@@ -580,6 +589,13 @@ func (r *ReplicaRepository) handleDeletedReportedFile(tx *gorm.DB, replica model
 	if file.Status == model.InventoryFileStatusDeleted {
 		return nil, r.upsertSynchronizedReplicaFile(tx, replica.ID, file.ID, file.Version)
 	}
+	authoritative, err := r.replicaFileIsAuthoritative(tx, replica.ID, file.ID, file.Version)
+	if err != nil {
+		return nil, err
+	}
+	if !authoritative {
+		return nil, nil
+	}
 
 	oldVersion := file.Version
 	file.Version++
@@ -694,6 +710,19 @@ func (r *ReplicaRepository) upsertSynchronizedReplicaFile(tx *gorm.DB, replicaID
 		return tx.Create(&replicaFile).Error
 	default:
 		return err
+	}
+}
+
+func (r *ReplicaRepository) replicaFileIsAuthoritative(tx *gorm.DB, replicaID, fileID, inventoryVersion uint) (bool, error) {
+	var replicaFile model.ReplicaFile
+	err := tx.Where("file_id = ? AND replica_id = ?", fileID, replicaID).First(&replicaFile).Error
+	switch {
+	case err == nil:
+		return replicaFile.Status == model.ReplicaFileStatusSynchronized && replicaFile.Version == inventoryVersion, nil
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return false, nil
+	default:
+		return false, err
 	}
 }
 

@@ -1167,6 +1167,7 @@ Behavior:
 - marks the same file on other existing replicas as `pending`
 - for `action = "deleted"`, sets `inventory_files.status` to `deleted`, increments `inventory_files.version`, inserts a `deleted` journal action with the previous version, marks the reporting replica file `synchronized`, marks other replicas `pending`, and creates reconciliation commands using existing source-selection logic
 - if `action = "deleted"` is repeated for an already deleted inventory file, treats it as already synchronized and does not increment version or insert another journal row
+- ignores content-changing reports for existing inventory files when the reporting replica is not synchronized to the current inventory version for that file
 - ignores timestamp-only reports: content identity is `relative_uri` + `file_size` + `file_hash`
 - if a reported `created` or `updated` entry has the same content identity as the authoritative active `inventory_files` row, it does not increment version, insert journal rows, mark other replicas pending, or create reconciliation commands
 - if a matching no-content-change report comes from a pending replica, that replica file may be marked `synchronized` at the authoritative inventory version

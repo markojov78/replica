@@ -151,6 +151,10 @@ func (r *Runtime) reportStartupLocalChanges(ctx context.Context, replicas []apic
 			log.Printf("storage runtime startup scan skipped downstream replica_id=%d uri=%s", replica.ID, replica.URI)
 			continue
 		}
+		if replicaHasPendingFiles(r.replicaFilesSnapshot(replica.ID)) {
+			log.Printf("storage runtime startup scan skipped pending replica_id=%d uri=%s", replica.ID, replica.URI)
+			continue
+		}
 
 		scanner, err := GetScanner(ctx, replica.URI)
 		if err != nil {
@@ -292,6 +296,9 @@ func (r *Runtime) reportWatcherChange(ctx context.Context, replica apiclient.Rep
 		return nil
 	}
 	if strings.TrimSpace(change.RelativeURI) == "" {
+		return nil
+	}
+	if replicaHasPendingFiles(r.replicaFilesSnapshot(replica.ID)) {
 		return nil
 	}
 
@@ -641,7 +648,7 @@ func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Comman
 			continue
 		}
 
-		saveErr := writer.Save(ctx, destination.URI, pendingFile.RelativeURI, content)
+		saveErr := writer.Save(ctx, destination.URI, pendingFile.RelativeURI, content, pendingFile.Size)
 		closeErr := content.Close()
 		if saveErr != nil {
 			failure := fmt.Errorf("write replica_id=%d file_id=%d relative_uri=%s: %w", payload.DestinationReplicaID, pendingFile.FileID, pendingFile.RelativeURI, saveErr)
@@ -771,6 +778,15 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 
 func replicaFileReports(files []apiclient.ReplicaInventoryFile, states []FileState) []apiclient.ReplicaFileReport {
 	return replicaFileReportsForStates(files, states, true)
+}
+
+func replicaHasPendingFiles(files []apiclient.ReplicaInventoryFile) bool {
+	for _, file := range files {
+		if file.ReplicaStatus == "pending" {
+			return true
+		}
+	}
+	return false
 }
 
 func replicaFileReportsForStates(files []apiclient.ReplicaInventoryFile, states []FileState, includeDeletes bool) []apiclient.ReplicaFileReport {

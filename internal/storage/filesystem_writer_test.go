@@ -28,7 +28,7 @@ func TestFilesystemWriterSaveAndDelete(t *testing.T) {
 	root := t.TempDir()
 	writer := NewFilesystemWriter()
 
-	if err := writer.Save(context.Background(), root, "nested/file.txt", strings.NewReader("content")); err != nil {
+	if err := writer.Save(context.Background(), root, "nested/file.txt", strings.NewReader("content"), int64(len("content"))); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
 
@@ -54,7 +54,7 @@ func TestFilesystemWriterSaveAndDelete(t *testing.T) {
 
 func TestFilesystemWriterRejectsPathTraversal(t *testing.T) {
 	writer := NewFilesystemWriter()
-	if err := writer.Save(context.Background(), t.TempDir(), "../escape.txt", strings.NewReader("content")); err == nil {
+	if err := writer.Save(context.Background(), t.TempDir(), "../escape.txt", strings.NewReader("content"), int64(len("content"))); err == nil {
 		t.Fatal("Save() error = nil, want path traversal rejection")
 	}
 }

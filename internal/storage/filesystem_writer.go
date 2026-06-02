@@ -17,7 +17,7 @@ func NewFilesystemWriter() *FilesystemWriter {
 	return &FilesystemWriter{}
 }
 
-func (w *FilesystemWriter) Save(ctx context.Context, replicaURI string, relativeURI string, content io.Reader) error {
+func (w *FilesystemWriter) Save(ctx context.Context, replicaURI string, relativeURI string, content io.Reader, _ int64) error {
 	targetPath, err := resolveFilesystemWritePath(replicaURI, relativeURI)
 	if err != nil {
 		return err
