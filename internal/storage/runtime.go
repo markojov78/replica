@@ -124,11 +124,13 @@ func (r *Runtime) refreshLocalState(ctx context.Context) ([]apiclient.Replica, e
 
 	replicaFiles := make(map[uint][]apiclient.ReplicaInventoryFile, len(replicas))
 	for _, replica := range replicas {
-		files, err := r.client.ListReplicaInventoryFiles(ctx, replica.ID)
-		if err != nil {
-			return nil, err
+		if replicaIsActive(replica) {
+			files, err := r.client.ListReplicaInventoryFiles(ctx, replica.ID)
+			if err != nil {
+				return nil, err
+			}
+			replicaFiles[replica.ID] = append([]apiclient.ReplicaInventoryFile(nil), files...)
 		}
-		replicaFiles[replica.ID] = append([]apiclient.ReplicaInventoryFile(nil), files...)
 	}
 
 	r.setLocalState(replicas, replicaFiles)
@@ -137,6 +139,10 @@ func (r *Runtime) refreshLocalState(ctx context.Context) ([]apiclient.Replica, e
 }
 
 func (r *Runtime) refreshReplicaFiles(ctx context.Context, replicaID uint) ([]apiclient.ReplicaInventoryFile, error) {
+	if replica, ok := r.findReplica(replicaID); ok && !replicaIsActive(replica) {
+		r.setReplicaFiles(replicaID, nil)
+		return nil, nil
+	}
 	files, err := r.client.ListReplicaInventoryFiles(ctx, replicaID)
 	if err != nil {
 		return nil, err
@@ -147,6 +153,10 @@ func (r *Runtime) refreshReplicaFiles(ctx context.Context, replicaID uint) ([]ap
 
 func (r *Runtime) reportStartupLocalChanges(ctx context.Context, replicas []apiclient.Replica) error {
 	for _, replica := range replicas {
+		if !replicaIsActive(replica) {
+			log.Printf("storage runtime startup scan skipped inactive replica_id=%d status=%s uri=%s", replica.ID, replica.Status, replica.URI)
+			continue
+		}
 		if replica.UpstreamReplicaID != nil {
 			log.Printf("storage runtime startup scan skipped downstream replica_id=%d uri=%s", replica.ID, replica.URI)
 			continue
@@ -244,6 +254,10 @@ func (r *Runtime) findReplica(replicaID uint) (apiclient.Replica, bool) {
 
 func (r *Runtime) startReplicaWatchers(ctx context.Context, replicas []apiclient.Replica) {
 	for _, replica := range replicas {
+		if !replicaIsActive(replica) {
+			log.Printf("storage runtime watcher skipped inactive replica_id=%d status=%s uri=%s", replica.ID, replica.Status, replica.URI)
+			continue
+		}
 		watcher, err := GetWatcher(ctx, replica.URI)
 		if err != nil {
 			log.Printf("storage runtime watcher setup skipped replica_id=%d uri=%s error=%v", replica.ID, replica.URI, err)
@@ -292,6 +306,10 @@ func (r *Runtime) startReplicaWatchers(ctx context.Context, replicas []apiclient
 }
 
 func (r *Runtime) reportWatcherChange(ctx context.Context, replica apiclient.Replica, change FileChange) error {
+	currentReplica, ok := r.findReplica(replica.ID)
+	if !ok || !replicaIsActive(currentReplica) {
+		return nil
+	}
 	if change.ChangeType != FileChangeTypeCreated && change.ChangeType != FileChangeTypeModified && change.ChangeType != FileChangeTypeDeleted {
 		return nil
 	}
@@ -585,6 +603,10 @@ func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Comman
 	if !ok {
 		return fmt.Errorf("destination replica %d not found in local state", payload.DestinationReplicaID)
 	}
+	if !replicaIsActive(destination) {
+		log.Printf("storage runtime reconcile_replica skipped inactive replica_id=%d status=%s uri=%s", destination.ID, destination.Status, destination.URI)
+		return nil
+	}
 
 	writer, err := GetWriter(ctx, destination.URI)
 	if err != nil {
@@ -755,6 +777,10 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 			return fmt.Errorf("replica %d not found in local state", payload.ReplicaID)
 		}
 	}
+	if !replicaIsActive(replica) {
+		log.Printf("storage runtime scan_replica skipped inactive replica_id=%d status=%s uri=%s", replica.ID, replica.Status, replica.URI)
+		return nil
+	}
 
 	files, err := r.refreshReplicaFiles(ctx, payload.ReplicaID)
 	if err != nil {
@@ -785,6 +811,10 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 
 func replicaFileReports(files []apiclient.ReplicaInventoryFile, states []FileState) []apiclient.ReplicaFileReport {
 	return replicaFileReportsForStates(files, states, true)
+}
+
+func replicaIsActive(replica apiclient.Replica) bool {
+	return replica.Status == "" || replica.Status == "active"
 }
 
 func replicaHasPendingFiles(files []apiclient.ReplicaInventoryFile) bool {

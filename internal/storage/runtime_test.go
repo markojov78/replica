@@ -728,6 +728,149 @@ func TestRuntimeScanReplicaRefreshesLocalStateBeforeScan(t *testing.T) {
 	}
 }
 
+func TestRuntimeRefreshLocalStateSkipsDeletedReplicaFiles(t *testing.T) {
+	deletedFileListRequested := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":                  "node-a",
+				"access_token":             "access-token",
+				"refresh_token":            "refresh-token",
+				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
+				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/internal/replicas":
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"id":           8,
+					"inventory_id": 3,
+					"node_id":      "node-a",
+					"uri":          "/deleted",
+					"status":       "deleted",
+					"type":         "filesystem",
+				},
+			})
+		case "/internal/replica/8/files":
+			deletedFileListRequested = true
+			t.Fatalf("deleted replica files should not be requested")
+		default:
+			t.Fatalf("unexpected path %q", r.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	runtime, err := NewRuntime(config.Config{
+		App: config.AppConfig{
+			NodeID:            "node-a",
+			CoordinatorURL:    server.URL,
+			NodeAddress:       "http://node-a:8081",
+			HeartbeatInterval: time.Hour,
+		},
+		Auth: config.AuthConfig{
+			NodeSecret: "node-secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v", err)
+	}
+
+	replicas, err := runtime.refreshLocalState(context.Background())
+	if err != nil {
+		t.Fatalf("refreshLocalState() error = %v", err)
+	}
+	if len(replicas) != 1 || replicas[0].Status != "deleted" {
+		t.Fatalf("replicas = %+v, want one deleted replica", replicas)
+	}
+	if deletedFileListRequested {
+		t.Fatal("deleted replica files were requested")
+	}
+	if files := runtime.replicaFilesSnapshot(8); len(files) != 0 {
+		t.Fatalf("replicaFilesSnapshot(8) = %+v, want empty", files)
+	}
+}
+
+func TestRuntimeScanReplicaSkipsDeletedReplica(t *testing.T) {
+	commandCompleted := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":                  "node-a",
+				"access_token":             "access-token",
+				"refresh_token":            "refresh-token",
+				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
+				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/internal/replica/8/files":
+			t.Fatalf("deleted replica files should not be requested")
+		case "/internal/commands/119":
+			var body struct {
+				Status string `json:"status"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("Decode(command update) error = %v", err)
+			}
+			if body.Status != "completed" {
+				t.Fatalf("command status = %q, want completed", body.Status)
+			}
+			commandCompleted = true
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":         119,
+				"node_id":    "node-a",
+				"type":       "scan_replica",
+				"status":     "completed",
+				"payload":    map[string]any{"replica_id": 8},
+				"created_at": "2026-06-02T08:03:42Z",
+				"updated_at": "2026-06-02T08:03:43Z",
+			})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	runtime, err := NewRuntime(config.Config{
+		App: config.AppConfig{
+			NodeID:            "node-a",
+			CoordinatorURL:    server.URL,
+			NodeAddress:       "http://node-a:8081",
+			HeartbeatInterval: time.Hour,
+		},
+		Auth: config.AuthConfig{
+			NodeSecret: "node-secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v", err)
+	}
+	runtime.setLocalState([]apiclient.Replica{{
+		ID:     8,
+		NodeID: "node-a",
+		URI:    "/deleted",
+		Status: "deleted",
+		Type:   "filesystem",
+	}}, nil)
+
+	payload, err := json.Marshal(map[string]any{"replica_id": 8})
+	if err != nil {
+		t.Fatalf("Marshal(payload) error = %v", err)
+	}
+	ok := runtime.handleCommand(context.Background(), apiclient.Command{
+		ID:      119,
+		NodeID:  "node-a",
+		Type:    "scan_replica",
+		Status:  "pending",
+		Payload: payload,
+	})
+	if !ok {
+		t.Fatal("handleCommand() = false, want true")
+	}
+	if !commandCompleted {
+		t.Fatal("command was not marked completed")
+	}
+}
+
 func TestRuntimeReconcileReplicaTransfersPendingFiles(t *testing.T) {
 	destinationRoot := t.TempDir()
 	type replicaFileStatusUpdate struct {

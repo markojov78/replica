@@ -1,7 +1,9 @@
 # DropOuBbox service
 
 A distributed, self-hosted file sharing and file replication service.  
-While the initial idea for the service is to facilitate storage, backup and sharing of my own photo collection, it is not limited to specific data type: storage and replication functionality should be agnostic to data type and frontend is intended to be extensible to present different file types (images, audio, video, documents ...)
+While the initial idea for the service is to facilitate storage, backup and sharing of my own photo collection, 
+it is not limited to specific data type: storage and replication functionality should be agnostic to data type and 
+frontend is intended to be extensible to present different file types (images, audio, video, documents ...)
 
 These are the main functionalities that the service offers:
 
@@ -11,28 +13,47 @@ These are the main functionalities that the service offers:
 ## Key concepts
 
 ### Inventory
-* Inventory entry is either individual file or a folder holding a collection of files and folders (i.e. photos)  
-* Inventory can have replication rules, sharing rules, ownership and permissions.  
-* Inventory can be created either for replication and/or for sharing but neither is mandatory on an inventory  
-* Inventories can overlap: a file or folder can be part of multiple inventories with different replication rules, shares and permissions.
+Inventory entry is either individual file or a folder holding a collection of files and folders (i.e. photos).
+
+Inventory can have replication rules, sharing rules, ownership and permissions.  
+
+Inventory can be created either for replication and/or for sharing but neither is mandatory on an inventory.
+
+Inventories can overlap: a file or folder can be part of multiple inventories with different replication rules, 
+shares and permissions.
 
 ### Replica
-* Each inventory has at least one replica which points to the physical location of data.  
-* Replica can be defined on local computer storage, cloud storage (i.e. aws s3, with ability to add support for more storage types) and removable storage, like external disk occasionally plugged into the computer to receive data backup  
-* An inventory can have multiple replicas with the following replication rules:   
-1. Base replicas have `upstream_replica_id = null` and participate in multi-directional replication with other base replicas of the same inventory.   
-2. Downstream replicas have `upstream_replica_id` set to another replica in the same inventory and receive changes from that upstream replica.   
-3. Local changes reported from downstream replicas are not authoritative inventory changes and must be rejected or marked as conflict/error.   
-4. One-way replication replicas can form a tree structure where any downstream replica can have only one source. Cycle detection is not implemented yet.   
+Each inventory has at least one replica which points to the physical location of data.  
+
+Replica can be defined on local computer storage, cloud storage (i.e. aws s3, with ability to add support for more 
+storage types) and removable storage, like external disk occasionally plugged into the computer to receive data backup.
+
+An inventory can have multiple replicas with the following replication rules:
+* Base replicas have `upstream_replica_id = null` and participate in multi-directional replication with other base 
+  replicas of the same inventory.
+* Downstream replicas have `upstream_replica_id` set to another replica in the same inventory and receive changes 
+  from that upstream replica.
+* Local changes reported from downstream replicas are not authoritative inventory changes and must be rejected or 
+  marked as conflict/error.
+* One-way replication replicas can form a tree structure where any downstream replica can have only one source.
 
 ### Share
-* It's an inventory accessible through the web interface, depending on ownership and permissions and replication rules, end user can use a share to perform CRUD operation on the files accessible through the share  
-* In case of conflicting permissions and rules (i.e. updatable share for read-only inventory) it's up to the service to detect conflicting settings and display an error  
-* While share is defined for an inventory it actually uses replicas to work with the actual data and depending on the rules it can result to using multiple replicas for different actions (i.e. downstream read-only replica for fast data read and writeable replica for data update) 
+It's an inventory accessible through the web interface, depending on ownership and permissions and replication rules, 
+end user can use a share to perform CRUD operation on the files accessible through the share.
+
+In case of conflicting permissions and rules (i.e. updatable share for read-only inventory) it's up to the service to 
+detect conflicting settings and display an error.
+
+While share is defined for an inventory it actually uses replicas to work with the actual data and depending on 
+the rules it can result to using multiple replicas for different actions (i.e. downstream read-only replica for 
+fast data read and writeable replica for data update).
 
 ### Users, ownership and permissions
-* Users can be authenticated or anonymous. Inventory and share can have one or more users and each user can have a list of actions allowed to perform for an inventory or share.  
-* Replicas do not have explicit user's permissions - what can be done to an replica depends on an inventory permissions and replica type
+Users can be authenticated or anonymous. Inventory and share can have one or more users and each user can have a list 
+of actions allowed to perform for an inventory or share.
+
+Replicas do not have explicit user's permissions - what can be done to an replica depends on an inventory permissions 
+and replica type
 
 ### Key architectural principles
 1. Coordinator database is the source of truth.
@@ -62,17 +83,14 @@ Storage service must have sufficient permissions and credentials to manage its r
 error in case of permissions and/or credential problems.  
 To avoid a split state scenario, the storage service will have no persisted state: it will authenticate with the 
 coordinator, and then retrieve the state from the coordinator.
-IT will peridocialy scan replicas and report changes to the coordinator, and ask for instructions on how to proceed. 
-In case of the unavailable coordinator, it should halt all replication until the coordinator becomes available again.  
-
-### Data bus
-This is maybe not an actual component but a set of connections established on demand between storage services to transfer 
-data between storage services or between a storage service and a sharing service.  
-question: how to really make a data bus:  one way is to use zerotier/tailscale to maintain virtual local network between nodes another is to use coordinator to establish direct connections
-
+IT will periodically scan replicas and report changes to the coordinator, and ask for instructions on how to proceed. 
+In case of the unavailable coordinator, it should halt all replication until the coordinator becomes available again.
+  
 ### Sharing service + sharing UI
-Sharing service is both a web app with UI with data presentation (previews for images, links for documents etc) and interface for data upload / replace / delete if share permissions allow it.  
-The sharing service uses the coordinator to resolve which replica to use and can even use local read-only replica for fast read and remote updateable replica for update.
+Sharing service is both a web app with UI with data presentation (previews for images, links for documents etc) and 
+interface for data upload / replace / delete if share permissions allow it.  
+The sharing service uses the coordinator to resolve which replica to use and can even use local read-only replica for 
+fast read and remote updateable replica for update.
 
 ## Database
 
@@ -210,11 +228,17 @@ When local file changes are detected, the storage service reports:
 - modification timestamp
 to the coordinator.
 
-The coordinator validates the reported change, updates authoritative inventory state and determines whether replication actions are required on other replicas.
+The coordinator validates the reported change, updates authoritative inventory state and determines whether 
+replication actions are required on other replicas.
 
-For a multi-directional replica (`upstream_replica_id = null`), local changes are authoritative only for files where that replica is already synchronized to the current inventory version. A replica file with `pending`, `changed`, `conflict` or `error` status, or with an older version, is not allowed to change authoritative inventory state for that file. This prevents a newly-created multidirectional replica from reporting missing files as deletes before its initial reconciliation has completed.
-
-Storage services do not independently decide global synchronization state.
+For a multi-directional replica (`upstream_replica_id = null`), local changes are authoritative only for files where 
+that replica is already synchronized to the current inventory version. 
+A replica file with `pending`, `changed`, `conflict` or `error` status, or with an older version, is not allowed to 
+change authoritative inventory state for that file. 
+This prevents a newly-created multidirectional replica from reporting missing files as deletes before its initial 
+reconciliation has completed.
+ 
+Storage services do not independently decide global synchronization state.  
 
 #### Data transfer between nodes
 The coordinator orchestrates replication, but actual file transfer is performed between storage services.
@@ -233,7 +257,8 @@ Depending on deployment topology, file transfer can happen:
 - through VPN or overlay network such as Tailscale or ZeroTier
 - through temporary relay or shared storage
 
-The coordinator is responsible only for orchestration and authoritative state management, not for transferring the actual file contents.
+The coordinator is responsible only for orchestration and authoritative state management, 
+not for transferring the actual file contents.
 #### Coordinator + storage mode
 In coordinator + storage mode, coordinator and storage service run inside the same application process.
 
@@ -249,6 +274,8 @@ This keeps storage-node behavior consistent between:
 
 - storage-only deployments
 - coordinator + storage deployments
+
+Deleted replicas may still be returned to storage nodes as runtime assignments. Storage nodes use deleted replica records to stop or avoid runtime work, but they do not scan, watch, reconcile, report files for, or fetch replica file lists for deleted replicas. Physical files for deleted replicas are not removed by storage nodes.
 
 ### Creating a new inventory
 When an inventory is created, the coordinator creates the logical inventory record and its first/default replica. 

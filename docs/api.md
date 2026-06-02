@@ -1064,6 +1064,7 @@ Behavior:
 - validates the bearer node JWT
 - resolves the current node from the auth token
 - returns only replicas whose `node_id` matches the authenticated node
+- may include deleted replicas so storage nodes can stop runtime work for them
 - does not support user-style filtering or pagination
 
 Example response:
