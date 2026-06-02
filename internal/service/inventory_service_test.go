@@ -260,11 +260,21 @@ func TestReplicaServiceCreateValidatesUpstreamReplica(t *testing.T) {
 		Status:      model.ReplicaStatusActive,
 		Type:        model.ReplicaTypeFilesystem,
 	}
+	deletedUpstream := &model.Replica{
+		InventoryID: inventoryA.ID,
+		NodeID:      "node-a",
+		URI:         "/data/deleted",
+		Status:      model.ReplicaStatusDeleted,
+		Type:        model.ReplicaTypeFilesystem,
+	}
 	if err := database.Create(upstream).Error; err != nil {
 		t.Fatalf("Create(upstream) error = %v", err)
 	}
 	if err := database.Create(foreignUpstream).Error; err != nil {
 		t.Fatalf("Create(foreignUpstream) error = %v", err)
+	}
+	if err := database.Create(deletedUpstream).Error; err != nil {
+		t.Fatalf("Create(deletedUpstream) error = %v", err)
 	}
 
 	settingService := NewSettingService(repository.NewSettingRepository(database))
@@ -296,6 +306,17 @@ func TestReplicaServiceCreateValidatesUpstreamReplica(t *testing.T) {
 		UpstreamReplicaID: &foreignID,
 	}); err != ErrInvalidReplicaUpstream {
 		t.Fatalf("Create(foreign upstream) error = %v, want %v", err, ErrInvalidReplicaUpstream)
+	}
+
+	deletedID := deletedUpstream.ID
+	if _, err := svc.Create(CreateReplicaInput{
+		InventoryID:       inventoryA.ID,
+		NodeID:            "node-e",
+		URI:               "/data/e",
+		Type:              string(model.ReplicaTypeFilesystem),
+		UpstreamReplicaID: &deletedID,
+	}); err != ErrInvalidReplicaUpstream {
+		t.Fatalf("Create(deleted upstream) error = %v, want %v", err, ErrInvalidReplicaUpstream)
 	}
 }
 

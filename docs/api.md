@@ -694,7 +694,7 @@ Request body fields are optional:
 Replica topology:
 - `upstream_replica_id: null` means the replica is a base replica and may be treated as an authoritative source for local changes.
 - `upstream_replica_id` set to another replica id means the replica is downstream/read-only from replication perspective.
-- upstream replicas must belong to the same inventory and a replica cannot reference itself as upstream.
+- upstream replicas must be active, belong to the same inventory, and a replica cannot reference itself as upstream.
 
 #### DELETE /replicas/{id}
 Soft-deletes a replica by setting its status to `deleted`.

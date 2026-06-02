@@ -491,7 +491,7 @@ func (s *ReplicaService) validateUpstreamReplica(inventoryID, replicaID uint, up
 		}
 		return err
 	}
-	if upstream.InventoryID != inventoryID {
+	if upstream.InventoryID != inventoryID || upstream.Status != model.ReplicaStatusActive {
 		return ErrInvalidReplicaUpstream
 	}
 
