@@ -8,5 +8,18 @@ LDFLAGS="-X dropoutbox/internal/buildinfo.Version=$VERSION -X dropoutbox/interna
 
 mkdir -p bin
 
-go build -ldflags "$LDFLAGS" -o bin/dropoutbox ./cmd/api
-go build -ldflags "$LDFLAGS" -o bin/dropoutbox-seed ./cmd/seed
+# Default to host architecture, override if "pi" is passed as an argument
+TARGET="${1:-local}"
+
+if [ "$TARGET" = "pi" ]; then
+    export GOOS=linux
+    export GOARCH=arm64
+    SUFFIX="-pi"
+else
+    # Keeps your default local OS/Arch settings
+    SUFFIX=""
+fi
+
+echo "Building for target: $TARGET..."
+go build -ldflags "$LDFLAGS" -o "bin/dropoutbox$SUFFIX" ./cmd/api
+go build -ldflags "$LDFLAGS" -o "bin/dropoutbox-seed$SUFFIX" ./cmd/seed
