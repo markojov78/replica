@@ -33,8 +33,9 @@ An inventory can have multiple replicas with the following replication rules:
   replicas of the same inventory.
 * Downstream replicas have `upstream_replica_id` set to another replica in the same inventory and receive changes 
   from that upstream replica.
-* Local changes reported from downstream replicas are not authoritative inventory changes and must be rejected or 
-  marked as conflict/error.
+* Local changes reported from downstream replicas are not authoritative inventory changes. Known inventory files are
+  marked pending and restored from the upstream replica without changing inventory versions or file journal entries.
+  Unknown local files are deleted from the downstream replica.
 * One-way replication replicas can form a tree structure where any downstream replica can have only one source.
 
 ### Share
@@ -237,6 +238,12 @@ A replica file with `pending`, `changed`, `conflict` or `error` status, or with 
 change authoritative inventory state for that file. 
 This prevents a newly-created multidirectional replica from reporting missing files as deletes before its initial 
 reconciliation has completed.
+
+For a downstream replica (`upstream_replica_id != null`), reported local changes never update `inventory_files` or
+`file_journal`. Changes to known active inventory files mark only the reporting `replica_files` rows as `pending` and
+create a `reconcile_replica` command sourced from the configured upstream. Unknown paths, including paths that only
+match deleted inventory files, are included in the command for deletion from the downstream replica. Downstream
+replicas are also scanned on storage-service startup so local changes made while the service was stopped are repaired.
  
 Storage services do not independently decide global synchronization state.  
 
@@ -447,9 +454,12 @@ The command payload tells the destination storage node which source to use and i
   "source_node_id": "node_laptop",
   "source_replica_id": 3,
   "destination_replica_id": 4,
-  "transfer_token": "<signed-jwt>"
+  "transfer_token": "<signed-jwt>",
+  "delete_relative_uris": []
 }
 ```
+
+`delete_relative_uris` is optional and contains unknown local paths that must be removed from a downstream replica.
 
 #### 5) File data is transferred
 Storage service copies actual data:  

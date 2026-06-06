@@ -157,11 +157,7 @@ func (r *Runtime) reportStartupLocalChanges(ctx context.Context, replicas []apic
 			log.Printf("storage runtime startup scan skipped inactive replica_id=%d status=%s uri=%s", replica.ID, replica.Status, replica.URI)
 			continue
 		}
-		if replica.UpstreamReplicaID != nil {
-			log.Printf("storage runtime startup scan skipped downstream replica_id=%d uri=%s", replica.ID, replica.URI)
-			continue
-		}
-		if replicaHasPendingFiles(r.replicaFilesSnapshot(replica.ID)) {
+		if replica.UpstreamReplicaID == nil && replicaHasPendingFiles(r.replicaFilesSnapshot(replica.ID)) {
 			log.Printf("storage runtime startup scan skipped pending replica_id=%d uri=%s", replica.ID, replica.URI)
 			continue
 		}
@@ -316,7 +312,7 @@ func (r *Runtime) reportWatcherChange(ctx context.Context, replica apiclient.Rep
 	if strings.TrimSpace(change.RelativeURI) == "" {
 		return nil
 	}
-	if replicaHasPendingFiles(r.replicaFilesSnapshot(replica.ID)) {
+	if currentReplica.UpstreamReplicaID == nil && replicaHasPendingFiles(r.replicaFilesSnapshot(replica.ID)) {
 		return nil
 	}
 
@@ -578,11 +574,12 @@ type scanReplicaCommandPayload struct {
 }
 
 type reconcileReplicaCommandPayload struct {
-	SourceNodeAddress    string `json:"source_node_address"`
-	SourceNodeID         string `json:"source_node_id"`
-	SourceReplicaID      uint   `json:"source_replica_id"`
-	DestinationReplicaID uint   `json:"destination_replica_id"`
-	TransferToken        string `json:"transfer_token"`
+	SourceNodeAddress    string   `json:"source_node_address"`
+	SourceNodeID         string   `json:"source_node_id"`
+	SourceReplicaID      uint     `json:"source_replica_id"`
+	DestinationReplicaID uint     `json:"destination_replica_id"`
+	TransferToken        string   `json:"transfer_token"`
+	DeleteRelativeURIs   []string `json:"delete_relative_uris"`
 }
 
 func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Command) error {
@@ -611,6 +608,12 @@ func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Comman
 	writer, err := GetWriter(ctx, destination.URI)
 	if err != nil {
 		return err
+	}
+	for _, relativeURI := range payload.DeleteRelativeURIs {
+		if err := writer.Delete(ctx, destination.URI, relativeURI); err != nil {
+			return fmt.Errorf("delete unknown replica_id=%d relative_uri=%s: %w", payload.DestinationReplicaID, relativeURI, err)
+		}
+		log.Printf("storage runtime reconcile_replica deleted unknown file replica_id=%d relative_uri=%s", payload.DestinationReplicaID, relativeURI)
 	}
 
 	pendingFiles, err := r.client.ListReplicaInventoryFiles(ctx, payload.DestinationReplicaID, "pending")

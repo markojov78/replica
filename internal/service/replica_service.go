@@ -34,11 +34,12 @@ func NewReplicaService(repo *repository.ReplicaRepository, inventoryRepo *reposi
 }
 
 type ReconcileReplicaCommandPayload struct {
-	SourceNodeAddress    string `json:"source_node_address"`
-	SourceNodeID         string `json:"source_node_id"`
-	SourceReplicaID      uint   `json:"source_replica_id"`
-	DestinationReplicaID uint   `json:"destination_replica_id"`
-	TransferToken        string `json:"transfer_token"`
+	SourceNodeAddress    string   `json:"source_node_address"`
+	SourceNodeID         string   `json:"source_node_id"`
+	SourceReplicaID      uint     `json:"source_replica_id"`
+	DestinationReplicaID uint     `json:"destination_replica_id"`
+	TransferToken        string   `json:"transfer_token"`
+	DeleteRelativeURIs   []string `json:"delete_relative_uris,omitempty"`
 }
 
 func (s *ReplicaService) List() ([]model.Replica, error) {
@@ -88,7 +89,7 @@ func (s *ReplicaService) Create(input CreateReplicaInput) (*InventoryReplicaDeta
 }
 
 func (s *ReplicaService) reconcilePayloadBuilder() repository.ReconcilePayloadBuilder {
-	return func(destination model.Replica, source repository.ReconcileSource) (json.RawMessage, error) {
+	return func(destination model.Replica, source repository.ReconcileSource, deleteRelativeURIs []string) (json.RawMessage, error) {
 		if s.settings == nil {
 			return nil, ErrTransferPrivateKeyUnset
 		}
@@ -110,6 +111,7 @@ func (s *ReplicaService) reconcilePayloadBuilder() repository.ReconcilePayloadBu
 			SourceReplicaID:      source.ReplicaID,
 			DestinationReplicaID: destination.ID,
 			TransferToken:        token,
+			DeleteRelativeURIs:   deleteRelativeURIs,
 		})
 	}
 }
@@ -350,10 +352,6 @@ func (s *ReplicaService) ReportFileChanges(replicaID uint, nodeID string, change
 	if strings.TrimSpace(nodeID) == "" || replica.NodeID != strings.TrimSpace(nodeID) {
 		return ErrForbidden
 	}
-	if replica.UpstreamReplicaID != nil {
-		return ErrInvalidReplicaFileUpdate
-	}
-
 	updates := make([]repository.ReplicaFileUpdate, 0, len(changes))
 	for _, change := range changes {
 		update, err := replicaFileUpdateFromChange(change)
@@ -367,7 +365,12 @@ func (s *ReplicaService) ReportFileChanges(replicaID uint, nodeID string, change
 		return nil
 	}
 
-	commands, err := s.repo.ReportFileChanges(replicaID, updates, s.reconcilePayloadBuilder())
+	var commands []model.Command
+	if replica.UpstreamReplicaID != nil {
+		commands, err = s.repo.ReportDownstreamFileChanges(replicaID, updates, s.reconcilePayloadBuilder())
+	} else {
+		commands, err = s.repo.ReportFileChanges(replicaID, updates, s.reconcilePayloadBuilder())
+	}
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrInventoryFileNotFound

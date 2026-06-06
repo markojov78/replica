@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -1126,6 +1127,69 @@ func TestRuntimeReconcileReplicaDeletesPendingDeletedFiles(t *testing.T) {
 	}
 	if len(statusUpdates) != 1 || statusUpdates[0].Status != "synchronized" || statusUpdates[0].Version != 5 {
 		t.Fatalf("statusUpdates = %+v, want synchronized version=5", statusUpdates)
+	}
+	if !commandCompleted {
+		t.Fatal("command was not marked completed")
+	}
+}
+
+func TestRuntimeReconcileReplicaDeletesUnknownDownstreamFiles(t *testing.T) {
+	destinationRoot := t.TempDir()
+	unknownPath := filepath.Join(destinationRoot, "unknown.txt")
+	if err := os.WriteFile(unknownPath, []byte("unknown"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	commandCompleted := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":                  "node-a",
+				"access_token":             "access-token",
+				"refresh_token":            "refresh-token",
+				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
+				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/internal/replicas":
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{"id": 4, "inventory_id": 2, "node_id": "node-a", "uri": destinationRoot, "status": "active", "type": "filesystem", "upstream_replica_id": 3},
+			})
+		case "/internal/replica/4/files":
+			_ = json.NewEncoder(w).Encode(map[string]any{"files": []any{}})
+		case "/internal/commands/35":
+			commandCompleted = true
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 35, "node_id": "node-a", "type": "reconcile_replica", "status": "completed"})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	payload := reconcilePayloadForTest(t, server.URL)
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("Unmarshal(payload) error = %v", err)
+	}
+	decoded["delete_relative_uris"] = []string{"unknown.txt"}
+	payload, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatalf("Marshal(payload) error = %v", err)
+	}
+
+	runtime := newRuntimeForTest(t, server.URL)
+	ok := runtime.handleCommand(context.Background(), apiclient.Command{
+		ID:      35,
+		NodeID:  "node-a",
+		Type:    "reconcile_replica",
+		Status:  "pending",
+		Payload: payload,
+	})
+	if !ok {
+		t.Fatal("handleCommand() = false, want true")
+	}
+	if _, err := os.Stat(unknownPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Stat(unknownPath) error = %v, want not exist", err)
 	}
 	if !commandCompleted {
 		t.Fatal("command was not marked completed")

@@ -54,7 +54,7 @@ type ReconcileSource struct {
 	NewestVersion uint
 }
 
-type ReconcilePayloadBuilder func(destination model.Replica, source ReconcileSource) (json.RawMessage, error)
+type ReconcilePayloadBuilder func(destination model.Replica, source ReconcileSource, deleteRelativeURIs []string) (json.RawMessage, error)
 
 func (r *ReplicaRepository) List() ([]model.Replica, error) {
 	var replicas []model.Replica
@@ -102,7 +102,7 @@ func (r *ReplicaRepository) CreateWithPendingFiles(replica *model.Replica, comma
 				if err != nil {
 					return err
 				}
-				payload, err := payloadBuilders[0](*replica, source)
+				payload, err := payloadBuilders[0](*replica, source, nil)
 				if err != nil {
 					return err
 				}
@@ -548,7 +548,7 @@ func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaF
 				if err != nil {
 					return err
 				}
-				payload, err := payloadBuilders[0](destination, source)
+				payload, err := payloadBuilders[0](destination, source, nil)
 				if err != nil {
 					return err
 				}
@@ -568,6 +568,111 @@ func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaF
 			}
 		}
 
+		return nil
+	})
+	return commands, err
+}
+
+func (r *ReplicaRepository) ReportDownstreamFileChanges(replicaID uint, updates []ReplicaFileUpdate, payloadBuilder ReconcilePayloadBuilder) ([]model.Command, error) {
+	var commands []model.Command
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		var replica model.Replica
+		if err := tx.First(&replica, replicaID).Error; err != nil {
+			return err
+		}
+		if replica.UpstreamReplicaID == nil {
+			return ErrInvalidReplicaFileUpdate
+		}
+
+		deleteSet := make(map[string]struct{})
+		hasPendingRepair := false
+		for _, update := range updates {
+			var file model.InventoryFile
+			var err error
+			if update.FileID != nil {
+				err = tx.First(&file, *update.FileID).Error
+			} else {
+				err = tx.
+					Where("inventory_id = ? AND relative_uri = ?", replica.InventoryID, update.RelativeURI).
+					First(&file).Error
+			}
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				if update.FileID != nil {
+					return err
+				}
+				deleteSet[update.RelativeURI] = struct{}{}
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if file.InventoryID != replica.InventoryID || file.RelativeURI != update.RelativeURI {
+				return ErrInvalidReplicaFileUpdate
+			}
+			if file.Status != model.InventoryFileStatusActive {
+				deleteSet[update.RelativeURI] = struct{}{}
+				continue
+			}
+			if update.Action != model.ReplicaFileActionDeleted && sameReportedFileContent(file, update) {
+				continue
+			}
+
+			var replicaFile model.ReplicaFile
+			err = tx.Where("file_id = ? AND replica_id = ?", file.ID, replica.ID).First(&replicaFile).Error
+			switch {
+			case err == nil:
+				if replicaFile.Status != model.ReplicaFileStatusPending {
+					replicaFile.Status = model.ReplicaFileStatusPending
+					if err := tx.Save(&replicaFile).Error; err != nil {
+						return err
+					}
+				}
+			case errors.Is(err, gorm.ErrRecordNotFound):
+				replicaFile = model.ReplicaFile{
+					FileID:    file.ID,
+					ReplicaID: replica.ID,
+					Version:   0,
+					Status:    model.ReplicaFileStatusPending,
+				}
+				if err := tx.Create(&replicaFile).Error; err != nil {
+					return err
+				}
+			default:
+				return err
+			}
+			hasPendingRepair = true
+		}
+
+		deleteRelativeURIs := make([]string, 0, len(deleteSet))
+		for relativeURI := range deleteSet {
+			deleteRelativeURIs = append(deleteRelativeURIs, relativeURI)
+		}
+		sort.Strings(deleteRelativeURIs)
+		if !hasPendingRepair && len(deleteRelativeURIs) == 0 {
+			return nil
+		}
+
+		source, err := r.selectReconcileSource(tx, replica)
+		if err != nil {
+			return err
+		}
+		payload, err := payloadBuilder(replica, source, deleteRelativeURIs)
+		if err != nil {
+			return err
+		}
+		command := model.Command{
+			NodeID:  replica.NodeID,
+			Type:    model.NodeCommandTypeReconcileReplica,
+			Status:  model.NodeCommandStatusPending,
+			Payload: payload,
+		}
+		now := time.Now().UTC()
+		command.CreatedAt = now
+		command.UpdatedAt = now
+		if err := tx.Create(&command).Error; err != nil {
+			return err
+		}
+		commands = append(commands, command)
 		return nil
 	})
 	return commands, err

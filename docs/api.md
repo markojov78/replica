@@ -1174,8 +1174,10 @@ Behavior:
 - if a matching no-content-change report comes from a pending replica, that replica file may be marked `synchronized` at the authoritative inventory version
 - rejects a provided `file_id` that belongs to a different inventory
 - rejects a provided `file_id` when its current `relative_uri` differs from the reported `relative_uri`
-- rejects a new-file report when another active file in the same inventory already has the same `relative_uri`
-- rejects reports from downstream replicas whose `upstream_replica_id` is not null, because they are not authoritative sources for local changes
+- for base replicas, rejects a new-file report when another active file in the same inventory already has the same `relative_uri`
+- for downstream replicas whose `upstream_replica_id` is not null, does not update `inventory_files`, increment versions, or create file journal entries
+- for downstream reports affecting known active inventory files, marks only the reporting `replica_files` rows `pending` and creates a `reconcile_replica` command sourced from the configured upstream
+- for downstream reports affecting unknown paths or paths matching deleted inventory files, includes those paths in the `reconcile_replica` command for deletion from the downstream replica
 - rejects invalid or inconsistent explicit actions
 
 Request body:

@@ -1363,7 +1363,7 @@ func TestInventoryServiceReportReplicaFileChangesRejectsInvalidFileReferences(t 
 	}
 }
 
-func TestReplicaServiceReportFileChangesRejectsDownstreamReplica(t *testing.T) {
+func TestReplicaServiceReportFileChangesRepairsDownstreamReplica(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
 		Driver: "sqlite",
 		DSN:    filepath.Join(t.TempDir(), "replica-file-report-downstream.db"),
@@ -1378,6 +1378,12 @@ func TestReplicaServiceReportFileChangesRejectsDownstreamReplica(t *testing.T) {
 	inventory := &model.Inventory{Name: "photos", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
 	if err := database.Create(inventory).Error; err != nil {
 		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	if err := database.Create(&[]model.Node{
+		{ID: "node-a", Status: model.NodeStatusOnline, Address: "https://node-a.example"},
+		{ID: "node-b", Status: model.NodeStatusOnline, Address: "https://node-b.example"},
+	}).Error; err != nil {
+		t.Fatalf("Create(nodes) error = %v", err)
 	}
 	upstream := &model.Replica{
 		InventoryID: inventory.ID,
@@ -1401,12 +1407,90 @@ func TestReplicaServiceReportFileChangesRejectsDownstreamReplica(t *testing.T) {
 		t.Fatalf("Create(downstream) error = %v", err)
 	}
 
-	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
+	file := &model.InventoryFile{
+		InventoryID: inventory.ID,
+		RelativeURI: "file.txt",
+		Status:      model.InventoryFileStatusActive,
+		Size:        4,
+		Hash:        "upstream-hash",
+		Version:     7,
+		Created:     time.Now().UTC().Add(-time.Hour),
+		Modified:    time.Now().UTC(),
+	}
+	if err := database.Create(file).Error; err != nil {
+		t.Fatalf("Create(file) error = %v", err)
+	}
+	if err := database.Create(&[]model.ReplicaFile{
+		{FileID: file.ID, ReplicaID: upstream.ID, Version: 7, Status: model.ReplicaFileStatusSynchronized},
+		{FileID: file.ID, ReplicaID: downstream.ID, Version: 7, Status: model.ReplicaFileStatusSynchronized},
+	}).Error; err != nil {
+		t.Fatalf("Create(replicaFiles) error = %v", err)
+	}
+
+	settingService := NewSettingService(repository.NewSettingRepository(database))
+	if err := settingService.EnsureTransferKeys(); err != nil {
+		t.Fatalf("EnsureTransferKeys() error = %v", err)
+	}
+	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database), nodeService, settingService)
 	now := time.Now().UTC()
+	fileID := file.ID
 	err = svc.ReportFileChanges(downstream.ID, "node-b", []ReplicaFileChangeInput{
-		{RelativeURI: "file.txt", FileSize: 1, FileHash: "hash", CreatedTime: now, ModifiedTime: now},
+		{FileID: &fileID, Action: string(model.ReplicaFileActionUpdated), RelativeURI: "file.txt", FileSizeSet: true, FileSize: 7, FileHashSet: true, FileHash: "local-hash", CreatedTimeSet: true, CreatedTime: now, ModifiedTimeSet: true, ModifiedTime: now},
+		{Action: string(model.ReplicaFileActionCreated), RelativeURI: "unknown.txt", FileSizeSet: true, FileSize: 1, FileHashSet: true, FileHash: "unknown-hash", CreatedTimeSet: true, CreatedTime: now, ModifiedTimeSet: true, ModifiedTime: now},
 	})
-	if err != ErrInvalidReplicaFileUpdate {
-		t.Fatalf("ReportFileChanges(downstream) error = %v, want %v", err, ErrInvalidReplicaFileUpdate)
+	if err != nil {
+		t.Fatalf("ReportFileChanges(downstream) error = %v", err)
+	}
+
+	var unchangedFile model.InventoryFile
+	if err := database.First(&unchangedFile, file.ID).Error; err != nil {
+		t.Fatalf("First(inventoryFile) error = %v", err)
+	}
+	if unchangedFile.Version != 7 || unchangedFile.Hash != "upstream-hash" || unchangedFile.Size != 4 {
+		t.Fatalf("inventoryFile = %+v, want unchanged version/content", unchangedFile)
+	}
+	var journalCount int64
+	if err := database.Model(&model.FileJournal{}).Count(&journalCount).Error; err != nil {
+		t.Fatalf("Count(fileJournal) error = %v", err)
+	}
+	if journalCount != 0 {
+		t.Fatalf("journalCount = %d, want 0", journalCount)
+	}
+
+	var downstreamFile model.ReplicaFile
+	if err := database.Where("file_id = ? AND replica_id = ?", file.ID, downstream.ID).First(&downstreamFile).Error; err != nil {
+		t.Fatalf("First(downstreamFile) error = %v", err)
+	}
+	if downstreamFile.Status != model.ReplicaFileStatusPending || downstreamFile.Version != 7 {
+		t.Fatalf("downstreamFile = %+v, want pending version 7", downstreamFile)
+	}
+
+	var command model.Command
+	if err := database.Where("node_id = ? AND type = ?", "node-b", model.NodeCommandTypeReconcileReplica).First(&command).Error; err != nil {
+		t.Fatalf("First(command) error = %v", err)
+	}
+	var payload ReconcileReplicaCommandPayload
+	if err := json.Unmarshal(command.Payload, &payload); err != nil {
+		t.Fatalf("Unmarshal(command.Payload) error = %v", err)
+	}
+	if payload.SourceReplicaID != upstream.ID || payload.DestinationReplicaID != downstream.ID {
+		t.Fatalf("payload source/destination = %d/%d, want %d/%d", payload.SourceReplicaID, payload.DestinationReplicaID, upstream.ID, downstream.ID)
+	}
+	if len(payload.DeleteRelativeURIs) != 1 || payload.DeleteRelativeURIs[0] != "unknown.txt" {
+		t.Fatalf("payload.DeleteRelativeURIs = %v, want [unknown.txt]", payload.DeleteRelativeURIs)
+	}
+
+	if err := svc.ReportFileChanges(downstream.ID, "node-b", []ReplicaFileChangeInput{
+		{FileID: &fileID, Action: string(model.ReplicaFileActionUpdated), RelativeURI: "file.txt", FileSizeSet: true, FileSize: 4, FileHashSet: true, FileHash: "upstream-hash", CreatedTimeSet: true, CreatedTime: now, ModifiedTimeSet: true, ModifiedTime: now},
+	}); err != nil {
+		t.Fatalf("ReportFileChanges(matching downstream content) error = %v", err)
+	}
+	var commandCount int64
+	if err := database.Model(&model.Command{}).Count(&commandCount).Error; err != nil {
+		t.Fatalf("Count(commands) error = %v", err)
+	}
+	if commandCount != 1 {
+		t.Fatalf("commandCount = %d, want 1", commandCount)
 	}
 }
