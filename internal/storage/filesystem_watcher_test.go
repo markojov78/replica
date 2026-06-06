@@ -44,6 +44,37 @@ func TestFilesystemChangesForEventSingleFileRootIgnoresOtherFiles(t *testing.T) 
 	}
 }
 
+func TestFilesystemChangesForEventIgnoresTemporaryWritePaths(t *testing.T) {
+	rootDir := t.TempDir()
+	tempPath := filepath.Join(rootDir, "nested", TemporaryWritePrefix+"123")
+	if err := os.MkdirAll(filepath.Dir(tempPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(tempPath, []byte("temporary"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	root, err := resolveFilesystemRoot(rootDir)
+	if err != nil {
+		t.Fatalf("resolveFilesystemRoot() error = %v", err)
+	}
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatalf("NewWatcher() error = %v", err)
+	}
+	defer watcher.Close()
+
+	for _, op := range []fsnotify.Op{fsnotify.Create, fsnotify.Write, fsnotify.Remove, fsnotify.Rename} {
+		changes, err := filesystemChangesForEvent(context.Background(), watcher, root, fsnotify.Event{Name: tempPath, Op: op})
+		if err != nil {
+			t.Fatalf("filesystemChangesForEvent(%s) error = %v", op, err)
+		}
+		if len(changes) != 0 {
+			t.Fatalf("filesystemChangesForEvent(%s) changes = %+v, want empty", op, changes)
+		}
+	}
+}
+
 func TestFilesystemWatcherSingleFileRootEmitsTargetChanges(t *testing.T) {
 	rootDir := t.TempDir()
 	targetPath := filepath.Join(rootDir, "target.txt")

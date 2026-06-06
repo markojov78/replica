@@ -771,6 +771,10 @@ Node authentication model:
 Node auth config:
 - `app.coordinator_url`
   - coordinator base URL used by storage nodes when authenticating with the coordinator
+- `app.api_request_timeout`
+  - timeout for coordinator control-plane API requests; defaults to `15s`
+- `app.file_transfer_timeout`
+  - timeout for replica file-content transfers; defaults to `30m`
 - `auth.node_secret`
   - plaintext node secret configured on the node side and verified against the hashed secret stored in the coordinator database
 
@@ -1170,6 +1174,7 @@ Behavior:
 - if `action = "deleted"` is repeated for an already deleted inventory file, treats it as already synchronized and does not increment version or insert another journal row
 - ignores content-changing reports for existing inventory files when the reporting replica is not synchronized to the current inventory version for that file
 - ignores timestamp-only reports: content identity is `relative_uri` + `file_size` + `file_hash`
+- requires storage backends to report `file_hash` as a BLAKE3 content hash; provider fingerprints such as S3 ETag are not file hashes
 - if a reported `created` or `updated` entry has the same content identity as the authoritative active `inventory_files` row, it does not increment version, insert journal rows, mark other replicas pending, or create reconciliation commands
 - if a matching no-content-change report comes from a pending replica, that replica file may be marked `synchronized` at the authoritative inventory version
 - rejects a provided `file_id` that belongs to a different inventory

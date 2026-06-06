@@ -197,6 +197,38 @@ func TestClientTransferReplicaFileContentUsesSourceNodeEndpoint(t *testing.T) {
 	}
 }
 
+func TestClientUsesSeparateConfiguredRequestAndTransferTimeouts(t *testing.T) {
+	client, err := New(config.Config{
+		App: config.AppConfig{
+			NodeID:              "node-a",
+			CoordinatorURL:      "http://coordinator.example",
+			NodeAddress:         "https://node-address:8081",
+			APIRequestTimeout:   8 * time.Second,
+			FileTransferTimeout: 45 * time.Minute,
+		},
+		Auth: config.AuthConfig{NodeSecret: "node-secret"},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if client.httpClient.Timeout != 8*time.Second {
+		t.Fatalf("httpClient.Timeout = %s, want %s", client.httpClient.Timeout, 8*time.Second)
+	}
+	if client.transferClient.Timeout != 45*time.Minute {
+		t.Fatalf("transferClient.Timeout = %s, want %s", client.transferClient.Timeout, 45*time.Minute)
+	}
+}
+
+func TestClientUsesDefaultRequestAndTransferTimeouts(t *testing.T) {
+	client := newTestClient(t, "http://coordinator.example")
+	if client.httpClient.Timeout != defaultAPIRequestTimeout {
+		t.Fatalf("httpClient.Timeout = %s, want %s", client.httpClient.Timeout, defaultAPIRequestTimeout)
+	}
+	if client.transferClient.Timeout != defaultFileTransferTimeout {
+		t.Fatalf("transferClient.Timeout = %s, want %s", client.transferClient.Timeout, defaultFileTransferTimeout)
+	}
+}
+
 func newTestClient(t *testing.T, coordinatorURL string) *Client {
 	t.Helper()
 	client, err := New(config.Config{

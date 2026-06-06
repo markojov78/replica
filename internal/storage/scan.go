@@ -11,7 +11,6 @@ import (
 
 const (
 	HashAlgorithmBLAKE3 = "blake3"
-	HashAlgorithmS3ETag = "s3-etag"
 )
 
 const (

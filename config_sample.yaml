@@ -5,6 +5,8 @@ app:
   coordinator_url: "http://coordinator:8080"
   node_address: "http://coordinator:8081"
   heartbeat_interval: "10m"
+  api_request_timeout: "15s"
+  file_transfer_timeout: "30m"
 
 auth:
   jwt_secret: "change-me"

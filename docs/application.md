@@ -224,7 +224,7 @@ Storage services periodically scan assigned replicas.
 When local file changes are detected, the storage service reports:
 - file path
 - operation type
-- hash
+- BLAKE3 content hash
 - size
 - modification timestamp
 to the coordinator.

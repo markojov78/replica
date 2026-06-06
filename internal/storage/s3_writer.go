@@ -97,7 +97,7 @@ func seekableS3UploadBody(ctx context.Context, content io.Reader) (io.ReadSeeker
 		return seeker, func() {}, nil
 	}
 
-	tempFile, err := os.CreateTemp("", ".dropoutbox-s3-upload-*")
+	tempFile, err := os.CreateTemp("", temporaryWritePattern())
 	if err != nil {
 		return nil, nil, err
 	}

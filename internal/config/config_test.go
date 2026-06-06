@@ -14,6 +14,8 @@ func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
 	t.Setenv("APP_STORAGE", "")
 	t.Setenv("APP_COORDINATOR_URL", "")
 	t.Setenv("APP_NODE_ADDRESS", "")
+	t.Setenv("APP_API_REQUEST_TIMEOUT", "")
+	t.Setenv("APP_FILE_TRANSFER_TIMEOUT", "")
 	t.Setenv("AUTH_JWT_SECRET", "")
 	t.Setenv("AUTH_NODE_SECRET", "")
 	t.Setenv("HTTP_ADDR", "")
@@ -49,6 +51,12 @@ func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
 	if !cfg.Database.AutoMigrate {
 		t.Fatal("Database.AutoMigrate = false, want true")
 	}
+	if cfg.App.APIRequestTimeout != 15*time.Second {
+		t.Fatalf("App.APIRequestTimeout = %s, want %s", cfg.App.APIRequestTimeout, 15*time.Second)
+	}
+	if cfg.App.FileTransferTimeout != 30*time.Minute {
+		t.Fatalf("App.FileTransferTimeout = %s, want %s", cfg.App.FileTransferTimeout, 30*time.Minute)
+	}
 }
 
 func TestLoadYAMLConfigWithEnvOverride(t *testing.T) {
@@ -72,6 +80,8 @@ app:
   coordinator_url: "http://coordinator:8080"
   node_address: "http://storage-1:8081"
   heartbeat_interval: "7m"
+  api_request_timeout: "20s"
+  file_transfer_timeout: "45m"
 auth:
   jwt_secret: "file-secret"
   node_secret: "node-file-secret"
@@ -93,6 +103,7 @@ seed:
 
 	t.Setenv("HTTP_ADDR", ":8088")
 	t.Setenv("DB_AUTO_MIGRATE", "true")
+	t.Setenv("APP_API_REQUEST_TIMEOUT", "25s")
 
 	cfg, err := Load()
 	if err != nil {
@@ -116,6 +127,12 @@ seed:
 	}
 	if cfg.App.HeartbeatInterval != 7*time.Minute {
 		t.Fatalf("App.HeartbeatInterval = %s, want %s", cfg.App.HeartbeatInterval, 7*time.Minute)
+	}
+	if cfg.App.APIRequestTimeout != 25*time.Second {
+		t.Fatalf("App.APIRequestTimeout = %s, want %s", cfg.App.APIRequestTimeout, 25*time.Second)
+	}
+	if cfg.App.FileTransferTimeout != 45*time.Minute {
+		t.Fatalf("App.FileTransferTimeout = %s, want %s", cfg.App.FileTransferTimeout, 45*time.Minute)
 	}
 	if cfg.Database.Driver != "postgres" {
 		t.Fatalf("Database.Driver = %q, want %q", cfg.Database.Driver, "postgres")
@@ -142,6 +159,8 @@ storage = true
 coordinator_url = "http://coordinator:8080"
 node_address = "http://storage-1:8081"
 heartbeat_interval = "3m"
+api_request_timeout = "12s"
+file_transfer_timeout = "1h"
 
 [auth]
 jwt_secret = "toml-secret"
@@ -180,6 +199,12 @@ auto_migrate = false
 	if cfg.App.HeartbeatInterval != 3*time.Minute {
 		t.Fatalf("App.HeartbeatInterval = %s, want %s", cfg.App.HeartbeatInterval, 3*time.Minute)
 	}
+	if cfg.App.APIRequestTimeout != 12*time.Second {
+		t.Fatalf("App.APIRequestTimeout = %s, want %s", cfg.App.APIRequestTimeout, 12*time.Second)
+	}
+	if cfg.App.FileTransferTimeout != time.Hour {
+		t.Fatalf("App.FileTransferTimeout = %s, want %s", cfg.App.FileTransferTimeout, time.Hour)
+	}
 	if cfg.Auth.NodeSecret != "toml-node-secret" {
 		t.Fatalf("Auth.NodeSecret = %q, want %q", cfg.Auth.NodeSecret, "toml-node-secret")
 	}
@@ -207,6 +232,8 @@ func TestLoadAllowsMinimalStorageOnlyMode(t *testing.T) {
 	t.Setenv("APP_COORDINATOR_URL", "http://coordinator:8080")
 	t.Setenv("APP_NODE_ADDRESS", "http://node-a:8081")
 	t.Setenv("APP_HEARTBEAT_INTERVAL", "5m")
+	t.Setenv("APP_API_REQUEST_TIMEOUT", "10s")
+	t.Setenv("APP_FILE_TRANSFER_TIMEOUT", "2h")
 	t.Setenv("AUTH_JWT_SECRET", "")
 	t.Setenv("AUTH_NODE_SECRET", "node-secret")
 	t.Setenv("HTTP_ADDR", "")
@@ -228,5 +255,11 @@ func TestLoadAllowsMinimalStorageOnlyMode(t *testing.T) {
 	}
 	if cfg.App.HeartbeatInterval != 5*time.Minute {
 		t.Fatalf("App.HeartbeatInterval = %s, want %s", cfg.App.HeartbeatInterval, 5*time.Minute)
+	}
+	if cfg.App.APIRequestTimeout != 10*time.Second {
+		t.Fatalf("App.APIRequestTimeout = %s, want %s", cfg.App.APIRequestTimeout, 10*time.Second)
+	}
+	if cfg.App.FileTransferTimeout != 2*time.Hour {
+		t.Fatalf("App.FileTransferTimeout = %s, want %s", cfg.App.FileTransferTimeout, 2*time.Hour)
 	}
 }

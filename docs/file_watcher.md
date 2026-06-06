@@ -4,6 +4,9 @@ This document describes the reusable scanner and watcher infrastructure in `inte
 
 The goal of this layer is to discover replica file state and surface change hints in a storage-backend-specific way without coupling that logic to coordinator communication, database updates, or replication orchestration.
 
+Storage writers use the centralized `TemporaryWritePrefix` constant for temporary files. Scanners and watchers exclude
+paths whose basename starts with that prefix so incomplete writes never become replica changes.
+
 ## Interface
 
 The shared abstractions are defined in `internal/storage/scan.go`.
@@ -16,8 +19,8 @@ It contains:
 
 - `RelativeURI`: slash-separated path relative to the replica root
 - `Size`: file size in bytes
-- `Hash`: file fingerprint
-- `HashAlgorithm`: algorithm or provider-specific fingerprint type
+- `Hash`: BLAKE3 content hash
+- `HashAlgorithm`: `blake3`
 - `Created`: best available creation time
 - `Modified`: last modification time
 
@@ -113,6 +116,7 @@ Behavior:
 - when `rootURI` is a file, returns exactly one file entry for that file
 - ignores directories as scan results
 - ignores symlinks for now
+- ignores temporary write paths whose basename starts with `.dropoutbox-write-`
 - computes a BLAKE3 content hash for each file
 - normalizes relative paths using slash separators
 - returns results sorted by `RelativeURI`
@@ -145,6 +149,7 @@ Behavior:
 - converts `fsnotify` events into normalized `FileChange` values
 - stats the file when possible and includes `State` for existing files
 - removes directory watches when remove events occur
+- ignores events for temporary write paths whose basename starts with `.dropoutbox-write-`
 
 Event mapping:
 
@@ -187,7 +192,8 @@ Typical AWS SDK v2 authentication sources include:
 - IAM role credentials in AWS runtime environments such as EC2, ECS, or EKS
 - an explicitly configured credentials provider
 
-The scanner and watcher only assume that the supplied client has enough permissions to list objects and read object metadata for the target bucket and prefix.
+The scanner and watcher assume that the supplied client can list objects, read object metadata, and download object
+content when a BLAKE3 hash must be calculated.
 
 ### S3 scanner
 
@@ -205,6 +211,7 @@ Behavior:
 - handles pagination through continuation tokens
 - converts object keys under the prefix into relative slash-separated URIs
 - skips empty or out-of-prefix keys
+- skips temporary write keys whose basename starts with `.dropoutbox-write-`
 - returns results sorted by `RelativeURI`
 
 Timestamps:
@@ -214,15 +221,13 @@ Timestamps:
 
 Hashing and fingerprints:
 
-- the scanner does not download object bodies during normal scans
-- if `HeadObject` exposes an object checksum, that checksum is used
-- `HashAlgorithm` is set to the corresponding explicit value such as `sha256`, `sha1`, `crc32c`, `crc32`, or `crc64nvme`
-- if no checksum is available, the scanner falls back to ETag
-- when ETag is used, `HashAlgorithm` is set to `s3-etag`
-
-The ETag fallback is treated as a provider fingerprint, not as a guaranteed MD5 hash.
-
-The code is structured so a later mode could download objects and compute a local BLAKE3 hash, but that is not part of the current implementation.
+- S3 file content hashes use BLAKE3, matching filesystem replicas
+- ETag, object checksum, size, and `LastModified` are metadata-change hints only and are never returned as `Hash`
+- the scanner caches BLAKE3 hashes in memory with the corresponding object metadata fingerprint
+- the first scan after process startup downloads objects to establish their BLAKE3 hashes
+- unchanged metadata reuses the cached BLAKE3 hash without downloading the object
+- new objects and objects with changed metadata are downloaded and hashed with BLAKE3
+- `HashAlgorithm` is always `blake3`
 
 ### S3 watcher
 
@@ -235,13 +240,14 @@ S3 does not provide a filesystem-style recursive event stream comparable to `fsn
 3. comparing the previous and current snapshots in memory
 4. emitting `created`, `modified`, and `deleted` events
 
-Comparison is based on:
+Metadata polling detects possible changes using:
 
 - `RelativeURI`
 - `Size`
 - `Modified`
-- `Hash`
-- `HashAlgorithm`
+- ETag and available object checksum
+
+When metadata indicates a possible change, the scanner calculates BLAKE3 before the change is compared with authoritative file state.
 
 Behavior:
 

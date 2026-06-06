@@ -58,3 +58,9 @@ func TestFilesystemWriterRejectsPathTraversal(t *testing.T) {
 		t.Fatal("Save() error = nil, want path traversal rejection")
 	}
 }
+
+func TestTemporaryWritePatternUsesCentralizedPrefix(t *testing.T) {
+	if got := temporaryWritePattern(); got != TemporaryWritePrefix+"*" {
+		t.Fatalf("temporaryWritePattern() = %q, want %q", got, TemporaryWritePrefix+"*")
+	}
+}

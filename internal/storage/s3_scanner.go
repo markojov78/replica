@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -25,19 +26,37 @@ type s3HeadObjectAPI interface {
 type S3Scanner struct {
 	listClient s3ListObjectsV2API
 	headClient s3HeadObjectAPI
+	getClient  s3GetObjectAPI
+
+	cacheMu sync.RWMutex
+	cache   map[string]s3CachedHash
+}
+
+type s3CachedHash struct {
+	fingerprint string
+	hash        string
 }
 
 func NewS3Scanner(client *s3.Client) *S3Scanner {
 	return &S3Scanner{
 		listClient: client,
 		headClient: client,
+		getClient:  client,
+		cache:      make(map[string]s3CachedHash),
 	}
 }
 
 func NewS3ScannerWithClients(listClient s3ListObjectsV2API, headClient s3HeadObjectAPI) *S3Scanner {
+	getClient, _ := listClient.(s3GetObjectAPI)
+	return NewS3ScannerWithAllClients(listClient, headClient, getClient)
+}
+
+func NewS3ScannerWithAllClients(listClient s3ListObjectsV2API, headClient s3HeadObjectAPI, getClient s3GetObjectAPI) *S3Scanner {
 	return &S3Scanner{
 		listClient: listClient,
 		headClient: headClient,
+		getClient:  getClient,
+		cache:      make(map[string]s3CachedHash),
 	}
 }
 
@@ -90,8 +109,11 @@ func (s *S3Scanner) fileStateFromObject(ctx context.Context, location s3Location
 	if !ok || relativeURI == "" {
 		return nil, nil
 	}
+	if isTemporaryWritePath(relativeURI) {
+		return nil, nil
+	}
 
-	hash, algorithm := s3ETagFingerprint(object.ETag)
+	fingerprint := s3ObjectFingerprint(object)
 	if s.headClient != nil {
 		headOutput, err := s.headClient.HeadObject(ctx, &s3.HeadObjectInput{
 			Bucket:       aws.String(location.Bucket),
@@ -102,9 +124,32 @@ func (s *S3Scanner) fileStateFromObject(ctx context.Context, location s3Location
 			return nil, err
 		}
 		if checksumHash, checksumAlgorithm := s3ChecksumFromHeadObject(headOutput); checksumHash != "" {
-			hash = checksumHash
-			algorithm = checksumAlgorithm
+			fingerprint += "|" + checksumAlgorithm + ":" + checksumHash
 		}
+	}
+
+	cacheKey := location.Bucket + "/" + key
+	hash, ok := s.cachedHash(cacheKey, fingerprint)
+	if !ok {
+		if s.getClient == nil {
+			return nil, errors.New("s3 scanner requires object read access to calculate BLAKE3")
+		}
+		output, err := s.getClient.GetObject(ctx, &s3.GetObjectInput{
+			Bucket: aws.String(location.Bucket),
+			Key:    aws.String(key),
+		})
+		if err != nil {
+			return nil, err
+		}
+		hash, err = hashReaderBLAKE3(ctx, output.Body)
+		closeErr := output.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		s.storeCachedHash(cacheKey, fingerprint, hash)
 	}
 
 	modified := time.Time{}
@@ -116,10 +161,33 @@ func (s *S3Scanner) fileStateFromObject(ctx context.Context, location s3Location
 		RelativeURI:   normalizeRelativeURI(relativeURI),
 		Size:          aws.ToInt64(object.Size),
 		Hash:          hash,
-		HashAlgorithm: algorithm,
+		HashAlgorithm: HashAlgorithmBLAKE3,
 		Created:       modified,
 		Modified:      modified,
 	}, nil
+}
+
+func (s *S3Scanner) cachedHash(key, fingerprint string) (string, bool) {
+	s.cacheMu.RLock()
+	defer s.cacheMu.RUnlock()
+
+	cached, ok := s.cache[key]
+	return cached.hash, ok && cached.fingerprint == fingerprint
+}
+
+func (s *S3Scanner) storeCachedHash(key, fingerprint, hash string) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	s.cache[key] = s3CachedHash{fingerprint: fingerprint, hash: hash}
+}
+
+func s3ObjectFingerprint(object types.Object) string {
+	modified := ""
+	if object.LastModified != nil {
+		modified = object.LastModified.UTC().Format(time.RFC3339Nano)
+	}
+	etag := s3ETagFingerprint(object.ETag)
+	return fmt.Sprintf("%d|%s|%s", aws.ToInt64(object.Size), modified, etag)
 }
 
 type s3Location struct {
@@ -168,11 +236,11 @@ func parseS3URI(rawURI string) (s3Location, error) {
 	}, nil
 }
 
-func s3ETagFingerprint(etag *string) (string, string) {
+func s3ETagFingerprint(etag *string) string {
 	if etag == nil {
-		return "", ""
+		return ""
 	}
-	return strings.Trim(*etag, `"`), HashAlgorithmS3ETag
+	return strings.Trim(*etag, `"`)
 }
 
 func s3ChecksumFromHeadObject(output *s3.HeadObjectOutput) (string, string) {

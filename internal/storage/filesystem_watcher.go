@@ -90,6 +90,9 @@ func addRecursiveWatches(watcher *fsnotify.Watcher, rootPath string) error {
 }
 
 func filesystemChangesForEvent(ctx context.Context, watcher *fsnotify.Watcher, root filesystemRoot, event fsnotify.Event) ([]FileChange, error) {
+	if isTemporaryWritePath(event.Name) {
+		return nil, nil
+	}
 	if !root.includesPath(event.Name) {
 		if root.singleFile {
 			return nil, nil

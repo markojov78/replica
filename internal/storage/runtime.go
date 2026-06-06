@@ -335,12 +335,19 @@ func (r *Runtime) reportWatcherChange(ctx context.Context, replica apiclient.Rep
 		return ctx.Err()
 	}
 
-	state, ok, err := r.currentFileState(ctx, replica.URI, change.RelativeURI)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return nil
+	var state FileState
+	if change.State != nil && change.State.RelativeURI == change.RelativeURI {
+		state = *change.State
+	} else {
+		var ok bool
+		var err error
+		state, ok, err = r.currentFileState(ctx, replica.URI, change.RelativeURI)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
 	}
 
 	reports := replicaFileReportsForStates(r.replicaFilesSnapshot(replica.ID), []FileState{state}, false)

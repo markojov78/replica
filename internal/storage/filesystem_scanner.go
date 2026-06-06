@@ -22,6 +22,9 @@ func (s *FilesystemScanner) Scan(ctx context.Context, rootURI string) ([]FileSta
 	states := make([]FileState, 0)
 
 	if root.singleFile {
+		if isTemporaryWritePath(root.scanPath) {
+			return states, nil
+		}
 		state, err := fileStateFromPath(ctx, root.relativeDir, root.scanPath)
 		if err != nil {
 			return nil, err
@@ -39,6 +42,12 @@ func (s *FilesystemScanner) Scan(ctx context.Context, rootURI string) ([]FileSta
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		if isTemporaryWritePath(path) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if entry.IsDir() {
 			return nil

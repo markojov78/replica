@@ -28,7 +28,7 @@ func (w *FilesystemWriter) Save(ctx context.Context, replicaURI string, relative
 		return err
 	}
 
-	tempFile, err := os.CreateTemp(targetDir, ".dropoutbox-write-*")
+	tempFile, err := os.CreateTemp(targetDir, temporaryWritePattern())
 	if err != nil {
 		return err
 	}

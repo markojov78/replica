@@ -106,6 +106,10 @@ func hashFileBLAKE3(ctx context.Context, path string) (string, error) {
 	}
 	defer file.Close()
 
+	return hashReaderBLAKE3(ctx, file)
+}
+
+func hashReaderBLAKE3(ctx context.Context, reader io.Reader) (string, error) {
 	hasher := blake3.New()
 	buffer := make([]byte, 32*1024)
 	for {
@@ -113,7 +117,7 @@ func hashFileBLAKE3(ctx context.Context, path string) (string, error) {
 			return "", err
 		}
 
-		n, err := file.Read(buffer)
+		n, err := reader.Read(buffer)
 		if n > 0 {
 			if _, writeErr := hasher.Write(buffer[:n]); writeErr != nil {
 				return "", writeErr

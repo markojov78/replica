@@ -119,3 +119,43 @@ func TestFilesystemScannerScansSingleFileRoot(t *testing.T) {
 		t.Fatalf("states[0].RelativeURI = %q, want %q", states[0].RelativeURI, "single.txt")
 	}
 }
+
+func TestFilesystemScannerIgnoresTemporaryWritePaths(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "nested"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	for _, relative := range []string{
+		TemporaryWritePrefix + "root",
+		filepath.Join("nested", TemporaryWritePrefix+"nested"),
+		"visible.txt",
+	} {
+		if err := os.WriteFile(filepath.Join(root, relative), []byte(relative), 0o644); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", relative, err)
+		}
+	}
+
+	states, err := NewFilesystemScanner().Scan(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if len(states) != 1 || states[0].RelativeURI != "visible.txt" {
+		t.Fatalf("states = %+v, want only visible.txt", states)
+	}
+}
+
+func TestFilesystemScannerIgnoresTemporarySingleFileRoot(t *testing.T) {
+	root := t.TempDir()
+	tempPath := filepath.Join(root, TemporaryWritePrefix+"single")
+	if err := os.WriteFile(tempPath, []byte("temporary"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	states, err := NewFilesystemScanner().Scan(context.Background(), tempPath)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if len(states) != 0 {
+		t.Fatalf("states = %+v, want empty", states)
+	}
+}

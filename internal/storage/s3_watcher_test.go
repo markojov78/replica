@@ -37,8 +37,8 @@ func TestCompareSnapshotsDetectsCreatedModifiedAndDeleted(t *testing.T) {
 func TestS3WatcherEmitsSnapshotDiffs(t *testing.T) {
 	scanner := &sequenceScanner{
 		results: [][]FileState{
-			{{RelativeURI: "file.txt", Size: 1, Modified: time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC), Hash: "a", HashAlgorithm: HashAlgorithmS3ETag}},
-			{{RelativeURI: "file.txt", Size: 2, Modified: time.Date(2026, 5, 2, 10, 1, 0, 0, time.UTC), Hash: "b", HashAlgorithm: HashAlgorithmS3ETag}},
+			{{RelativeURI: "file.txt", Size: 1, Modified: time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC), Hash: "a", HashAlgorithm: HashAlgorithmBLAKE3}},
+			{{RelativeURI: "file.txt", Size: 2, Modified: time.Date(2026, 5, 2, 10, 1, 0, 0, time.UTC), Hash: "b", HashAlgorithm: HashAlgorithmBLAKE3}},
 		},
 	}
 	watcher := NewS3Watcher(scanner, 10*time.Millisecond)

@@ -18,6 +18,8 @@ import (
 )
 
 const apiVersion = "1"
+const defaultAPIRequestTimeout = 15 * time.Second
+const defaultFileTransferTimeout = 30 * time.Minute
 
 var (
 	ErrMissingNodeID         = errors.New("missing node id")
@@ -44,6 +46,7 @@ type Client struct {
 	nodeSecret     string
 	nodeAddress    string
 	httpClient     *http.Client
+	transferClient *http.Client
 	now            func() time.Time
 
 	mu                    sync.Mutex
@@ -149,13 +152,25 @@ func New(cfg config.Config) (*Client, error) {
 		return nil, ErrMissingNodeAddress
 	}
 
+	apiRequestTimeout := cfg.App.APIRequestTimeout
+	if apiRequestTimeout <= 0 {
+		apiRequestTimeout = defaultAPIRequestTimeout
+	}
+	fileTransferTimeout := cfg.App.FileTransferTimeout
+	if fileTransferTimeout <= 0 {
+		fileTransferTimeout = defaultFileTransferTimeout
+	}
+
 	return &Client{
 		nodeID:         strings.TrimSpace(cfg.App.NodeID),
 		coordinatorURL: strings.TrimRight(strings.TrimSpace(cfg.App.CoordinatorURL), "/"),
 		nodeSecret:     cfg.Auth.NodeSecret,
 		nodeAddress:    strings.TrimSpace(cfg.App.NodeAddress),
 		httpClient: &http.Client{
-			Timeout: 15 * time.Second,
+			Timeout: apiRequestTimeout,
+		},
+		transferClient: &http.Client{
+			Timeout: fileTransferTimeout,
 		},
 		now: func() time.Time {
 			return time.Now().UTC()
@@ -409,7 +424,7 @@ func (c *Client) TransferReplicaFileContent(ctx context.Context, sourceNodeAddre
 	req.Header.Set("X-API-Version", apiVersion)
 	req.Header.Set("Authorization", "Bearer "+transferToken)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.transferClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
