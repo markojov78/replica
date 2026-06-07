@@ -1,24 +1,35 @@
-# Dropoutbox
+# DropOutBbox service
 
+A distributed, self-hosted file sharing and file replication service.  
+While the initial idea for the service is to facilitate storage, backup and sharing of my own photo collection,
+it is not limited to specific data type: storage and replication functionality should be agnostic to data type and
+frontend is intended to be extensible to present different file types (images, audio, video, documents ...)
 Skeleton `Go + Huma + GORM` project for a distributed, self-hosted file sharing and replication service.
 
-Current scaffold includes:
+## [Detailed application description](docs/application.md)
+## [API specification](docs/api.md)
 
-* single API binary configurable as `coordinator + storage` or `storage-only`
-* seed binary for database bootstrap
-* GORM models for the schema from `docs/description.md` and `docs/database.jpg`
-* enum/status constants with `Valid()` helpers for documented database states
-* Huma-based auth and user management endpoints under `/api`
+## Build
+To build the service, use the build script:
+```bash
+./build.sh
+```
+Or for a different platform:
+```bash
+./build.sh pi
+```
+Build script will create `bin/dropoutbox` and `bin/dropoutbox-seed` files.  
 
-## Run
-
+## Configure
 ```bash
 cp config_sample.yaml config.yaml
-go run ./cmd/api
 ```
-
 ## Seed
 
 ```bash
 go run ./cmd/seed
+```
+## Run
+```bash
+go run ./cmd/api
 ```
