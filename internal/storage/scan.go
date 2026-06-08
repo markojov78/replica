@@ -26,7 +26,7 @@ type FileState struct {
 	RelativeURI   string
 	Size          int64
 	Hash          string
-	HashAlgorithm string
+	HashAlgorithm string // TODO remove
 	Created       time.Time
 	Modified      time.Time
 }
@@ -39,7 +39,7 @@ type FileChange struct {
 }
 
 type Scanner interface {
-	Scan(ctx context.Context, rootURI string) ([]FileState, error)
+	Scan(ctx context.Context, rootURI string, oldStates map[string]FileState) ([]FileState, error)
 }
 
 type Watcher interface {

@@ -60,7 +60,7 @@ func NewS3ScannerWithAllClients(listClient s3ListObjectsV2API, headClient s3Head
 	}
 }
 
-func (s *S3Scanner) Scan(ctx context.Context, rootURI string) ([]FileState, error) {
+func (s *S3Scanner) Scan(ctx context.Context, rootURI string, oldStates map[string]FileState) ([]FileState, error) {
 	location, err := parseS3URI(rootURI)
 	if err != nil {
 		return nil, err

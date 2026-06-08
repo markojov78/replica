@@ -63,7 +63,7 @@ func TestS3ScannerReturnsBLAKE3InsteadOfObjectChecksumOrETag(t *testing.T) {
 		getClient,
 	)
 
-	states, err := scanner.Scan(context.Background(), "s3://bucket/prefix")
+	states, err := scanner.Scan(context.Background(), "s3://bucket/prefix", nil)
 	if err != nil {
 		t.Fatalf("Scan() error = %v", err)
 	}
@@ -115,11 +115,11 @@ func TestS3ScannerReusesBLAKE3WhenMetadataIsUnchanged(t *testing.T) {
 		getClient,
 	)
 
-	first, err := scanner.Scan(context.Background(), "s3://bucket")
+	first, err := scanner.Scan(context.Background(), "s3://bucket", nil)
 	if err != nil {
 		t.Fatalf("first Scan() error = %v", err)
 	}
-	second, err := scanner.Scan(context.Background(), "s3://bucket")
+	second, err := scanner.Scan(context.Background(), "s3://bucket", nil)
 	if err != nil {
 		t.Fatalf("second Scan() error = %v", err)
 	}
@@ -143,13 +143,13 @@ func TestS3ScannerRehashesChangedMetadataButReturnsSameBLAKE3ForSameBytes(t *tes
 	getClient := &mockS3ScannerGetClient{body: "content"}
 	scanner := NewS3ScannerWithAllClients(listClient, mockS3HeadClient{output: &s3.HeadObjectOutput{}}, getClient)
 
-	first, err := scanner.Scan(context.Background(), "s3://bucket")
+	first, err := scanner.Scan(context.Background(), "s3://bucket", nil)
 	if err != nil {
 		t.Fatalf("first Scan() error = %v", err)
 	}
 	listClient.output.Contents[0].ETag = aws.String(`"etag-b"`)
 	listClient.output.Contents[0].LastModified = aws.Time(modified.Add(time.Minute))
-	second, err := scanner.Scan(context.Background(), "s3://bucket")
+	second, err := scanner.Scan(context.Background(), "s3://bucket", nil)
 	if err != nil {
 		t.Fatalf("second Scan() error = %v", err)
 	}
@@ -180,7 +180,7 @@ func TestS3ScannerIgnoresTemporaryWriteKeys(t *testing.T) {
 	getClient := &mockS3ScannerGetClient{body: "content"}
 	scanner := NewS3ScannerWithAllClients(listClient, mockS3HeadClient{output: &s3.HeadObjectOutput{}}, getClient)
 
-	states, err := scanner.Scan(context.Background(), "s3://bucket/prefix")
+	states, err := scanner.Scan(context.Background(), "s3://bucket/prefix", nil)
 	if err != nil {
 		t.Fatalf("Scan() error = %v", err)
 	}

@@ -13,7 +13,7 @@ func NewFilesystemScanner() *FilesystemScanner {
 	return &FilesystemScanner{}
 }
 
-func (s *FilesystemScanner) Scan(ctx context.Context, rootURI string) ([]FileState, error) {
+func (s *FilesystemScanner) Scan(ctx context.Context, rootURI string, oldStates map[string]FileState) ([]FileState, error) {
 	root, err := resolveFilesystemRoot(rootURI)
 	if err != nil {
 		return nil, err

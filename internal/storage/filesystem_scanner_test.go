@@ -21,7 +21,7 @@ func TestFilesystemScannerScansNestedFilesWithNormalizedPaths(t *testing.T) {
 	}
 
 	scanner := NewFilesystemScanner()
-	states, err := scanner.Scan(context.Background(), root)
+	states, err := scanner.Scan(context.Background(), root, nil)
 	if err != nil {
 		t.Fatalf("Scan() error = %v", err)
 	}
@@ -45,11 +45,11 @@ func TestFilesystemScannerCalculatesStableBLAKE3Hashes(t *testing.T) {
 	}
 
 	scanner := NewFilesystemScanner()
-	first, err := scanner.Scan(context.Background(), root)
+	first, err := scanner.Scan(context.Background(), root, nil)
 	if err != nil {
 		t.Fatalf("first Scan() error = %v", err)
 	}
-	second, err := scanner.Scan(context.Background(), root)
+	second, err := scanner.Scan(context.Background(), root, nil)
 	if err != nil {
 		t.Fatalf("second Scan() error = %v", err)
 	}
@@ -82,7 +82,7 @@ func TestFilesystemScannerReturnsSizeAndModifiedTime(t *testing.T) {
 	}
 
 	scanner := NewFilesystemScanner()
-	states, err := scanner.Scan(context.Background(), root)
+	states, err := scanner.Scan(context.Background(), root, nil)
 	if err != nil {
 		t.Fatalf("Scan() error = %v", err)
 	}
@@ -108,7 +108,7 @@ func TestFilesystemScannerScansSingleFileRoot(t *testing.T) {
 	}
 
 	scanner := NewFilesystemScanner()
-	states, err := scanner.Scan(context.Background(), filePath)
+	states, err := scanner.Scan(context.Background(), filePath, nil)
 	if err != nil {
 		t.Fatalf("Scan() error = %v", err)
 	}
@@ -135,7 +135,7 @@ func TestFilesystemScannerIgnoresTemporaryWritePaths(t *testing.T) {
 		}
 	}
 
-	states, err := NewFilesystemScanner().Scan(context.Background(), root)
+	states, err := NewFilesystemScanner().Scan(context.Background(), root, nil)
 	if err != nil {
 		t.Fatalf("Scan() error = %v", err)
 	}
@@ -151,7 +151,7 @@ func TestFilesystemScannerIgnoresTemporarySingleFileRoot(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	states, err := NewFilesystemScanner().Scan(context.Background(), tempPath)
+	states, err := NewFilesystemScanner().Scan(context.Background(), tempPath, nil)
 	if err != nil {
 		t.Fatalf("Scan() error = %v", err)
 	}

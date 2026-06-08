@@ -776,7 +776,8 @@ func TestRuntimeRefreshLocalStateSkipsDeletedReplicaFiles(t *testing.T) {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 
-	replicas, err := runtime.refreshLocalState(context.Background())
+	err = runtime.refreshLocalState(context.Background())
+	replicas := runtime.replicas
 	if err != nil {
 		t.Fatalf("refreshLocalState() error = %v", err)
 	}
@@ -1461,7 +1462,7 @@ func TestRuntimeReportsStartupLocalChanges(t *testing.T) {
 		},
 	)
 
-	if err := runtime.reportStartupLocalChanges(context.Background(), []apiclient.Replica{replica}); err != nil {
+	if err := runtime.reportStartupLocalChanges(context.Background()); err != nil {
 		t.Fatalf("reportStartupLocalChanges() error = %v", err)
 	}
 

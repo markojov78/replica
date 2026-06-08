@@ -95,7 +95,7 @@ func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []ap
 			continue
 		}
 
-		replicas, err := r.refreshLocalState(ctx)
+		err = r.refreshLocalState(ctx)
 		if err != nil {
 			if !sleepContext(ctx, bootstrapRetryInterval) {
 				return nil, nil, nil, false
@@ -103,7 +103,7 @@ func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []ap
 			log.Printf("storage runtime state bootstrap failed: %v", err)
 			continue
 		}
-		if err := r.reportStartupLocalChanges(ctx, replicas); err != nil {
+		if err := r.reportStartupLocalChanges(ctx); err != nil {
 			if !sleepContext(ctx, bootstrapRetryInterval) {
 				return nil, nil, nil, false
 			}
@@ -111,15 +111,15 @@ func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []ap
 			continue
 		}
 
-		log.Printf("storage runtime connected to coordinator as node_id=%s replicas=%d", r.client.NodeID(), len(replicas))
-		return pair, replicas, report.Commands, true
+		log.Printf("storage runtime connected to coordinator as node_id=%s replicas=%d", r.client.NodeID(), len(r.replicas))
+		return pair, r.replicas, report.Commands, true
 	}
 }
 
-func (r *Runtime) refreshLocalState(ctx context.Context) ([]apiclient.Replica, error) {
+func (r *Runtime) refreshLocalState(ctx context.Context) error {
 	replicas, err := r.client.ListOwnReplicas(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	replicaFiles := make(map[uint][]apiclient.ReplicaInventoryFile, len(replicas))
@@ -127,7 +127,7 @@ func (r *Runtime) refreshLocalState(ctx context.Context) ([]apiclient.Replica, e
 		if replicaIsActive(replica) {
 			files, err := r.client.ListReplicaInventoryFiles(ctx, replica.ID)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			replicaFiles[replica.ID] = append([]apiclient.ReplicaInventoryFile(nil), files...)
 		}
@@ -135,7 +135,7 @@ func (r *Runtime) refreshLocalState(ctx context.Context) ([]apiclient.Replica, e
 
 	r.setLocalState(replicas, replicaFiles)
 	log.Printf("storage runtime refreshed local state replicas=%d", len(replicas))
-	return replicas, nil
+	return nil
 }
 
 func (r *Runtime) refreshReplicaFiles(ctx context.Context, replicaID uint) ([]apiclient.ReplicaInventoryFile, error) {
@@ -151,8 +151,26 @@ func (r *Runtime) refreshReplicaFiles(ctx context.Context, replicaID uint) ([]ap
 	return files, nil
 }
 
-func (r *Runtime) reportStartupLocalChanges(ctx context.Context, replicas []apiclient.Replica) error {
-	for _, replica := range replicas {
+func (r *Runtime) getReplicaFiles(id uint) map[string]FileState {
+	files := r.replicaFiles[id]
+
+	result := make(map[string]FileState, len(files))
+
+	for _, file := range files {
+		result[file.RelativeURI] = FileState{
+			RelativeURI: file.RelativeURI,
+			Size:        file.Size,
+			Hash:        file.Hash,
+			Created:     file.Created,
+			Modified:    file.Modified,
+		}
+	}
+
+	return result
+}
+
+func (r *Runtime) reportStartupLocalChanges(ctx context.Context) error {
+	for _, replica := range r.replicas {
 		if !replicaIsActive(replica) {
 			log.Printf("storage runtime startup scan skipped inactive replica_id=%d status=%s uri=%s", replica.ID, replica.Status, replica.URI)
 			continue
@@ -166,7 +184,8 @@ func (r *Runtime) reportStartupLocalChanges(ctx context.Context, replicas []apic
 		if err != nil {
 			return fmt.Errorf("startup scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
 		}
-		states, err := scanner.Scan(ctx, replica.URI)
+
+		states, err := scanner.Scan(ctx, replica.URI, r.getReplicaFiles(replica.ID))
 		if err != nil {
 			return fmt.Errorf("startup scan replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
 		}
@@ -341,7 +360,7 @@ func (r *Runtime) reportWatcherChange(ctx context.Context, replica apiclient.Rep
 	} else {
 		var ok bool
 		var err error
-		state, ok, err = r.currentFileState(ctx, replica.URI, change.RelativeURI)
+		state, ok, err = r.currentFileState(ctx, replica.URI, change.RelativeURI, r.getReplicaFiles(replica.ID))
 		if err != nil {
 			return err
 		}
@@ -366,12 +385,12 @@ func (r *Runtime) reportWatcherChange(ctx context.Context, replica apiclient.Rep
 	return nil
 }
 
-func (r *Runtime) currentFileState(ctx context.Context, replicaURI, relativeURI string) (FileState, bool, error) {
+func (r *Runtime) currentFileState(ctx context.Context, replicaURI, relativeURI string, oldStates map[string]FileState) (FileState, bool, error) {
 	scanner, err := GetScanner(ctx, replicaURI)
 	if err != nil {
 		return FileState{}, false, err
 	}
-	states, err := scanner.Scan(ctx, replicaURI)
+	states, err := scanner.Scan(ctx, replicaURI, oldStates)
 	if err != nil {
 		return FileState{}, false, err
 	}
@@ -553,7 +572,7 @@ func nextCommand(commands map[uint]apiclient.Command) (uint, apiclient.Command) 
 func (r *Runtime) handleCommand(ctx context.Context, command apiclient.Command) bool {
 	switch command.Type {
 	case "refresh_state":
-		if _, err := r.refreshLocalState(ctx); err != nil {
+		if err := r.refreshLocalState(ctx); err != nil {
 			r.markCommandFailed(ctx, command.ID, err)
 			return false
 		}
@@ -599,7 +618,7 @@ func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Comman
 	}
 	r.setReplicaTransferToken(payload.DestinationReplicaID, payload.TransferToken)
 
-	if _, err := r.refreshLocalState(ctx); err != nil {
+	if err := r.refreshLocalState(ctx); err != nil {
 		return err
 	}
 
@@ -778,7 +797,7 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 
 	replica, ok := r.findReplica(payload.ReplicaID)
 	if !ok {
-		if _, err := r.refreshLocalState(ctx); err != nil {
+		if err := r.refreshLocalState(ctx); err != nil {
 			return err
 		}
 
@@ -801,7 +820,7 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 	if err != nil {
 		return err
 	}
-	states, err := scanner.Scan(ctx, replica.URI)
+	states, err := scanner.Scan(ctx, replica.URI, r.getReplicaFiles(replica.ID))
 	if err != nil {
 		return err
 	}
