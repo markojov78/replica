@@ -1490,6 +1490,46 @@ func TestRuntimeReportsStartupLocalChanges(t *testing.T) {
 	}
 }
 
+func TestRuntimeStartupScanSkipsPendingDownstreamMissingRoot(t *testing.T) {
+	reportCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/internal/replica/3/files" && r.Method == http.MethodPost {
+			reportCalls++
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		t.Fatalf("unexpected path %s %q", r.Method, r.URL.RequestURI())
+	}))
+	defer server.Close()
+
+	runtime := newRuntimeForTest(t, server.URL)
+	upstreamID := uint(2)
+	replica := apiclient.Replica{
+		ID:                3,
+		InventoryID:       2,
+		NodeID:            "node-a",
+		URI:               filepath.Join(t.TempDir(), "missing-replica-root"),
+		Status:            "active",
+		Type:              "filesystem",
+		UpstreamReplicaID: &upstreamID,
+	}
+	runtime.setLocalState(
+		[]apiclient.Replica{replica},
+		map[uint][]apiclient.ReplicaInventoryFile{
+			3: {
+				{FileID: 10, ReplicaID: 3, InventoryID: 2, RelativeURI: "file.txt", Size: 7, Hash: "hash", InventoryStatus: "active", InventoryVersion: 1, ReplicaStatus: "pending", ReplicaVersion: 0},
+			},
+		},
+	)
+
+	if err := runtime.reportStartupLocalChanges(context.Background()); err != nil {
+		t.Fatalf("reportStartupLocalChanges() error = %v", err)
+	}
+	if reportCalls != 0 {
+		t.Fatalf("reportCalls = %d, want 0", reportCalls)
+	}
+}
+
 func TestRuntimeStartsReplicaWatcherAndLogsChanges(t *testing.T) {
 	logOutput := captureLogs(t)
 	replicaRoot := t.TempDir()

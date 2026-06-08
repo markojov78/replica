@@ -175,7 +175,7 @@ func (r *Runtime) reportStartupLocalChanges(ctx context.Context) error {
 			log.Printf("storage runtime startup scan skipped inactive replica_id=%d status=%s uri=%s", replica.ID, replica.Status, replica.URI)
 			continue
 		}
-		if replica.UpstreamReplicaID == nil && replicaHasPendingFiles(r.replicaFilesSnapshot(replica.ID)) {
+		if replicaHasPendingFiles(r.replicaFilesSnapshot(replica.ID)) {
 			log.Printf("storage runtime startup scan skipped pending replica_id=%d uri=%s", replica.ID, replica.URI)
 			continue
 		}
