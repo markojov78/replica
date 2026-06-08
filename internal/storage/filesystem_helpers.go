@@ -69,7 +69,7 @@ func relativeURI(rootPath, fullPath string) (string, error) {
 	return normalizeRelativeURI(relPath), nil
 }
 
-func fileStateFromPath(ctx context.Context, rootPath, fullPath string) (*FileState, error) {
+func fileStateFromPath(ctx context.Context, rootPath, fullPath string, oldStates map[string]FileState) (*FileState, error) {
 	info, err := os.Lstat(fullPath)
 	if err != nil {
 		return nil, err
@@ -83,18 +83,29 @@ func fileStateFromPath(ctx context.Context, rootPath, fullPath string) (*FileSta
 		return nil, err
 	}
 
+	created := fileCreatedAt(info)
+	modified := info.ModTime().UTC()
+	if oldState, ok := oldStateWithMatchingMetadata(oldStates, rel, info.Size(), modified); ok {
+		return &FileState{
+			RelativeURI: rel,
+			Size:        info.Size(),
+			Hash:        oldState.Hash,
+			Created:     created,
+			Modified:    modified,
+		}, nil
+	}
+
 	hash, err := hashFileBLAKE3(ctx, fullPath)
 	if err != nil {
 		return nil, err
 	}
 
-	created := fileCreatedAt(info)
 	return &FileState{
 		RelativeURI: rel,
 		Size:        info.Size(),
 		Hash:        hash,
 		Created:     created,
-		Modified:    info.ModTime().UTC(),
+		Modified:    modified,
 	}, nil
 }
 

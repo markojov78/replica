@@ -44,7 +44,7 @@ func (w *S3Watcher) Watch(ctx context.Context, rootURI string) (<-chan FileChang
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				current, err := w.scanner.Scan(ctx, rootURI, nil)
+				current, err := w.scanner.Scan(ctx, rootURI, fileStateMap(previous))
 				if err != nil {
 					sendError(ctx, errCh, err)
 					continue

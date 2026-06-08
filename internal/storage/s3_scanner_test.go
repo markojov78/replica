@@ -128,6 +128,97 @@ func TestS3ScannerReusesBLAKE3WhenMetadataIsUnchanged(t *testing.T) {
 	}
 }
 
+func TestS3ScannerReusesOldHashWhenMetadataIsUnchanged(t *testing.T) {
+	modified := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
+	headCalls := 0
+	headClient := mockS3HeadClient{output: &s3.HeadObjectOutput{}, calls: &headCalls}
+	getClient := &mockS3ScannerGetClient{body: "content"}
+	scanner := NewS3ScannerWithAllClients(
+		&mockS3ListClient{
+			output: &s3.ListObjectsV2Output{
+				Contents: []types.Object{
+					{
+						Key:          aws.String("file.txt"),
+						ETag:         aws.String(`"etag-value"`),
+						Size:         aws.Int64(7),
+						LastModified: aws.Time(modified),
+					},
+				},
+			},
+		},
+		headClient,
+		getClient,
+	)
+
+	states, err := scanner.Scan(context.Background(), "s3://bucket", map[string]FileState{
+		"file.txt": {
+			RelativeURI: "file.txt",
+			Size:        7,
+			Hash:        "known-hash",
+			Modified:    modified,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if len(states) != 1 {
+		t.Fatalf("len(states) = %d, want 1", len(states))
+	}
+	if states[0].Hash != "known-hash" {
+		t.Fatalf("states[0].Hash = %q, want old hash", states[0].Hash)
+	}
+	if headCalls != 0 {
+		t.Fatalf("HeadObject calls = %d, want 0", headCalls)
+	}
+	if getClient.calls != 0 {
+		t.Fatalf("GetObject calls = %d, want 0", getClient.calls)
+	}
+}
+
+func TestS3ScannerHashesWhenOldMetadataChanged(t *testing.T) {
+	modified := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
+	headClient := mockS3HeadClient{output: &s3.HeadObjectOutput{}}
+	getClient := &mockS3ScannerGetClient{body: "content"}
+	scanner := NewS3ScannerWithAllClients(
+		&mockS3ListClient{
+			output: &s3.ListObjectsV2Output{
+				Contents: []types.Object{
+					{
+						Key:          aws.String("file.txt"),
+						ETag:         aws.String(`"etag-value"`),
+						Size:         aws.Int64(7),
+						LastModified: aws.Time(modified),
+					},
+				},
+			},
+		},
+		headClient,
+		getClient,
+	)
+
+	states, err := scanner.Scan(context.Background(), "s3://bucket", map[string]FileState{
+		"file.txt": {
+			RelativeURI: "file.txt",
+			Size:        1,
+			Hash:        "known-hash",
+			Modified:    modified,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	wantHash, err := hashReaderBLAKE3(context.Background(), strings.NewReader("content"))
+	if err != nil {
+		t.Fatalf("hashReaderBLAKE3() error = %v", err)
+	}
+	if len(states) != 1 || states[0].Hash != wantHash {
+		t.Fatalf("states = %+v, want rehashed content hash %q", states, wantHash)
+	}
+	if getClient.calls != 1 {
+		t.Fatalf("GetObject calls = %d, want 1", getClient.calls)
+	}
+}
+
 func TestS3ScannerRehashesChangedMetadataButReturnsSameBLAKE3ForSameBytes(t *testing.T) {
 	modified := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
 	listClient := &mockS3ListClient{
@@ -201,9 +292,13 @@ func (m *mockS3ListClient) ListObjectsV2(_ context.Context, _ *s3.ListObjectsV2I
 type mockS3HeadClient struct {
 	output *s3.HeadObjectOutput
 	err    error
+	calls  *int
 }
 
 func (m mockS3HeadClient) HeadObject(_ context.Context, _ *s3.HeadObjectInput, _ ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
+	if m.calls != nil {
+		(*m.calls)++
+	}
 	return m.output, m.err
 }
 

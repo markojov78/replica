@@ -79,7 +79,7 @@ func (s *S3Scanner) Scan(ctx context.Context, rootURI string, oldStates map[stri
 		}
 
 		for _, object := range output.Contents {
-			state, err := s.fileStateFromObject(ctx, location, object)
+			state, err := s.fileStateFromObject(ctx, location, object, oldStates)
 			if err != nil {
 				return nil, err
 			}
@@ -99,7 +99,7 @@ func (s *S3Scanner) Scan(ctx context.Context, rootURI string, oldStates map[stri
 	return states, nil
 }
 
-func (s *S3Scanner) fileStateFromObject(ctx context.Context, location s3Location, object types.Object) (*FileState, error) {
+func (s *S3Scanner) fileStateFromObject(ctx context.Context, location s3Location, object types.Object, oldStates map[string]FileState) (*FileState, error) {
 	key := aws.ToString(object.Key)
 	if key == "" {
 		return nil, nil
@@ -111,6 +111,23 @@ func (s *S3Scanner) fileStateFromObject(ctx context.Context, location s3Location
 	}
 	if isTemporaryWritePath(relativeURI) {
 		return nil, nil
+	}
+
+	normalizedRelativeURI := normalizeRelativeURI(relativeURI)
+	size := aws.ToInt64(object.Size)
+	modified := time.Time{}
+	if object.LastModified != nil {
+		modified = object.LastModified.UTC()
+	}
+
+	if oldState, ok := oldStateWithMatchingMetadata(oldStates, normalizedRelativeURI, size, modified); ok {
+		return &FileState{
+			RelativeURI: normalizedRelativeURI,
+			Size:        size,
+			Hash:        oldState.Hash,
+			Created:     modified,
+			Modified:    modified,
+		}, nil
 	}
 
 	fingerprint := s3ObjectFingerprint(object)
@@ -152,14 +169,9 @@ func (s *S3Scanner) fileStateFromObject(ctx context.Context, location s3Location
 		s.storeCachedHash(cacheKey, fingerprint, hash)
 	}
 
-	modified := time.Time{}
-	if object.LastModified != nil {
-		modified = object.LastModified.UTC()
-	}
-
 	return &FileState{
-		RelativeURI: normalizeRelativeURI(relativeURI),
-		Size:        aws.ToInt64(object.Size),
+		RelativeURI: normalizedRelativeURI,
+		Size:        size,
 		Hash:        hash,
 		Created:     modified,
 		Modified:    modified,

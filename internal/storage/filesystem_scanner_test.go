@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -62,6 +63,72 @@ func TestFilesystemScannerCalculatesStableBLAKE3Hashes(t *testing.T) {
 	}
 	if first[0].Hash != second[0].Hash {
 		t.Fatalf("hash mismatch: %q != %q", first[0].Hash, second[0].Hash)
+	}
+}
+
+func TestFilesystemScannerReusesOldHashWhenMetadataIsUnchanged(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "file.txt")
+	content := []byte("stable content")
+	if err := os.WriteFile(filePath, content, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	modified := time.Date(2026, 5, 1, 12, 30, 0, 0, time.UTC)
+	if err := os.Chtimes(filePath, modified, modified); err != nil {
+		t.Fatalf("Chtimes() error = %v", err)
+	}
+
+	oldStates := map[string]FileState{
+		"file.txt": {
+			RelativeURI: "file.txt",
+			Size:        int64(len(content)),
+			Hash:        "known-hash",
+			Modified:    modified,
+		},
+	}
+
+	states, err := NewFilesystemScanner().Scan(context.Background(), root, oldStates)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if len(states) != 1 {
+		t.Fatalf("len(states) = %d, want 1", len(states))
+	}
+	if states[0].Hash != "known-hash" {
+		t.Fatalf("states[0].Hash = %q, want old hash", states[0].Hash)
+	}
+}
+
+func TestFilesystemScannerRehashesWhenMetadataChanged(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "file.txt")
+	if err := os.WriteFile(filePath, []byte("changed content"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	modified := time.Date(2026, 5, 1, 12, 30, 0, 0, time.UTC)
+	if err := os.Chtimes(filePath, modified, modified); err != nil {
+		t.Fatalf("Chtimes() error = %v", err)
+	}
+
+	oldStates := map[string]FileState{
+		"file.txt": {
+			RelativeURI: "file.txt",
+			Size:        1,
+			Hash:        "known-hash",
+			Modified:    modified,
+		},
+	}
+
+	states, err := NewFilesystemScanner().Scan(context.Background(), root, oldStates)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	wantHash, err := hashReaderBLAKE3(context.Background(), strings.NewReader("changed content"))
+	if err != nil {
+		t.Fatalf("hashReaderBLAKE3() error = %v", err)
+	}
+	if len(states) != 1 || states[0].Hash != wantHash {
+		t.Fatalf("states = %+v, want rehashed content hash %q", states, wantHash)
 	}
 }
 

@@ -56,6 +56,29 @@ func sortFileStates(states []FileState) {
 	})
 }
 
+func oldStateWithMatchingMetadata(oldStates map[string]FileState, relativeURI string, size int64, modified time.Time) (FileState, bool) {
+	if oldStates == nil {
+		return FileState{}, false
+	}
+	oldState, ok := oldStates[relativeURI]
+	if !ok || oldState.Hash == "" {
+		return FileState{}, false
+	}
+	return oldState, oldState.Size == size && oldState.Modified.Equal(modified)
+}
+
+// turn list of FileState to map by uri
+func fileStateMap(states []FileState) map[string]FileState {
+	if len(states) == 0 {
+		return nil
+	}
+	result := make(map[string]FileState, len(states))
+	for _, state := range states {
+		result[state.RelativeURI] = state
+	}
+	return result
+}
+
 func compareSnapshots(previous, current []FileState) []FileChange {
 	previousByURI := make(map[string]FileState, len(previous))
 	for _, state := range previous {

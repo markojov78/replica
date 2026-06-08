@@ -42,11 +42,15 @@ Watcher events are hints, not authoritative state transitions. If an implementat
 
 ```go
 type Scanner interface {
-    Scan(ctx context.Context, rootURI string) ([]FileState, error)
+    Scan(ctx context.Context, rootURI string, oldStates map[string]FileState) ([]FileState, error)
 }
 ```
 
 A scanner performs a snapshot-style inventory of a replica root.
+`oldStates` is an optional map keyed by relative URI. When a file is present in `oldStates` and the scanner can
+confirm that file metadata has not changed, the scanner may reuse the known BLAKE3 hash instead of reading file
+content again. A nil map or a missing entry preserves the old behavior: the scanner reads the file content and
+calculates BLAKE3.
 
 Implementation requirements:
 
@@ -116,7 +120,7 @@ Behavior:
 - ignores directories as scan results
 - ignores symlinks for now
 - ignores temporary write paths whose basename starts with `.dropoutbox-write-`
-- computes a BLAKE3 content hash for each file
+- computes a BLAKE3 content hash for each file unless unchanged old metadata allows reusing a known hash
 - normalizes relative paths using slash separators
 - returns results sorted by `RelativeURI`
 
@@ -125,6 +129,10 @@ For single-file roots, the returned `RelativeURI` is the file basename, for exam
 Hashing:
 
 - local files use BLAKE3
+- when `oldStates` has the same `Size` and `Modified` for a file, the scanner reuses the old `Hash` without opening
+  and reading the file
+- when `oldStates` is nil, missing that file, has an empty hash, or has different metadata, the scanner reads the file
+  and calculates BLAKE3
 
 Timestamps:
 
@@ -221,8 +229,11 @@ Hashing and fingerprints:
 
 - S3 file content hashes use BLAKE3, matching filesystem replicas
 - ETag, object checksum, size, and `LastModified` are metadata-change hints only and are never returned as `Hash`
+- when `oldStates` has the same `Size` and `Modified` for an object, the scanner reuses the old `Hash` without
+  calling `HeadObject` or downloading object content
 - the scanner caches BLAKE3 hashes in memory with the corresponding object metadata fingerprint
-- the first scan after process startup downloads objects to establish their BLAKE3 hashes
+- the first scan after process startup downloads objects to establish their BLAKE3 hashes when coordinator metadata is
+  unavailable
 - unchanged metadata reuses the cached BLAKE3 hash without downloading the object
 - new objects and objects with changed metadata are downloaded and hashed with BLAKE3
 
