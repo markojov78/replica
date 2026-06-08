@@ -839,10 +839,9 @@ func replicaHasPendingFiles(files []apiclient.ReplicaInventoryFile) bool {
 func replicaFileReportsForStates(files []apiclient.ReplicaInventoryFile, states []FileState, includeDeletes bool) []apiclient.ReplicaFileReport {
 	activeFilesByURI := make(map[string]apiclient.ReplicaInventoryFile, len(files))
 	for _, file := range files {
-		if file.InventoryStatus != "active" {
-			continue
+		if file.InventoryStatus == "active" {
+			activeFilesByURI[file.RelativeURI] = file
 		}
-		activeFilesByURI[file.RelativeURI] = file
 	}
 
 	reports := make([]apiclient.ReplicaFileReport, 0)

@@ -27,6 +27,15 @@ func registerInternalNodeRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, mapNodeError(err, svc.nodes)
 		}
+		if svc.replicas != nil {
+			// replica_files.status=pending is durable truth; reconcile commands are disposable triggers.
+			// Heartbeat ensures each pending replica has a pending reconcile command.
+			commands, err := svc.replicas.EnsureReconcileCommandsForNode(node.ID)
+			if err != nil {
+				return nil, mapInventoryError(err, svc.inventories)
+			}
+			report.Commands = append(report.Commands, commands...)
+		}
 
 		return &reportNodeAvailabilityResponse{Body: *report}, nil
 	})

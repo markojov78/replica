@@ -3,6 +3,7 @@ package repository
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -98,15 +99,12 @@ func (r *ReplicaRepository) CreateWithPendingFiles(replica *model.Replica, comma
 		command.NodeID = replica.NodeID
 		if command.Type == model.NodeCommandTypeReconcileReplica {
 			if len(payloadBuilders) > 0 {
-				source, err := r.selectReconcileSource(tx, *replica)
+				created, err := r.createReconcileCommand(tx, *replica, payloadBuilders[0], nil)
 				if err != nil {
 					return err
 				}
-				payload, err := payloadBuilders[0](*replica, source, nil)
-				if err != nil {
-					return err
-				}
-				command.Payload = payload
+				*command = created
+				return nil
 			} else if len(command.Payload) == 0 {
 				payload, err := json.Marshal(struct {
 					DestinationReplicaID uint `json:"destination_replica_id"`
@@ -123,6 +121,78 @@ func (r *ReplicaRepository) CreateWithPendingFiles(replica *model.Replica, comma
 		}
 		return tx.Create(command).Error
 	})
+}
+
+func (r *ReplicaRepository) EnsureReconcileCommandsForNode(nodeID string, payloadBuilder ReconcilePayloadBuilder) ([]model.Command, error) {
+	var created []model.Command
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		var destinations []model.Replica
+		if err := tx.
+			Table("replicas").
+			Select("replicas.*").
+			Joins("JOIN replica_files ON replica_files.replica_id = replicas.id").
+			Where("replicas.node_id = ? AND replicas.status = ? AND replica_files.status = ?", nodeID, model.ReplicaStatusActive, model.ReplicaFileStatusPending).
+			Group("replicas.id").
+			Order("replicas.id ASC").
+			Find(&destinations).Error; err != nil {
+			return err
+		}
+
+		var pendingCommands []model.Command
+		if err := tx.
+			Where("node_id = ? AND type = ? AND status = ?", nodeID, model.NodeCommandTypeReconcileReplica, model.NodeCommandStatusPending).
+			Find(&pendingCommands).Error; err != nil {
+			return err
+		}
+		pendingDestinations := make(map[uint]struct{}, len(pendingCommands))
+		for _, command := range pendingCommands {
+			var payload struct {
+				DestinationReplicaID uint `json:"destination_replica_id"`
+			}
+			if err := json.Unmarshal(command.Payload, &payload); err != nil || payload.DestinationReplicaID == 0 {
+				log.Printf("ignoring pending reconcile_replica command with invalid payload command_id=%d", command.ID)
+				continue
+			}
+			pendingDestinations[payload.DestinationReplicaID] = struct{}{}
+		}
+
+		for _, destination := range destinations {
+			if _, exists := pendingDestinations[destination.ID]; exists {
+				continue
+			}
+			command, err := r.createReconcileCommand(tx, destination, payloadBuilder, nil)
+			if err != nil {
+				return err
+			}
+			created = append(created, command)
+		}
+		return nil
+	})
+	return created, err
+}
+
+func (r *ReplicaRepository) createReconcileCommand(tx *gorm.DB, destination model.Replica, payloadBuilder ReconcilePayloadBuilder, deleteRelativeURIs []string) (model.Command, error) {
+	source, err := r.selectReconcileSource(tx, destination)
+	if err != nil {
+		return model.Command{}, err
+	}
+	payload, err := payloadBuilder(destination, source, deleteRelativeURIs)
+	if err != nil {
+		return model.Command{}, err
+	}
+	command := model.Command{
+		NodeID:  destination.NodeID,
+		Type:    model.NodeCommandTypeReconcileReplica,
+		Status:  model.NodeCommandStatusPending,
+		Payload: payload,
+	}
+	now := time.Now().UTC()
+	command.CreatedAt = now
+	command.UpdatedAt = now
+	if err := tx.Create(&command).Error; err != nil {
+		return model.Command{}, err
+	}
+	return command, nil
 }
 
 func (r *ReplicaRepository) selectReconcileSource(tx *gorm.DB, destination model.Replica) (ReconcileSource, error) {
@@ -544,24 +614,8 @@ func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaF
 				if err := tx.First(&destination, destinationID).Error; err != nil {
 					return err
 				}
-				source, err := r.selectReconcileSource(tx, destination)
+				command, err := r.createReconcileCommand(tx, destination, payloadBuilders[0], nil)
 				if err != nil {
-					return err
-				}
-				payload, err := payloadBuilders[0](destination, source, nil)
-				if err != nil {
-					return err
-				}
-				command := model.Command{
-					NodeID:  destination.NodeID,
-					Type:    model.NodeCommandTypeReconcileReplica,
-					Status:  model.NodeCommandStatusPending,
-					Payload: payload,
-				}
-				now := time.Now().UTC()
-				command.CreatedAt = now
-				command.UpdatedAt = now
-				if err := tx.Create(&command).Error; err != nil {
 					return err
 				}
 				commands = append(commands, command)
@@ -652,24 +706,8 @@ func (r *ReplicaRepository) ReportDownstreamFileChanges(replicaID uint, updates 
 			return nil
 		}
 
-		source, err := r.selectReconcileSource(tx, replica)
+		command, err := r.createReconcileCommand(tx, replica, payloadBuilder, deleteRelativeURIs)
 		if err != nil {
-			return err
-		}
-		payload, err := payloadBuilder(replica, source, deleteRelativeURIs)
-		if err != nil {
-			return err
-		}
-		command := model.Command{
-			NodeID:  replica.NodeID,
-			Type:    model.NodeCommandTypeReconcileReplica,
-			Status:  model.NodeCommandStatusPending,
-			Payload: payload,
-		}
-		now := time.Now().UTC()
-		command.CreatedAt = now
-		command.UpdatedAt = now
-		if err := tx.Create(&command).Error; err != nil {
 			return err
 		}
 		commands = append(commands, command)

@@ -913,6 +913,8 @@ Behavior:
 - resolves the current node ID from the auth token
 - updates `nodes.address` from the request body
 - updates `nodes.last_seen` to the current coordinator time
+- ensures each active replica assigned to the node with pending `replica_files` has a pending `reconcile_replica`
+  command for that destination replica
 - returns pending durable coordinator commands for that node
 - does not delete or mutate commands as part of delivery
 - acts as fallback command delivery when the websocket command channel is unavailable

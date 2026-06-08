@@ -116,6 +116,19 @@ func (s *ReplicaService) reconcilePayloadBuilder() repository.ReconcilePayloadBu
 	}
 }
 
+func (s *ReplicaService) EnsureReconcileCommandsForNode(nodeID string) ([]NodeCommand, error) {
+	commands, err := s.repo.EnsureReconcileCommandsForNode(nodeID, s.reconcilePayloadBuilder())
+	if err != nil {
+		return nil, err
+	}
+	if s.nodes != nil {
+		for i := range commands {
+			s.nodes.PublishCommand(&commands[i])
+		}
+	}
+	return toNodeCommands(commands), nil
+}
+
 func (s *ReplicaService) Get(replicaID uint) (*InventoryReplicaDetails, error) {
 	replica, err := s.repo.FindByID(replicaID)
 	if err != nil {

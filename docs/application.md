@@ -195,6 +195,10 @@ Heartbeat response can also contain pending orchestration tasks.
 
 The tasks field acts as a fallback delivery mechanism when the WebSocket connection is unavailable.
 
+After updating the checking-in node state, the coordinator checks active replicas assigned to that node. If a replica
+has pending `replica_files` and no pending `reconcile_replica` command for that destination replica, the coordinator
+creates a new reconcile command. Failed, completed and canceled commands do not block creation.
+
 #### WebSocket orchestration channel
 After authentication, the storage service establishes a WebSocket connection to the coordinator.
 
