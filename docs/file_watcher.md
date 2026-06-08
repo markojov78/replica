@@ -20,7 +20,6 @@ It contains:
 - `RelativeURI`: slash-separated path relative to the replica root
 - `Size`: file size in bytes
 - `Hash`: BLAKE3 content hash
-- `HashAlgorithm`: `blake3`
 - `Created`: best available creation time
 - `Modified`: last modification time
 
@@ -54,7 +53,7 @@ Implementation requirements:
 - return file entries only, not directories
 - normalize `RelativeURI` to slash-separated paths
 - honor context cancellation
-- populate `Size`, `Hash`, `HashAlgorithm`, `Created`, and `Modified`
+- populate `Size`, `Hash`, `Created`, and `Modified`
 - return deterministic ordering, sorted by `RelativeURI`
 
 Scanners are appropriate for:
@@ -126,7 +125,6 @@ For single-file roots, the returned `RelativeURI` is the file basename, for exam
 Hashing:
 
 - local files use BLAKE3
-- `HashAlgorithm` is set to `blake3`
 
 Timestamps:
 
@@ -227,7 +225,6 @@ Hashing and fingerprints:
 - the first scan after process startup downloads objects to establish their BLAKE3 hashes
 - unchanged metadata reuses the cached BLAKE3 hash without downloading the object
 - new objects and objects with changed metadata are downloaded and hashed with BLAKE3
-- `HashAlgorithm` is always `blake3`
 
 ### S3 watcher
 

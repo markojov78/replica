@@ -10,10 +10,6 @@ import (
 )
 
 const (
-	HashAlgorithmBLAKE3 = "blake3"
-)
-
-const (
 	FileChangeTypeCreated        = "created"
 	FileChangeTypeModified       = "modified"
 	FileChangeTypeDeleted        = "deleted"
@@ -23,12 +19,11 @@ const (
 )
 
 type FileState struct {
-	RelativeURI   string
-	Size          int64
-	Hash          string
-	HashAlgorithm string // TODO remove
-	Created       time.Time
-	Modified      time.Time
+	RelativeURI string
+	Size        int64
+	Hash        string
+	Created     time.Time
+	Modified    time.Time
 }
 
 type FileChange struct {
@@ -85,7 +80,7 @@ func compareSnapshots(previous, current []FileState) []FileChange {
 			continue
 		}
 
-		if prev.Size != state.Size || prev.Modified != state.Modified || prev.Hash != state.Hash || prev.HashAlgorithm != state.HashAlgorithm {
+		if prev.Size != state.Size || prev.Modified != state.Modified || prev.Hash != state.Hash {
 			stateCopy := state
 			changes = append(changes, FileChange{
 				RelativeURI: state.RelativeURI,

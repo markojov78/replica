@@ -83,9 +83,6 @@ func TestS3ScannerReturnsBLAKE3InsteadOfObjectChecksumOrETag(t *testing.T) {
 	if states[0].Hash == "checksum-value" || states[0].Hash == "etag-value" {
 		t.Fatalf("states[0].Hash = %q, must not use S3 checksum or ETag", states[0].Hash)
 	}
-	if states[0].HashAlgorithm != HashAlgorithmBLAKE3 {
-		t.Fatalf("states[0].HashAlgorithm = %q, want %q", states[0].HashAlgorithm, HashAlgorithmBLAKE3)
-	}
 	if !states[0].Modified.Equal(modified) || !states[0].Created.Equal(modified) {
 		t.Fatalf("modified/created mismatch: modified=%s created=%s want=%s", states[0].Modified, states[0].Created, modified)
 	}
@@ -157,7 +154,7 @@ func TestS3ScannerRehashesChangedMetadataButReturnsSameBLAKE3ForSameBytes(t *tes
 	if getClient.calls != 2 {
 		t.Fatalf("GetObject calls = %d, want 2 after metadata change", getClient.calls)
 	}
-	if first[0].Hash != second[0].Hash || second[0].HashAlgorithm != HashAlgorithmBLAKE3 {
+	if first[0].Hash != second[0].Hash {
 		t.Fatalf("first/second states = %+v/%+v, want same BLAKE3", first[0], second[0])
 	}
 	files := []apiclient.ReplicaInventoryFile{

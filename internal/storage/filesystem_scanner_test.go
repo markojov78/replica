@@ -57,9 +57,6 @@ func TestFilesystemScannerCalculatesStableBLAKE3Hashes(t *testing.T) {
 	if len(first) != 1 || len(second) != 1 {
 		t.Fatalf("unexpected scan lengths: len(first)=%d len(second)=%d", len(first), len(second))
 	}
-	if first[0].HashAlgorithm != HashAlgorithmBLAKE3 {
-		t.Fatalf("first[0].HashAlgorithm = %q, want %q", first[0].HashAlgorithm, HashAlgorithmBLAKE3)
-	}
 	if first[0].Hash == "" {
 		t.Fatal("first[0].Hash is empty")
 	}

@@ -90,12 +90,11 @@ func fileStateFromPath(ctx context.Context, rootPath, fullPath string) (*FileSta
 
 	created := fileCreatedAt(info)
 	return &FileState{
-		RelativeURI:   rel,
-		Size:          info.Size(),
-		Hash:          hash,
-		HashAlgorithm: HashAlgorithmBLAKE3,
-		Created:       created,
-		Modified:      info.ModTime().UTC(),
+		RelativeURI: rel,
+		Size:        info.Size(),
+		Hash:        hash,
+		Created:     created,
+		Modified:    info.ModTime().UTC(),
 	}, nil
 }
 

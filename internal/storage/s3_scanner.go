@@ -158,12 +158,11 @@ func (s *S3Scanner) fileStateFromObject(ctx context.Context, location s3Location
 	}
 
 	return &FileState{
-		RelativeURI:   normalizeRelativeURI(relativeURI),
-		Size:          aws.ToInt64(object.Size),
-		Hash:          hash,
-		HashAlgorithm: HashAlgorithmBLAKE3,
-		Created:       modified,
-		Modified:      modified,
+		RelativeURI: normalizeRelativeURI(relativeURI),
+		Size:        aws.ToInt64(object.Size),
+		Hash:        hash,
+		Created:     modified,
+		Modified:    modified,
 	}, nil
 }
 
