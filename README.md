@@ -1,4 +1,4 @@
-# DropOutBbox service
+# Replica service
 
 A distributed, self-hosted file sharing and file replication service.  
 While the initial idea for the service is to facilitate storage, backup and sharing of my own photo collection,
@@ -18,7 +18,7 @@ Or for a different platform:
 ```bash
 ./build.sh pi
 ```
-Build script will create `bin/dropoutbox` and `bin/dropoutbox-seed` files.  
+Build script will create `bin/replica` and `bin/replica-seed` files.  
 
 ## Configure
 ```bash

@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"time"
 
-	"dropoutbox/internal/model"
-	"dropoutbox/internal/repository"
+	"replica/internal/model"
+	"replica/internal/repository"
 
 	"github.com/golang-jwt/jwt/v5"
 )

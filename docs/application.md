@@ -1,4 +1,4 @@
-# DropOuBbox service
+# Replica service
 
 A distributed, self-hosted file sharing and file replication service.  
 While the initial idea for the service is to facilitate storage, backup and sharing of my own photo collection, 

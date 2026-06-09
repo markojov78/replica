@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"dropoutbox/internal/service"
+	"replica/internal/service"
 
 	"github.com/danielgtaylor/huma/v2"
 )

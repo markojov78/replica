@@ -5,13 +5,13 @@ import (
 	"log"
 	"net/http"
 
-	"dropoutbox/internal/buildinfo"
-	"dropoutbox/internal/config"
-	"dropoutbox/internal/db"
-	"dropoutbox/internal/repository"
-	"dropoutbox/internal/router"
-	"dropoutbox/internal/service"
-	"dropoutbox/internal/storage"
+	"replica/internal/buildinfo"
+	"replica/internal/config"
+	"replica/internal/db"
+	"replica/internal/repository"
+	"replica/internal/router"
+	"replica/internal/service"
+	"replica/internal/storage"
 )
 
 func main() {
@@ -97,7 +97,7 @@ func main() {
 
 	log.Printf(
 		"starting %s version=%s node_id=%s coordinator=%t storage=%t listen=%s",
-		"DropOutBox",
+		router.ServiceName,
 		buildinfo.Version,
 		cfg.App.NodeID,
 		cfg.App.Coordinator,

@@ -4,11 +4,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"dropoutbox/internal/config"
-	"dropoutbox/internal/db"
-	"dropoutbox/internal/model"
-	"dropoutbox/internal/repository"
-	"dropoutbox/internal/security"
+	"replica/internal/config"
+	"replica/internal/db"
+	"replica/internal/model"
+	"replica/internal/repository"
+	"replica/internal/security"
 )
 
 func TestNodeServiceCreateHashesSecretAndDefaultsOffline(t *testing.T) {

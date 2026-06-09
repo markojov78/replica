@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const TemporaryWritePrefix = ".dropoutbox-write-"
+const TemporaryWritePrefix = ".replica-write-"
 
 func temporaryWritePattern() string {
 	return TemporaryWritePrefix + "*"

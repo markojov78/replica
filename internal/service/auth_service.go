@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"time"
 
-	"dropoutbox/internal/model"
-	"dropoutbox/internal/repository"
-	"dropoutbox/internal/security"
+	"replica/internal/model"
+	"replica/internal/repository"
+	"replica/internal/security"
 
 	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"

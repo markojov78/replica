@@ -1,7 +1,7 @@
 package repository
 
 import (
-	"dropoutbox/internal/model"
+	"replica/internal/model"
 	"time"
 
 	"gorm.io/gorm"

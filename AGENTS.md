@@ -2,7 +2,7 @@
 
 ## Project
 
-This repository contains DropOutBox, a distributed self-hosted file replication and file sharing service.
+This repository contains Replica, a distributed self-hosted file replication and file sharing service.
 
 ## Authoritative Documentation
 

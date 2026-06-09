@@ -3,7 +3,7 @@ package repository
 import (
 	"encoding/json"
 
-	"dropoutbox/internal/model"
+	"replica/internal/model"
 
 	"gorm.io/gorm"
 )

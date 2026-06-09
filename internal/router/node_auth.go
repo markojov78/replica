@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"dropoutbox/internal/service"
+	"replica/internal/service"
 )
 
 type authenticatedNodeContextKey struct{}

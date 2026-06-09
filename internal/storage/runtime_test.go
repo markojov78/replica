@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"dropoutbox/internal/apiclient"
-	"dropoutbox/internal/config"
+	"replica/internal/apiclient"
+	"replica/internal/config"
 
 	"github.com/gorilla/websocket"
 )

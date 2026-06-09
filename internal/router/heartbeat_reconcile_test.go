@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"dropoutbox/internal/buildinfo"
-	"dropoutbox/internal/config"
-	"dropoutbox/internal/model"
-	"dropoutbox/internal/repository"
-	"dropoutbox/internal/security"
-	"dropoutbox/internal/service"
+	"replica/internal/buildinfo"
+	"replica/internal/config"
+	"replica/internal/model"
+	"replica/internal/repository"
+	"replica/internal/security"
+	"replica/internal/service"
 )
 
 func TestHeartbeatCreatesMissingReconcileCommand(t *testing.T) {

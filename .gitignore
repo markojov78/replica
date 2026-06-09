@@ -37,13 +37,13 @@ config.yaml
 Thumbs.db
 
 # sqlite db
-dropoutbox.db
+replica.db
 
 # builds
-dropoutbox
-dropoutbox.exe
-dropoutbox-seed
-dropoutbox-seed.exe
+replica
+replica.exe
+replica-seed
+replica-seed.exe
 
 # ai stuff
 .cursor/

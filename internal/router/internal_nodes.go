@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/http"
 
-	"dropoutbox/internal/service"
+	"replica/internal/service"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/gorilla/websocket"

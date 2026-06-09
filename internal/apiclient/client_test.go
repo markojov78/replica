@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"dropoutbox/internal/config"
+	"replica/internal/config"
 )
 
 func TestClientAuthenticateAndReportAvailability(t *testing.T) {

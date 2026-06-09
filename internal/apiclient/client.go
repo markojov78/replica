@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"dropoutbox/internal/config"
+	"replica/internal/config"
 )
 
 const apiVersion = "1"

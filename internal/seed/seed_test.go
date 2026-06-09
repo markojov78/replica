@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"dropoutbox/internal/config"
-	"dropoutbox/internal/db"
-	"dropoutbox/internal/model"
+	"replica/internal/config"
+	"replica/internal/db"
+	"replica/internal/model"
 )
 
 func TestRunAddsAdminNodePermissions(t *testing.T) {

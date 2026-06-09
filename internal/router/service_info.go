@@ -3,11 +3,11 @@ package router
 import (
 	"net/http"
 
-	"dropoutbox/internal/buildinfo"
-	"dropoutbox/internal/config"
+	"replica/internal/buildinfo"
+	"replica/internal/config"
 )
 
-const serviceName = "DropOutBox"
+const ServiceName = "Replica"
 
 func registerServiceInfoRoute(mux *http.ServeMux, cfg config.Config, info buildinfo.Info, svc services) {
 	mux.HandleFunc("GET /api/{$}", func(w http.ResponseWriter, r *http.Request) {
@@ -26,7 +26,7 @@ func registerServiceInfoRoute(mux *http.ServeMux, cfg config.Config, info buildi
 		}
 
 		writeJSON(w, http.StatusOK, serviceInfoBody{
-			Service:     serviceName,
+			Service:     ServiceName,
 			Version:     info.Version,
 			Commit:      info.Commit,
 			BuildDate:   info.BuildDate,

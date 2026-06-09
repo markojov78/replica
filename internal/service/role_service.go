@@ -3,8 +3,8 @@ package service
 import (
 	"errors"
 
-	"dropoutbox/internal/model"
-	"dropoutbox/internal/repository"
+	"replica/internal/model"
+	"replica/internal/repository"
 
 	"gorm.io/gorm"
 )

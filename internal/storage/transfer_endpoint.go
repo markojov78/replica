@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"dropoutbox/internal/apiclient"
+	"replica/internal/apiclient"
 
 	"github.com/golang-jwt/jwt/v5"
 )

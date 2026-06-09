@@ -119,7 +119,7 @@ Behavior:
 - when `rootURI` is a file, returns exactly one file entry for that file
 - ignores directories as scan results
 - ignores symlinks for now
-- ignores temporary write paths whose basename starts with `.dropoutbox-write-`
+- ignores temporary write paths whose basename starts with `TemporaryWritePrefix` defined in `internal/storage/temporary_files.go`
 - computes a BLAKE3 content hash for each file unless unchanged old metadata allows reusing a known hash
 - normalizes relative paths using slash separators
 - returns results sorted by `RelativeURI`
@@ -155,7 +155,8 @@ Behavior:
 - converts `fsnotify` events into normalized `FileChange` values
 - stats the file when possible and includes `State` for existing files
 - removes directory watches when remove events occur
-- ignores events for temporary write paths whose basename starts with `.dropoutbox-write-`
+- ignores events for temporary write paths whose basename starts with`TemporaryWritePrefix` defined in `internal/storage/temporary_files.go`
+
 
 Event mapping:
 
@@ -217,7 +218,7 @@ Behavior:
 - handles pagination through continuation tokens
 - converts object keys under the prefix into relative slash-separated URIs
 - skips empty or out-of-prefix keys
-- skips temporary write keys whose basename starts with `.dropoutbox-write-`
+- skips temporary write keys whose basename starts with `TemporaryWritePrefix` defined in `internal/storage/temporary_files.go`
 - returns results sorted by `RelativeURI`
 
 Timestamps:

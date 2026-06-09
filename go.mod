@@ -1,4 +1,4 @@
-module dropoutbox
+module replica
 
 go 1.25.0
 

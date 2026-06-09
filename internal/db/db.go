@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"dropoutbox/internal/config"
-	"dropoutbox/internal/model"
+	"replica/internal/config"
+	"replica/internal/model"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/postgres"

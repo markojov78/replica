@@ -3,9 +3,9 @@ package main
 import (
 	"log"
 
-	"dropoutbox/internal/config"
-	"dropoutbox/internal/db"
-	"dropoutbox/internal/seed"
+	"replica/internal/config"
+	"replica/internal/db"
+	"replica/internal/seed"
 )
 
 func main() {

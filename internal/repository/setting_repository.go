@@ -3,7 +3,7 @@ package repository
 import (
 	"errors"
 
-	"dropoutbox/internal/model"
+	"replica/internal/model"
 
 	"gorm.io/gorm"
 )

@@ -1,11 +1,11 @@
 package seed
 
 import (
-	"dropoutbox/internal/config"
-	"dropoutbox/internal/model"
-	"dropoutbox/internal/repository"
-	"dropoutbox/internal/security"
-	"dropoutbox/internal/service"
+	"replica/internal/config"
+	"replica/internal/model"
+	"replica/internal/repository"
+	"replica/internal/security"
+	"replica/internal/service"
 
 	"gorm.io/gorm"
 )

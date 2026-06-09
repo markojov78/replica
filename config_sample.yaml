@@ -19,10 +19,10 @@ http:
 
 database:
   driver: "sqlite"
-  dsn: "dropoutbox.db"
+  dsn: "replica.db"
   auto_migrate: true
 #  driver: "postgres"
-#  dsn: "host=localhost user=postgres password=postgres dbname=dropoutbox port=5432 sslmode=disable"
+#  dsn: "host=localhost user=postgres password=postgres dbname=replica port=5432 sslmode=disable"
 #  auto_migrate: true
 
 seed:

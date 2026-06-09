@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"dropoutbox/internal/model"
+	"replica/internal/model"
 
 	"gorm.io/gorm"
 )

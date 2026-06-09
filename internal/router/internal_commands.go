@@ -3,7 +3,7 @@ package router
 import (
 	"context"
 
-	"dropoutbox/internal/service"
+	"replica/internal/service"
 
 	"github.com/danielgtaylor/huma/v2"
 )

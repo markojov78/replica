@@ -4,7 +4,7 @@ services:
   postgres:
     image: postgres:17
     environment:
-      POSTGRES_DB: dropoutbox
+      POSTGRES_DB: replica
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:

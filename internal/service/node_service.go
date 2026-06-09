@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"dropoutbox/internal/model"
-	"dropoutbox/internal/repository"
-	"dropoutbox/internal/security"
+	"replica/internal/model"
+	"replica/internal/repository"
+	"replica/internal/security"
 
 	"gorm.io/gorm"
 )

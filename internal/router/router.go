@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"dropoutbox/internal/buildinfo"
-	"dropoutbox/internal/config"
-	"dropoutbox/internal/service"
-	"dropoutbox/internal/storage"
+	"replica/internal/buildinfo"
+	"replica/internal/config"
+	"replica/internal/service"
+	"replica/internal/storage"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -40,7 +40,7 @@ func New(
 	optionalServices ...any,
 ) http.Handler {
 	mux := http.NewServeMux()
-	api := humago.New(mux, huma.DefaultConfig(serviceName, info.Version))
+	api := humago.New(mux, huma.DefaultConfig(ServiceName, info.Version))
 	apiGroup := huma.NewGroup(api, "/api")
 	internalGroup := huma.NewGroup(api, "/internal")
 

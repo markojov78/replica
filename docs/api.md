@@ -25,7 +25,7 @@ Example response:
 
 ```json
 {
-  "service": "DropOutBox",
+  "service": "Replica",
   "version": "dev",
   "commit": "abc1234",
   "build_date": "2026-05-19T12:00:00Z",
