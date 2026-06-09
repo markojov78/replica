@@ -93,6 +93,38 @@ type inventoryList struct {
 	Total int64       `json:"total"`
 }
 
+type inventoryFile struct {
+	ID          uint      `json:"id"`
+	InventoryID uint      `json:"inventory_id"`
+	RelativeURI string    `json:"relative_uri"`
+	Status      string    `json:"status"`
+	Size        int64     `json:"size"`
+	Hash        string    `json:"hash"`
+	Version     uint      `json:"version"`
+	Created     time.Time `json:"created"`
+	Modified    time.Time `json:"modified"`
+}
+
+type inventoryFileList struct {
+	Items []inventoryFile `json:"items"`
+	Page  int             `json:"page"`
+	Count int             `json:"count"`
+	Total int64           `json:"total"`
+}
+
+type filePage struct {
+	Items      []inventoryFile
+	Page       int
+	Count      int
+	Displayed  int
+	Total      int64
+	TotalPages int
+	PrevPage   int
+	NextPage   int
+	HasPrev    bool
+	HasNext    bool
+}
+
 type pageData struct {
 	Title       string
 	Subtitle    string
@@ -102,6 +134,7 @@ type pageData struct {
 	Node        node
 	Inventories []inventory
 	Inventory   inventory
+	Files       filePage
 	Replica     replica
 	IsEdit      bool
 }
@@ -112,6 +145,8 @@ func Register(mux *http.ServeMux, api http.Handler) error {
 		"formatTime":  formatTime,
 		"pathEscape":  url.PathEscape,
 		"isUpstream":  isUpstream,
+		"formatBytes": formatBytes,
+		"formatDate":  formatDate,
 	}).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		return err
@@ -336,9 +371,21 @@ func (h *Handler) inventoryPage(w http.ResponseWriter, r *http.Request, sess ses
 	if !h.load(w, r, sess, "/api/inventories/"+r.PathValue("id"), &item) {
 		return
 	}
+	page := positiveInt(r.URL.Query().Get("page"), 1)
+	count := filePageSize(r.URL.Query().Get("count"))
+	var files inventoryFileList
+	if !h.load(w, r, sess, fmt.Sprintf("/api/inventories/%s/files?page=%d&count=%d", r.PathValue("id"), page, count), &files) {
+		return
+	}
+	totalPages := pageCount(files.Total, files.Count)
+	if files.Total > 0 && files.Page > totalPages {
+		if !h.load(w, r, sess, fmt.Sprintf("/api/inventories/%s/files?page=%d&count=%d", r.PathValue("id"), totalPages, count), &files) {
+			return
+		}
+	}
 	h.render(w, "inventory", pageData{
 		Title: item.Name, Subtitle: fmt.Sprintf("Inventory #%d · %s · %s", item.ID, item.Type, item.Status),
-		Active: "inventories", Inventory: item,
+		Active: "inventories", Inventory: item, Files: newFilePage(files),
 	})
 }
 
@@ -739,8 +786,69 @@ func optionalUint(value string) *uint {
 	return &result
 }
 
+func positiveInt(value string, fallback int) int {
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 1 {
+		return fallback
+	}
+	return parsed
+}
+
+func filePageSize(value string) int {
+	size := positiveInt(value, 20)
+	switch size {
+	case 10, 20, 50, 100:
+		return size
+	default:
+		return 20
+	}
+}
+
+func pageCount(total int64, count int) int {
+	if total == 0 || count < 1 {
+		return 1
+	}
+	return int((total + int64(count) - 1) / int64(count))
+}
+
+func newFilePage(list inventoryFileList) filePage {
+	totalPages := pageCount(list.Total, list.Count)
+	return filePage{
+		Items:      list.Items,
+		Page:       list.Page,
+		Count:      list.Count,
+		Displayed:  len(list.Items),
+		Total:      list.Total,
+		TotalPages: totalPages,
+		PrevPage:   list.Page - 1,
+		NextPage:   list.Page + 1,
+		HasPrev:    list.Page > 1,
+		HasNext:    list.Page < totalPages,
+	}
+}
+
 func isUpstream(id uint, upstream *uint) bool {
 	return upstream != nil && id == *upstream
+}
+
+func formatBytes(size int64) string {
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	div, exp := int64(unit), 0
+	for value := size / unit; value >= unit && exp < 4; value /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(size)/float64(div), "KMGTPE"[exp])
+}
+
+func formatDate(value time.Time) string {
+	if value.IsZero() {
+		return "—"
+	}
+	return value.Local().Format("2006-01-02 15:04:05")
 }
 
 func statusClass(status string) string {

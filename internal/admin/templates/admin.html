@@ -158,6 +158,46 @@
     </tbody>
   </table>
 </section>
+<section class="card">
+  <div class="section-head"><div><h2>Inventory files</h2><p>{{.Files.Total}} files in authoritative inventory state.</p></div></div>
+  <div class="table-controls">
+    <span>{{.Files.Displayed}} of {{.Files.Total}} files, page {{.Files.Page}} of {{.Files.TotalPages}}</span>
+    <form action="/admin/inventories/{{.Inventory.ID}}" method="get">
+      <input type="hidden" name="page" value="1">
+      <label>Files per page
+        <select name="count">
+          <option value="10" {{if eq .Files.Count 10}}selected{{end}}>10</option>
+          <option value="20" {{if eq .Files.Count 20}}selected{{end}}>20</option>
+          <option value="50" {{if eq .Files.Count 50}}selected{{end}}>50</option>
+          <option value="100" {{if eq .Files.Count 100}}selected{{end}}>100</option>
+        </select>
+      </label>
+      <button type="submit">Apply</button>
+    </form>
+    <nav class="pagination" aria-label="Inventory files pagination">
+      <a class="btn {{if not .Files.HasPrev}}disabled{{end}}" {{if .Files.HasPrev}}href="/admin/inventories/{{.Inventory.ID}}?page=1&count={{.Files.Count}}"{{end}}>First</a>
+      <a class="btn {{if not .Files.HasPrev}}disabled{{end}}" {{if .Files.HasPrev}}href="/admin/inventories/{{.Inventory.ID}}?page={{.Files.PrevPage}}&count={{.Files.Count}}"{{end}}>Previous</a>
+      <a class="btn {{if not .Files.HasNext}}disabled{{end}}" {{if .Files.HasNext}}href="/admin/inventories/{{.Inventory.ID}}?page={{.Files.NextPage}}&count={{.Files.Count}}"{{end}}>Next</a>
+      <a class="btn {{if not .Files.HasNext}}disabled{{end}}" {{if .Files.HasNext}}href="/admin/inventories/{{.Inventory.ID}}?page={{.Files.TotalPages}}&count={{.Files.Count}}"{{end}}>Last</a>
+    </nav>
+  </div>
+  <table>
+    <thead><tr><th>ID</th><th>Relative URI</th><th>Status</th><th>Version</th><th>Size</th><th>Modified</th><th>Hash</th></tr></thead>
+    <tbody>
+    {{range .Files.Items}}
+      <tr>
+        <td class="mono">#{{.ID}}</td>
+        <td class="mono">{{.RelativeURI}}</td>
+        <td><span class="pill {{statusClass .Status}}">{{.Status}}</span></td>
+        <td>{{.Version}}</td>
+        <td>{{formatBytes .Size}}</td>
+        <td>{{formatDate .Modified}}</td>
+        <td class="mono hash">{{if .Hash}}{{.Hash}}{{else}}—{{end}}</td>
+      </tr>
+    {{else}}<tr><td colspan="7" class="empty">No inventory files found.</td></tr>{{end}}
+    </tbody>
+  </table>
+</section>
 {{template "layout_end" .}}
 {{end}}
 

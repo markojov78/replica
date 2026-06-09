@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -95,9 +96,50 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("create inventory response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
 
+	now := time.Now().UTC()
+	files := make([]model.InventoryFile, 0, 21)
+	for i := 1; i <= 21; i++ {
+		files = append(files, model.InventoryFile{
+			InventoryID: 1,
+			RelativeURI: "file-" + strconv.Itoa(i) + ".txt",
+			Status:      model.InventoryFileStatusActive,
+			Size:        int64(i * 1024),
+			Hash:        "hash-" + strconv.Itoa(i),
+			Version:     uint(i),
+			Created:     now,
+			Modified:    now,
+		})
+	}
+	if err := database.Create(&files).Error; err != nil {
+		t.Fatalf("Create(files) error = %v", err)
+	}
+
 	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories/1", nil, cookies)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Documents") || !strings.Contains(response.Body.String(), "Replicas") {
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "Documents") ||
+		!strings.Contains(response.Body.String(), "Replicas") ||
+		!strings.Contains(response.Body.String(), "Inventory files") ||
+		!strings.Contains(response.Body.String(), "file-1.txt") ||
+		!strings.Contains(response.Body.String(), "20 of 21 files, page 1 of 2") ||
+		!strings.Contains(response.Body.String(), "/admin/inventories/1?page=2&count=20") ||
+		!strings.Contains(response.Body.String(), "Files per page") {
 		t.Fatalf("inventory detail response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories/1?page=2&count=20", nil, cookies)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "file-21.txt") ||
+		!strings.Contains(response.Body.String(), "1 of 21 files, page 2 of 2") ||
+		!strings.Contains(response.Body.String(), "/admin/inventories/1?page=1&count=20") {
+		t.Fatalf("inventory files page 2 response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories/1?page=2&count=10", nil, cookies)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "10 of 21 files, page 2 of 3") ||
+		!strings.Contains(response.Body.String(), "/admin/inventories/1?page=1&count=10") ||
+		!strings.Contains(response.Body.String(), "/admin/inventories/1?page=3&count=10") {
+		t.Fatalf("inventory files custom page size response = %d body=%q", response.Code, response.Body.String())
 	}
 
 	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/1/replicas", url.Values{
