@@ -1,15 +1,19 @@
-# Replica service
+# Replica
 
-A distributed, self-hosted file sharing and file replication service.  
+A distributed, self-hosted file sharing and file replication service made with `Go + Huma + GORM`.
+
 While the initial idea for the service is to facilitate storage, backup and sharing of my own photo collection,
-it is not limited to specific data type: storage and replication functionality should be agnostic to data type and
+it is not limited to specific data type:  
+storage and replication functionality should be agnostic to data type and
 frontend is intended to be extensible to present different file types (images, audio, video, documents ...)
-Skeleton `Go + Huma + GORM` project for a distributed, self-hosted file sharing and replication service.
 
-## [Detailed application description](docs/application.md)
+## [Detailed description](docs/application.md)
 ## [API specification](docs/api.md)
 
 ## Build
+Requirements:  
+go 1.25.0 or newer.
+
 To build the service, use the build script:
 ```bash
 ./build.sh

@@ -1312,11 +1312,11 @@ Possible errors:
 - `404` replica not found
 - `404` replica file not found
 
-### /replicas/{replica_id}/files/{file_id}/content endpoint
+## File transfer API
+This API is served by storage nodes when `app.storage = true`. It is not a coordinator-relayed download endpoint.
 
-This endpoint is served by storage nodes when `app.storage = true`. It is not a coordinator-relayed download endpoint.
-
-#### GET /replicas/{replica_id}/files/{file_id}/content?version=123
+### /internal/replicas/{replica_id}/files/{file_id}/content endpoint
+#### GET /internal/replicas/{replica_id}/files/{file_id}/content?version=123
 Streams replica file content from a source storage node to a target storage node.
 
 Behavior:

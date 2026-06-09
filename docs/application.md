@@ -76,7 +76,7 @@ All other nodes need the coordinator to be online and available for service to w
 There is only one coordinator service main database holding system state and exposing 
 [public API](api.md#public-api) for administration and [internal API](api.md#internal-api) for node coordination.
 
-### Storage service
+### Storage service + file transfer API
 Part of the system that handles replica(s) on the filesystem or cloud storage. 
 Each replica is handled by one storage service. Even in the case of cloud storage like s3, there is one storage service 
 responsible for the replica. One storage service instance can manage multiple replicas on multiple locations.  
@@ -85,7 +85,8 @@ error in case of permissions and/or credential problems.
 To avoid a split state scenario, the storage service will have no persisted state: it will authenticate with the 
 coordinator, and then retrieve the state from the coordinator.
 IT will periodically scan replicas and report changes to the coordinator, and ask for instructions on how to proceed. 
-In case of the unavailable coordinator, it should halt all replication until the coordinator becomes available again.
+In case of the unavailable coordinator, it should halt all replication until the coordinator becomes available again.  
+Storage service also exposes file transfer API for direct node-to-node file replication.  
   
 ### Sharing service + sharing UI
 Sharing service is both a web app with UI with data presentation (previews for images, links for documents etc) and 
