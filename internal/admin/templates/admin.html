@@ -1,0 +1,206 @@
+{{define "head"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · Replica Admin</title>
+  <link rel="stylesheet" href="/admin/static/admin.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+</head>
+{{end}}
+
+{{define "layout_start"}}
+{{template "head" .}}
+<body hx-boost="true">
+<div class="app">
+  <aside>
+    <a class="logo" href="/admin">Replica Admin<small>Coordinator console</small></a>
+    <nav class="nav">
+      <a href="/admin/nodes" class="{{if eq .Active "nodes"}}active{{end}}">Nodes</a>
+      <a href="/admin/inventories" class="{{if eq .Active "inventories"}}active{{end}}">Inventories</a>
+      <span>Replication <b>Later</b></span>
+      <span>Settings <b>Later</b></span>
+    </nav>
+    <form action="/admin/logout" method="post" class="logout"><button type="submit">Log out</button></form>
+  </aside>
+  <main>
+    <header class="topbar">
+      <div><h1>{{.Title}}</h1>{{if .Subtitle}}<p>{{.Subtitle}}</p>{{end}}</div>
+    </header>
+{{end}}
+
+{{define "layout_end"}}
+  </main>
+</div>
+</body>
+</html>
+{{end}}
+
+{{define "alert"}}{{if .Error}}<div class="alert">{{.Error}}</div>{{end}}{{end}}
+
+{{define "login"}}
+{{template "head" .}}
+<body class="login-page">
+  <main class="login-card">
+    <div class="logo dark">Replica Admin<small>Coordinator console</small></div>
+    <h1>Sign in</h1>
+    <p>Use your Replica user credentials.</p>
+    {{template "alert" .}}
+    <form action="/admin/login" method="post" class="stack">
+      <label>Username<input name="username" required autofocus autocomplete="username"></label>
+      <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
+      <button type="submit" class="primary">Sign in</button>
+    </form>
+  </main>
+</body>
+</html>
+{{end}}
+
+{{define "nodes"}}
+{{template "layout_start" .}}
+<div class="actions"><a class="btn ghost" href="/admin/nodes">Refresh</a><a class="btn primary" href="/admin/nodes/new">Add node</a></div>
+<section class="card">
+  <table>
+    <thead><tr><th>Node</th><th>Status</th><th>Address</th><th>Interval</th><th>Last seen</th><th>Actions</th></tr></thead>
+    <tbody>
+    {{range .Nodes}}
+      <tr>
+        <td class="mono">{{.ID}}</td>
+        <td><span class="pill {{statusClass .Status}}">{{.Status}}</span></td>
+        <td class="mono">{{if .Address}}{{.Address}}{{else}}—{{end}}</td>
+        <td>{{if .Interval}}{{.Interval}}s{{else}}—{{end}}</td>
+        <td>{{formatTime .LastSeen}}</td>
+        <td class="row-actions">
+          <a class="btn" href="/admin/nodes/{{pathEscape .ID}}/edit">Edit</a>
+          {{if ne .Status "revoked"}}<form action="/admin/nodes/{{pathEscape .ID}}/revoke" method="post"><button class="danger" type="submit">Revoke</button></form>{{end}}
+        </td>
+      </tr>
+    {{else}}<tr><td colspan="6" class="empty">No nodes found.</td></tr>{{end}}
+    </tbody>
+  </table>
+</section>
+{{template "layout_end" .}}
+{{end}}
+
+{{define "node_form"}}
+{{template "layout_start" .}}
+<section class="card form-card">
+  {{template "alert" .}}
+  <form action="{{if .IsEdit}}/admin/nodes/{{pathEscape .Node.ID}}{{else}}/admin/nodes{{end}}" method="post" class="form-grid">
+    {{if not .IsEdit}}<label>Node ID<input name="id" value="{{.Node.ID}}" required></label>{{end}}
+    <label>Secret<input name="secret" type="password" {{if not .IsEdit}}required{{end}}><small>{{if .IsEdit}}Leave blank to keep the current secret.{{end}}</small></label>
+    <label class="full">Address<input name="address" value="{{.Node.Address}}"></label>
+    <label>Status
+      <select name="status">
+        {{if .IsEdit}}<option value="" selected>Keep current · {{.Node.Status}}</option>{{else}}<option value="offline" selected>offline</option>{{end}}
+        {{if and .IsEdit (or (eq .Node.Status "disabled") (eq .Node.Status "revoked"))}}<option value="offline">offline · enable node</option>{{end}}
+        <option value="disabled" {{if eq .Node.Status "disabled"}}selected{{end}}>disabled</option>
+        <option value="revoked" {{if eq .Node.Status "revoked"}}selected{{end}}>revoked</option>
+      </select>
+      <small>Online and unreachable statuses are assigned automatically.</small>
+    </label>
+    <div class="footer-actions full"><a class="btn" href="/admin/nodes">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save node{{else}}Create node{{end}}</button></div>
+  </form>
+</section>
+{{template "layout_end" .}}
+{{end}}
+
+{{define "inventories"}}
+{{template "layout_start" .}}
+<div class="actions"><a class="btn ghost" href="/admin/inventories">Refresh</a><a class="btn primary" href="/admin/inventories/new">New inventory</a></div>
+<section class="inventory-list">
+{{range .Inventories}}
+  <article class="inventory-row">
+    <div>
+      <a class="inventory-title" href="/admin/inventories/{{.ID}}">{{.Name}}</a>
+      <p>{{.Type}} · Inventory #{{.ID}} · {{len .Replicas}} replicas</p>
+      <div class="chips">{{range .Replicas}}<span>{{if .UpstreamReplicaID}}downstream{{else}}base{{end}}: {{.NodeID}}</span>{{end}}</div>
+    </div>
+    <div class="inventory-actions">
+      <span class="pill {{statusClass .Status}}">{{.Status}}</span>
+      <a class="btn" href="/admin/inventories/{{.ID}}">Open</a>
+      <a class="btn" href="/admin/inventories/{{.ID}}/edit">Edit</a>
+    </div>
+  </article>
+{{else}}<section class="card empty">No inventories found.</section>{{end}}
+</section>
+{{template "layout_end" .}}
+{{end}}
+
+{{define "inventory"}}
+{{template "layout_start" .}}
+<div class="actions">
+  <a class="btn" href="/admin/inventories/{{.Inventory.ID}}/edit">Edit inventory</a>
+  <a class="btn primary" href="/admin/inventories/{{.Inventory.ID}}/replicas/new">Add replica</a>
+  {{if ne .Inventory.Status "deleted"}}<form action="/admin/inventories/{{.Inventory.ID}}/delete" method="post"><button class="danger" type="submit">Delete inventory</button></form>{{end}}
+</div>
+<section class="card detail">
+  <dl><dt>ID</dt><dd>#{{.Inventory.ID}}</dd><dt>Type</dt><dd>{{.Inventory.Type}}</dd><dt>Status</dt><dd><span class="pill {{statusClass .Inventory.Status}}">{{.Inventory.Status}}</span></dd></dl>
+</section>
+<section class="card">
+  <div class="section-head"><div><h2>Replicas</h2><p>Physical locations belonging to this inventory.</p></div></div>
+  <table>
+    <thead><tr><th>ID</th><th>Node</th><th>URI</th><th>Type</th><th>Role / upstream</th><th>Status</th><th>Actions</th></tr></thead>
+    <tbody>
+    {{range .Inventory.Replicas}}
+      <tr>
+        <td class="mono">#{{.ID}}</td><td class="mono">{{.NodeID}}</td><td class="mono">{{.URI}}</td>
+        <td><span class="pill neutral">{{.Type}}</span></td>
+        <td>{{if .UpstreamReplicaID}}downstream from #{{.UpstreamReplicaID}}{{else}}base{{end}}</td>
+        <td><span class="pill {{statusClass .Status}}">{{.Status}}</span></td>
+        <td class="row-actions">
+          <a class="btn" href="/admin/inventories/{{$.Inventory.ID}}/replicas/{{.ID}}/edit">Edit</a>
+          {{if ne .Status "deleted"}}<form action="/admin/inventories/{{$.Inventory.ID}}/replicas/{{.ID}}/delete" method="post"><button class="danger" type="submit">Delete</button></form>{{end}}
+        </td>
+      </tr>
+    {{else}}<tr><td colspan="7" class="empty">No replicas found.</td></tr>{{end}}
+    </tbody>
+  </table>
+</section>
+{{template "layout_end" .}}
+{{end}}
+
+{{define "inventory_form"}}
+{{template "layout_start" .}}
+<section class="card form-card">
+  {{template "alert" .}}
+  <form action="{{if .IsEdit}}/admin/inventories/{{.Inventory.ID}}{{else}}/admin/inventories{{end}}" method="post" class="form-grid">
+    <label>Name<input name="name" value="{{.Inventory.Name}}" {{if .IsEdit}}required{{end}}></label>
+    {{if .IsEdit}}
+      <label>Status<select name="status"><option value="active" {{if eq .Inventory.Status "active"}}selected{{end}}>active</option><option value="deleted" {{if eq .Inventory.Status "deleted"}}selected{{end}}>deleted</option></select></label>
+    {{else}}
+      <label>Type<select name="type"><option value="folder" selected>folder</option><option value="file">file</option></select></label>
+      <label>Node<select name="node_id" required><option value="">Select node</option>{{range .Nodes}}<option value="{{.ID}}">{{.ID}} · {{.Status}}</option>{{end}}</select></label>
+      <label class="full">URI<input name="uri" required placeholder="/srv/data or s3://bucket/prefix"></label>
+    {{end}}
+    <div class="footer-actions full"><a class="btn" href="{{if .IsEdit}}/admin/inventories/{{.Inventory.ID}}{{else}}/admin/inventories{{end}}">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save inventory{{else}}Create inventory{{end}}</button></div>
+  </form>
+</section>
+{{template "layout_end" .}}
+{{end}}
+
+{{define "replica_form"}}
+{{template "layout_start" .}}
+<section class="card form-card">
+  {{template "alert" .}}
+  <div class="callout">Replica actions are scoped to <b>{{.Inventory.Name}}</b> · Inventory #{{.Inventory.ID}}.</div>
+  <form action="{{if .IsEdit}}/admin/inventories/{{.Inventory.ID}}/replicas/{{.Replica.ID}}{{else}}/admin/inventories/{{.Inventory.ID}}/replicas{{end}}" method="post" class="form-grid">
+    {{if not .IsEdit}}
+      <label>Node<select name="node_id" required><option value="">Select node</option>{{range .Nodes}}<option value="{{.ID}}" {{if eq .ID $.Replica.NodeID}}selected{{end}}>{{.ID}} · {{.Status}}</option>{{end}}</select></label>
+      <label class="full">URI<input name="uri" value="{{.Replica.URI}}" required></label>
+    {{end}}
+    <label>Type<select name="type"><option value="filesystem" {{if or (eq .Replica.Type "") (eq .Replica.Type "filesystem")}}selected{{end}}>filesystem</option><option value="storage" {{if eq .Replica.Type "storage"}}selected{{end}}>storage</option><option value="removable" {{if eq .Replica.Type "removable"}}selected{{end}}>removable</option></select></label>
+    {{if .IsEdit}}<label>Status<select name="status"><option value="active" {{if eq .Replica.Status "active"}}selected{{end}}>active</option><option value="deleted" {{if eq .Replica.Status "deleted"}}selected{{end}}>deleted</option></select></label>{{end}}
+    <label>Upstream replica<select name="upstream_replica_id"><option value="">None · base replica</option>{{range .Inventory.Replicas}}{{if ne .ID $.Replica.ID}}<option value="{{.ID}}" {{if isUpstream .ID $.Replica.UpstreamReplicaID}}selected{{end}}>#{{.ID}} · {{.NodeID}}</option>{{end}}{{end}}</select></label>
+    <div class="footer-actions full"><a class="btn" href="/admin/inventories/{{.Inventory.ID}}">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save replica{{else}}Create replica{{end}}</button></div>
+  </form>
+</section>
+{{template "layout_end" .}}
+{{end}}
+
+{{define "error"}}
+{{template "layout_start" .}}
+<section class="card"><div class="alert">{{.Error}}</div><a class="btn" href="/admin">Back to admin</a></section>
+{{template "layout_end" .}}
+{{end}}

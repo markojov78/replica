@@ -74,6 +74,22 @@ func TestEnsureReconcileCommandsForNode(t *testing.T) {
 	}
 }
 
+func TestReplicaServiceUpdateClearsUpstreamReplica(t *testing.T) {
+	database, svc, source, destination := newReconcileCommandTest(t)
+	sourceID := source.ID
+	if err := database.Model(&model.Replica{}).Where("id = ?", destination.ID).Update("upstream_replica_id", sourceID).Error; err != nil {
+		t.Fatalf("set upstream replica error = %v", err)
+	}
+
+	updated, err := svc.Update(destination.ID, UpdateReplicaInput{UpstreamReplicaIDSet: true})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if updated.UpstreamReplicaID != nil {
+		t.Fatalf("updated.UpstreamReplicaID = %v, want nil", updated.UpstreamReplicaID)
+	}
+}
+
 func newReconcileCommandTest(t *testing.T) (*gorm.DB, *ReplicaService, model.Replica, model.Replica) {
 	t.Helper()
 

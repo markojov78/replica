@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"replica/internal/admin"
 	"replica/internal/buildinfo"
 	"replica/internal/config"
 	"replica/internal/service"
@@ -81,6 +82,9 @@ func New(
 		registerNodeRoutes(apiGroup, svc)
 		registerInventoryRoutes(apiGroup, svc)
 		registerReplicaRoutes(apiGroup, svc)
+		if err := admin.Register(mux, mux); err != nil {
+			panic(err)
+		}
 	}
 
 	return withMiddleware(mux)

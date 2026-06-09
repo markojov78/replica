@@ -149,9 +149,10 @@ type ReplicaListFilter struct {
 }
 
 type UpdateReplicaInput struct {
-	Type              *string
-	Status            *string
-	UpstreamReplicaID *uint
+	Type                 *string
+	Status               *string
+	UpstreamReplicaID    *uint
+	UpstreamReplicaIDSet bool
 }
 
 type ReplicaFileChangeInput struct {

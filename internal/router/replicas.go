@@ -1,7 +1,10 @@
 package router
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 
 	"replica/internal/model"
 	"replica/internal/service"
@@ -124,10 +127,15 @@ func registerReplicaRoutes(api huma.API, svc services) {
 			return nil, mapPermissionError(err)
 		}
 
+		upstreamReplicaID, upstreamReplicaIDSet, err := nullableUint(input.Body.UpstreamReplicaID)
+		if err != nil {
+			return nil, huma.Error400BadRequest("invalid replica upstream")
+		}
 		replica, err := svc.replicas.Update(input.ID, service.UpdateReplicaInput{
-			Type:              input.Body.Type,
-			Status:            input.Body.Status,
-			UpstreamReplicaID: input.Body.UpstreamReplicaID,
+			Type:                 input.Body.Type,
+			Status:               input.Body.Status,
+			UpstreamReplicaID:    upstreamReplicaID,
+			UpstreamReplicaIDSet: upstreamReplicaIDSet,
 		})
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
@@ -202,10 +210,24 @@ type updateReplicaInput struct {
 	Authorization string `header:"Authorization"`
 	ID            uint   `path:"id"`
 	Body          struct {
-		Type              *string `json:"type,omitempty"`
-		Status            *string `json:"status,omitempty"`
-		UpstreamReplicaID *uint   `json:"upstream_replica_id,omitempty"`
+		Type              *string         `json:"type,omitempty"`
+		Status            *string         `json:"status,omitempty"`
+		UpstreamReplicaID json.RawMessage `json:"upstream_replica_id,omitempty"`
 	}
+}
+
+func nullableUint(raw json.RawMessage) (*uint, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, true, nil
+	}
+	var value uint
+	if err := json.Unmarshal(raw, &value); err != nil || value == 0 {
+		return nil, true, errors.New("invalid nullable uint")
+	}
+	return &value, true, nil
 }
 
 type deleteReplicaInput struct {

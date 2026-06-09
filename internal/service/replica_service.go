@@ -333,7 +333,7 @@ func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput) (*Inve
 		}
 		replica.Status = status
 	}
-	if input.UpstreamReplicaID != nil {
+	if input.UpstreamReplicaIDSet || input.UpstreamReplicaID != nil {
 		if err := s.validateUpstreamReplica(replica.InventoryID, replica.ID, input.UpstreamReplicaID); err != nil {
 			return nil, err
 		}
