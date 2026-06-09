@@ -424,9 +424,7 @@ Example response:
       "status": "offline",
       "address": "http://node-a:8081",
       "interval": 600,
-      "last_seen": "2026-05-20T12:00:00Z",
-      "last_callback_success": "2026-05-20T11:58:00Z",
-      "last_callback_failure": null
+      "last_seen": "2026-05-20T12:00:00Z"
     }
   ],
   "page": 1,
@@ -467,9 +465,7 @@ Example response:
   "status": "offline",
   "address": "http://node-a:8081",
   "interval": null,
-  "last_seen": null,
-  "last_callback_success": null,
-  "last_callback_failure": null
+  "last_seen": null
 }
 ```
 

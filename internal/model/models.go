@@ -49,17 +49,15 @@ func (FileJournal) TableName() string {
 }
 
 type Node struct {
-	ID                  string     `gorm:"primaryKey;size:255" json:"id"`
-	Status              NodeStatus `gorm:"size:32;not null" json:"status"`
-	Secret              string     `gorm:"size:255;not null" json:"-"`
-	Address             string     `gorm:"size:2048" json:"address"`
-	Interval            *float64   `json:"interval"`
-	LastSeen            *time.Time `json:"last_seen"`
-	LastCallbackSuccess *time.Time `json:"last_callback_success"`
-	LastCallbackFailure *time.Time `json:"last_callback_failure"`
-	Token               *NodeToken `gorm:"foreignKey:NodeID;references:ID" json:"token,omitempty"`
-	Commands            []Command  `gorm:"foreignKey:NodeID;references:ID" json:"commands,omitempty"`
-	Replicas            []Replica  `gorm:"foreignKey:NodeID;references:ID" json:"replicas,omitempty"`
+	ID       string     `gorm:"primaryKey;size:255" json:"id"`
+	Status   NodeStatus `gorm:"size:32;not null" json:"status"`
+	Secret   string     `gorm:"size:255;not null" json:"-"`
+	Address  string     `gorm:"size:2048" json:"address"`
+	Interval *float64   `json:"interval"`
+	LastSeen *time.Time `json:"last_seen"`
+	Token    *NodeToken `gorm:"foreignKey:NodeID;references:ID" json:"token,omitempty"`
+	Commands []Command  `gorm:"foreignKey:NodeID;references:ID" json:"commands,omitempty"`
+	Replicas []Replica  `gorm:"foreignKey:NodeID;references:ID" json:"replicas,omitempty"`
 }
 
 func (Node) TableName() string {

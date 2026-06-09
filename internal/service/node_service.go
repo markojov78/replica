@@ -23,13 +23,11 @@ var ErrNodeCommandOwnership = errors.New("node command ownership mismatch")
 const nodeStatusCheckInterval = 5 * time.Second
 
 type NodeDetails struct {
-	ID                  string   `json:"id"`
-	Status              string   `json:"status"`
-	Address             string   `json:"address"`
-	Interval            *float64 `json:"interval,omitempty"`
-	LastSeen            *string  `json:"last_seen,omitempty"`
-	LastCallbackSuccess *string  `json:"last_callback_success,omitempty"`
-	LastCallbackFailure *string  `json:"last_callback_failure,omitempty"`
+	ID       string   `json:"id"`
+	Status   string   `json:"status"`
+	Address  string   `json:"address"`
+	Interval *float64 `json:"interval,omitempty"`
+	LastSeen *string  `json:"last_seen,omitempty"`
 }
 
 type NodeList struct {
@@ -424,13 +422,11 @@ func (s *NodeService) IsNotFound(err error) bool {
 
 func toNodeDetails(node *model.Node) *NodeDetails {
 	return &NodeDetails{
-		ID:                  node.ID,
-		Status:              string(node.Status),
-		Address:             node.Address,
-		Interval:            node.Interval,
-		LastSeen:            timePtr(node.LastSeen),
-		LastCallbackSuccess: timePtr(node.LastCallbackSuccess),
-		LastCallbackFailure: timePtr(node.LastCallbackFailure),
+		ID:       node.ID,
+		Status:   string(node.Status),
+		Address:  node.Address,
+		Interval: node.Interval,
+		LastSeen: timePtr(node.LastSeen),
 	}
 }
 

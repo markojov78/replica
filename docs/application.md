@@ -106,8 +106,6 @@ secret - hashed secret for node to coordinator authentication
 address - node address reported to the coordinator
 interval - heartbeat interval reported by the node, in seconds
 last_seen - last time the node reported to the coordinator
-last_callback_success - last time the node replied to the coordinator callback
-last_callback_failure - last time the node filed to reply to the coordinator callback
 
 #### inventories
 name - if not specified, will use folder or file name  
