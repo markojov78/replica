@@ -237,7 +237,7 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 		newRouterTestReplicaService(database, nil),
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://node-address:8081"}`))
+	req := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
@@ -280,6 +280,12 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 	}
 	if stored.LastSeen == nil {
 		t.Fatal("stored.LastSeen = nil, want timestamp")
+	}
+	if stored.Interval == nil || *stored.Interval != 60 {
+		t.Fatalf("stored.Interval = %v, want 60", stored.Interval)
+	}
+	if stored.Status != model.NodeStatusUnreachable {
+		t.Fatalf("stored.Status = %q, want %q", stored.Status, model.NodeStatusUnreachable)
 	}
 }
 
@@ -327,7 +333,7 @@ func TestInternalNodesReportAvailabilityReturnsPendingCommands(t *testing.T) {
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService),
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://node-address:8081"}`))
+	req := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
@@ -790,11 +796,15 @@ func TestInternalNodesWebSocketAcceptsAuthenticatedNode(t *testing.T) {
 		}
 		t.Fatalf("Dial() error = %v", err)
 	}
-	defer conn.Close()
-
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusSwitchingProtocols)
 	}
+
+	waitForStoredNodeStatus(t, database, "node-a", model.NodeStatusOnline)
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	waitForStoredNodeStatus(t, database, "node-a", model.NodeStatusOffline)
 }
 
 func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testing.T) {
@@ -927,7 +937,7 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 		t.Fatal("command.Payload.ReplicaID = 0, want created replica id")
 	}
 
-	reportReq := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://node-address:8081"}`))
+	reportReq := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
 	reportReq.Header.Set("Authorization", "Bearer "+nodePair.AccessToken)
 	reportReq.Header.Set("X-API-Version", "1")
 	reportReq.Header.Set("Content-Type", "application/json")
@@ -1600,6 +1610,28 @@ func openRouterTestDB(t *testing.T) *gorm.DB {
 	}
 
 	return database
+}
+
+func waitForStoredNodeStatus(t *testing.T, database *gorm.DB, nodeID string, want model.NodeStatus) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var node model.Node
+		if err := database.First(&node, "id = ?", nodeID).Error; err != nil {
+			t.Fatalf("First(node) error = %v", err)
+		}
+		if node.Status == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	var node model.Node
+	if err := database.First(&node, "id = ?", nodeID).Error; err != nil {
+		t.Fatalf("First(node) error = %v", err)
+	}
+	t.Fatalf("node.Status = %q, want %q", node.Status, want)
 }
 
 func newRouterTestAuthService(database *gorm.DB) *service.AuthService {

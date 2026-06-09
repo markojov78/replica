@@ -74,6 +74,7 @@ func main() {
 		userService = service.NewUserService(userRepo, roleRepo)
 		roleService = service.NewRoleService(roleRepo)
 		nodeService = service.NewNodeService(nodeRepo, nodeCommandRepo)
+		nodeService.Start(ctx)
 		inventoryService = service.NewInventoryService(inventoryRepo, nodeService)
 		replicaService = service.NewReplicaService(replicaRepo, inventoryRepo, nodeService, settingService)
 	}

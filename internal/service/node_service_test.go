@@ -3,12 +3,15 @@ package service
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"replica/internal/config"
 	"replica/internal/db"
 	"replica/internal/model"
 	"replica/internal/repository"
 	"replica/internal/security"
+
+	"gorm.io/gorm"
 )
 
 func TestNodeServiceCreateHashesSecretAndDefaultsOffline(t *testing.T) {
@@ -114,7 +117,7 @@ func TestNodeServiceReportAvailabilityUpdatesAddressAndLastSeen(t *testing.T) {
 
 	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
 
-	report, err := nodeService.ReportAvailability("node-a", "https://node-address:8081")
+	report, err := nodeService.ReportAvailability("node-a", "https://node-address:8081", 60)
 	if err != nil {
 		t.Fatalf("ReportAvailability() error = %v", err)
 	}
@@ -137,6 +140,12 @@ func TestNodeServiceReportAvailabilityUpdatesAddressAndLastSeen(t *testing.T) {
 	}
 	if stored.LastSeen == nil {
 		t.Fatal("stored.LastSeen = nil, want timestamp")
+	}
+	if stored.Interval == nil || *stored.Interval != 60 {
+		t.Fatalf("stored.Interval = %v, want 60", stored.Interval)
+	}
+	if stored.Status != model.NodeStatusUnreachable {
+		t.Fatalf("stored.Status = %q, want %q", stored.Status, model.NodeStatusUnreachable)
 	}
 }
 
@@ -183,7 +192,7 @@ func TestNodeServiceReportAvailabilityIncludesPendingCommands(t *testing.T) {
 
 	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
 
-	report, err := nodeService.ReportAvailability("node-a", "https://node-address:8081")
+	report, err := nodeService.ReportAvailability("node-a", "https://node-address:8081", 60)
 	if err != nil {
 		t.Fatalf("ReportAvailability() error = %v", err)
 	}
@@ -195,6 +204,143 @@ func TestNodeServiceReportAvailabilityIncludesPendingCommands(t *testing.T) {
 	}
 	if report.Commands[0].Status != string(model.NodeCommandStatusPending) {
 		t.Fatalf("report.Commands[0].Status = %q, want %q", report.Commands[0].Status, model.NodeCommandStatusPending)
+	}
+}
+
+func TestNodeServiceReconcilesAutomaticStatuses(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "node-statuses.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	now := time.Now().UTC()
+	interval := float64(60)
+	recent := now.Add(-2 * time.Minute)
+	old := now.Add(-2*time.Minute - time.Second)
+	nodes := []model.Node{
+		{ID: "missing", Status: model.NodeStatusOnline, Secret: "ignored"},
+		{ID: "recent", Status: model.NodeStatusOffline, Secret: "ignored", Interval: &interval, LastSeen: &recent},
+		{ID: "old", Status: model.NodeStatusOnline, Secret: "ignored", Interval: &interval, LastSeen: &old},
+		{ID: "disabled", Status: model.NodeStatusDisabled, Secret: "ignored", Interval: &interval, LastSeen: &recent},
+		{ID: "revoked", Status: model.NodeStatusRevoked, Secret: "ignored", Interval: &interval, LastSeen: &recent},
+	}
+	if err := database.Create(&nodes).Error; err != nil {
+		t.Fatalf("Create(nodes) error = %v", err)
+	}
+
+	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	if err := nodeService.ReconcileStatuses(now); err != nil {
+		t.Fatalf("ReconcileStatuses() error = %v", err)
+	}
+
+	want := map[string]model.NodeStatus{
+		"missing":  model.NodeStatusOffline,
+		"recent":   model.NodeStatusUnreachable,
+		"old":      model.NodeStatusOffline,
+		"disabled": model.NodeStatusDisabled,
+		"revoked":  model.NodeStatusRevoked,
+	}
+	for id, status := range want {
+		var node model.Node
+		if err := database.First(&node, "id = ?", id).Error; err != nil {
+			t.Fatalf("First(%s) error = %v", id, err)
+		}
+		if node.Status != status {
+			t.Fatalf("%s status = %q, want %q", id, node.Status, status)
+		}
+	}
+}
+
+func TestNodeServiceTracksMultipleWebSocketConnections(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "node-websockets.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	interval := float64(60)
+	lastSeen := time.Now().UTC()
+	if err := database.Create(&model.Node{
+		ID: "node-a", Status: model.NodeStatusUnreachable, Secret: "ignored", Interval: &interval, LastSeen: &lastSeen,
+	}).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+
+	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	if err := nodeService.WebSocketConnected("node-a"); err != nil {
+		t.Fatalf("WebSocketConnected(first) error = %v", err)
+	}
+	if err := nodeService.WebSocketConnected("node-a"); err != nil {
+		t.Fatalf("WebSocketConnected(second) error = %v", err)
+	}
+	assertStoredNodeStatus(t, database, "node-a", model.NodeStatusOnline)
+
+	if err := nodeService.WebSocketDisconnected("node-a"); err != nil {
+		t.Fatalf("WebSocketDisconnected(first) error = %v", err)
+	}
+	assertStoredNodeStatus(t, database, "node-a", model.NodeStatusOnline)
+
+	if err := nodeService.WebSocketDisconnected("node-a"); err != nil {
+		t.Fatalf("WebSocketDisconnected(second) error = %v", err)
+	}
+	assertStoredNodeStatus(t, database, "node-a", model.NodeStatusUnreachable)
+}
+
+func TestNodeServiceRestrictsAdminStatusTransitions(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "node-admin-statuses.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	if err := database.Create(&model.Node{ID: "node-a", Status: model.NodeStatusOnline, Secret: "ignored"}).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+
+	offline := string(model.NodeStatusOffline)
+	if _, err := nodeService.Update("node-a", UpdateNodeInput{Status: &offline}); err != ErrInvalidNodeStatus {
+		t.Fatalf("Update(online to offline) error = %v, want %v", err, ErrInvalidNodeStatus)
+	}
+
+	disabled := string(model.NodeStatusDisabled)
+	if _, err := nodeService.Update("node-a", UpdateNodeInput{Status: &disabled}); err != nil {
+		t.Fatalf("Update(online to disabled) error = %v", err)
+	}
+	if _, err := nodeService.Update("node-a", UpdateNodeInput{Status: &offline}); err != nil {
+		t.Fatalf("Update(disabled to offline) error = %v", err)
+	}
+
+	online := string(model.NodeStatusOnline)
+	if _, err := nodeService.Update("node-a", UpdateNodeInput{Status: &online}); err != ErrInvalidNodeStatus {
+		t.Fatalf("Update(offline to online) error = %v, want %v", err, ErrInvalidNodeStatus)
+	}
+}
+
+func assertStoredNodeStatus(t *testing.T, database *gorm.DB, id string, want model.NodeStatus) {
+	t.Helper()
+	var node model.Node
+	if err := database.First(&node, "id = ?", id).Error; err != nil {
+		t.Fatalf("First(%s) error = %v", id, err)
+	}
+	if node.Status != want {
+		t.Fatalf("%s status = %q, want %q", id, node.Status, want)
 	}
 }
 

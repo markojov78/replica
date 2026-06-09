@@ -41,13 +41,14 @@ func (e *APIError) Error() string {
 }
 
 type Client struct {
-	nodeID         string
-	coordinatorURL string
-	nodeSecret     string
-	nodeAddress    string
-	httpClient     *http.Client
-	transferClient *http.Client
-	now            func() time.Time
+	nodeID            string
+	coordinatorURL    string
+	nodeSecret        string
+	nodeAddress       string
+	heartbeatInterval time.Duration
+	httpClient        *http.Client
+	transferClient    *http.Client
+	now               func() time.Time
 
 	mu                    sync.Mutex
 	accessToken           string
@@ -162,10 +163,11 @@ func New(cfg config.Config) (*Client, error) {
 	}
 
 	return &Client{
-		nodeID:         strings.TrimSpace(cfg.App.NodeID),
-		coordinatorURL: strings.TrimRight(strings.TrimSpace(cfg.App.CoordinatorURL), "/"),
-		nodeSecret:     cfg.Auth.NodeSecret,
-		nodeAddress:    strings.TrimSpace(cfg.App.NodeAddress),
+		nodeID:            strings.TrimSpace(cfg.App.NodeID),
+		coordinatorURL:    strings.TrimRight(strings.TrimSpace(cfg.App.CoordinatorURL), "/"),
+		nodeSecret:        cfg.Auth.NodeSecret,
+		nodeAddress:       strings.TrimSpace(cfg.App.NodeAddress),
+		heartbeatInterval: cfg.App.HeartbeatInterval,
 		httpClient: &http.Client{
 			Timeout: apiRequestTimeout,
 		},
@@ -256,8 +258,9 @@ func (c *Client) ReportAvailability(ctx context.Context) (*AvailabilityReport, e
 		return nil, err
 	}
 
-	reqBody := map[string]string{
-		"address": c.nodeAddress,
+	reqBody := map[string]any{
+		"address":  c.nodeAddress,
+		"interval": c.heartbeatInterval.Seconds(),
 	}
 
 	var report AvailabilityReport

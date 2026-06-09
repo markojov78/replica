@@ -23,7 +23,7 @@ func registerInternalNodeRoutes(api huma.API, svc services) {
 			return nil, mapNodeMeError(err)
 		}
 
-		report, err := svc.nodes.ReportAvailability(node.ID, input.Body.Address)
+		report, err := svc.nodes.ReportAvailability(node.ID, input.Body.Address, input.Body.Interval)
 		if err != nil {
 			return nil, mapNodeError(err, svc.nodes)
 		}
@@ -51,6 +51,9 @@ func registerInternalNodeWebSocketRoute(mux *http.ServeMux, svc services) {
 			return
 		}
 
+		commandCh, unsubscribe := svc.nodes.Subscribe(nodeID)
+		defer unsubscribe()
+
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Printf("internal node websocket upgrade failed: %v", err)
@@ -58,8 +61,15 @@ func registerInternalNodeWebSocketRoute(mux *http.ServeMux, svc services) {
 		}
 		defer conn.Close()
 
-		commandCh, unsubscribe := svc.nodes.Subscribe(nodeID)
-		defer unsubscribe()
+		if err := svc.nodes.WebSocketConnected(nodeID); err != nil {
+			log.Printf("mark internal node websocket connected: %v", err)
+			return
+		}
+		defer func() {
+			if err := svc.nodes.WebSocketDisconnected(nodeID); err != nil {
+				log.Printf("mark internal node websocket disconnected: %v", err)
+			}
+		}()
 
 		done := make(chan struct{})
 
@@ -95,7 +105,8 @@ type reportNodeAvailabilityInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
 	Body          struct {
-		Address string `json:"address" minLength:"1"`
+		Address  string  `json:"address" minLength:"1"`
+		Interval float64 `json:"interval" exclusiveMinimum:"0"`
 	}
 }
 

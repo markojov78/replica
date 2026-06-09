@@ -104,6 +104,7 @@ fast read and remote updateable replica for update.
 status - online, unreachable, offline, disabled, revoked
 secret - hashed secret for node to coordinator authentication 
 address - node address reported to the coordinator
+interval - heartbeat interval reported by the node, in seconds
 last_seen - last time the node reported to the coordinator
 last_callback_success - last time the node replied to the coordinator callback
 last_callback_failure - last time the node filed to reply to the coordinator callback
@@ -190,7 +191,14 @@ Storage services periodically report heartbeat information to the coordinator us
 The coordinator updates node runtime state such as:
 - last_seen
 - current node address
-- online/offline status
+- heartbeat interval
+- online, unreachable or offline status
+
+The coordinator checks node status every five seconds and when WebSocket connections open or close:
+- an active WebSocket connection makes the node `online`
+- without an active WebSocket connection, a heartbeat no older than twice the reported interval makes the node `unreachable`
+- without an active WebSocket connection, an older heartbeat or missing heartbeat data makes the node `offline`
+- `disabled` and `revoked` nodes are not changed automatically
 
 Heartbeat response can also contain pending orchestration tasks.
 
@@ -204,6 +212,7 @@ creates a new reconcile command. Failed, completed and canceled commands do not 
 After authentication, the storage service establishes a WebSocket connection to the coordinator.
 
 The WebSocket connection is initiated by the storage service, so it can be maintained even when the node is behind NAT.
+The coordinator considers a node online while at least one WebSocket connection for that node is active.
 
 The coordinator uses the WebSocket to send command to the storage service, such as:
 

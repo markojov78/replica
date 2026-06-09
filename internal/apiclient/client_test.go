@@ -18,7 +18,8 @@ func TestClientAuthenticateAndReportAvailability(t *testing.T) {
 		Secret string `json:"secret"`
 	}
 	var gotAvailability struct {
-		Address string `json:"address"`
+		Address  string  `json:"address"`
+		Interval float64 `json:"interval"`
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -58,9 +59,10 @@ func TestClientAuthenticateAndReportAvailability(t *testing.T) {
 
 	client, err := New(config.Config{
 		App: config.AppConfig{
-			NodeID:         "node-a",
-			CoordinatorURL: server.URL,
-			NodeAddress:    "https://node-address:8081",
+			NodeID:            "node-a",
+			CoordinatorURL:    server.URL,
+			NodeAddress:       "https://node-address:8081",
+			HeartbeatInterval: 90 * time.Second,
 		},
 		Auth: config.AuthConfig{
 			NodeSecret: "node-secret",
@@ -83,6 +85,9 @@ func TestClientAuthenticateAndReportAvailability(t *testing.T) {
 	}
 	if gotAvailability.Address != "https://node-address:8081" {
 		t.Fatalf("report.address = %q, want %q", gotAvailability.Address, "https://node-address:8081")
+	}
+	if gotAvailability.Interval != 90 {
+		t.Fatalf("report.interval = %v, want 90", gotAvailability.Interval)
 	}
 	if report.NodeID != "node-a" {
 		t.Fatalf("report.NodeID = %q, want %q", report.NodeID, "node-a")

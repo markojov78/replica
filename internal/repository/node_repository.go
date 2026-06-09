@@ -45,6 +45,14 @@ func (r *NodeRepository) List(page, perPage int) ([]model.Node, int64, error) {
 	return nodes, total, nil
 }
 
+func (r *NodeRepository) ListAll() ([]model.Node, error) {
+	var nodes []model.Node
+	if err := r.db.Order("nodes.id asc").Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+	return nodes, nil
+}
+
 func (r *NodeRepository) Update(node *model.Node) error {
 	return r.db.Save(node).Error
 }

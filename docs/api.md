@@ -402,6 +402,9 @@ Node management is user-facing and intended for administrative workflows such as
 Behavior:
 - node secrets are accepted only on create or update
 - node secrets are stored hashed and are never returned by the API
+- administrators may set node status to `disabled` or `revoked`
+- administrators may re-enable a `disabled` or `revoked` node by setting its status to `offline`
+- `online`, `unreachable` and `offline` transitions for other nodes are managed automatically
 - `DELETE /nodes/{id}` is a soft delete that sets node status to `revoked`
 
 #### GET /nodes
@@ -420,6 +423,7 @@ Example response:
       "id": "node-a",
       "status": "offline",
       "address": "http://node-a:8081",
+      "interval": 600,
       "last_seen": "2026-05-20T12:00:00Z",
       "last_callback_success": "2026-05-20T11:58:00Z",
       "last_callback_failure": null
@@ -442,6 +446,7 @@ Request body:
 - `secret` required
 - `address` optional
 - `status` optional, defaults to `offline`
+  - allowed values are `offline`, `disabled` and `revoked`
 
 Example request:
 
@@ -461,6 +466,7 @@ Example response:
   "id": "node-a",
   "status": "offline",
   "address": "http://node-a:8081",
+  "interval": null,
   "last_seen": null,
   "last_callback_success": null,
   "last_callback_failure": null
@@ -474,6 +480,8 @@ Request body fields are optional:
 - `secret`
 - `address`
 - `status`
+  - may be set to `disabled` or `revoked`
+  - may be set to `offline` only to re-enable a `disabled` or `revoked` node
 
 Example request:
 
@@ -912,7 +920,9 @@ Behavior:
 - validates the bearer node JWT
 - resolves the current node ID from the auth token
 - updates `nodes.address` from the request body
+- updates `nodes.interval` from the heartbeat interval in seconds
 - updates `nodes.last_seen` to the current coordinator time
+- updates node status according to current WebSocket connectivity and heartbeat freshness
 - ensures each active replica assigned to the node with pending `replica_files` has a pending `reconcile_replica`
   command for that destination replica
 - returns pending durable coordinator commands for that node
@@ -921,12 +931,14 @@ Behavior:
 
 Request body:
 - `address` required
+- `interval` required, greater than zero, heartbeat interval in seconds
 
 Example request:
 
 ```json
 {
-  "address": "https://node-address:8081"
+  "address": "https://node-address:8081",
+  "interval": 600
 }
 ```
 
@@ -943,9 +955,7 @@ Example response:
       "node_id": "node-a",
       "type": "refresh_state",
       "status": "pending",
-      "payload": {
-        "placeholder": true
-      },
+      "payload": {},
       "created_at": "2026-05-21T11:59:00Z",
       "updated_at": "2026-05-21T11:59:00Z"
     }
@@ -966,6 +976,8 @@ Behavior:
 - validates the bearer node JWT from the websocket handshake request
 - upgrades the connection to websocket
 - keeps the connection open for coordinator-to-node command delivery
+- marks the node `online` while at least one WebSocket connection is active
+- reconciles node status from heartbeat freshness when the last WebSocket connection closes
 - sends messages in the `NodeCommand` format
 - does not replace heartbeat reporting; `POST /internal/nodes` is still required for node availability updates
 
@@ -991,9 +1003,7 @@ Example message:
   "node_id": "node-a",
   "type": "refresh_state",
   "status": "pending",
-  "payload": {
-    "placeholder": true
-  },
+  "payload": {},
   "created_at": "2026-05-21T11:59:00Z",
   "updated_at": "2026-05-21T11:59:00Z"
 }
@@ -1042,9 +1052,7 @@ Example response:
   "node_id": "node-a",
   "type": "refresh_state",
   "status": "failed",
-  "payload": {
-    "placeholder": true
-  },
+  "payload": {},
   "created_at": "2026-05-21T11:59:00Z",
   "updated_at": "2026-05-21T12:05:00Z",
   "last_error": "refresh failed"

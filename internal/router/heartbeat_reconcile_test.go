@@ -73,7 +73,7 @@ func TestHeartbeatCreatesMissingReconcileCommand(t *testing.T) {
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService, settings),
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://destination-current.example"}`))
+	req := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://destination-current.example","interval":60}`))
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")

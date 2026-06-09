@@ -1,8 +1,10 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"sync"
 	"time"
 
@@ -18,13 +20,16 @@ var ErrInvalidNodeCommandStatus = errors.New("invalid node command status")
 var ErrNodeCommandNotFound = errors.New("node command not found")
 var ErrNodeCommandOwnership = errors.New("node command ownership mismatch")
 
+const nodeStatusCheckInterval = 5 * time.Second
+
 type NodeDetails struct {
-	ID                  string  `json:"id"`
-	Status              string  `json:"status"`
-	Address             string  `json:"address"`
-	LastSeen            *string `json:"last_seen,omitempty"`
-	LastCallbackSuccess *string `json:"last_callback_success,omitempty"`
-	LastCallbackFailure *string `json:"last_callback_failure,omitempty"`
+	ID                  string   `json:"id"`
+	Status              string   `json:"status"`
+	Address             string   `json:"address"`
+	Interval            *float64 `json:"interval,omitempty"`
+	LastSeen            *string  `json:"last_seen,omitempty"`
+	LastCallbackSuccess *string  `json:"last_callback_success,omitempty"`
+	LastCallbackFailure *string  `json:"last_callback_failure,omitempty"`
 }
 
 type NodeList struct {
@@ -64,18 +69,43 @@ type UpdateNodeCommandInput struct {
 }
 
 type NodeService struct {
-	nodes    *repository.NodeRepository
-	commands *repository.CommandRepository
-	mu       sync.RWMutex
-	subs     map[string]map[chan NodeCommand]struct{}
+	nodes       *repository.NodeRepository
+	commands    *repository.CommandRepository
+	statusMu    sync.Mutex
+	mu          sync.RWMutex
+	subs        map[string]map[chan NodeCommand]struct{}
+	connections map[string]int
 }
 
 func NewNodeService(nodes *repository.NodeRepository, commands *repository.CommandRepository) *NodeService {
 	return &NodeService{
-		nodes:    nodes,
-		commands: commands,
-		subs:     make(map[string]map[chan NodeCommand]struct{}),
+		nodes:       nodes,
+		commands:    commands,
+		subs:        make(map[string]map[chan NodeCommand]struct{}),
+		connections: make(map[string]int),
 	}
+}
+
+func (s *NodeService) Start(ctx context.Context) {
+	go func() {
+		if err := s.ReconcileStatuses(time.Now().UTC()); err != nil {
+			log.Printf("reconcile node statuses: %v", err)
+		}
+
+		ticker := time.NewTicker(nodeStatusCheckInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				if err := s.ReconcileStatuses(now.UTC()); err != nil {
+					log.Printf("reconcile node statuses: %v", err)
+				}
+			}
+		}
+	}()
 }
 
 func (s *NodeService) Create(id, secret, address string, status *string) (*NodeDetails, error) {
@@ -87,7 +117,7 @@ func (s *NodeService) Create(id, secret, address string, status *string) (*NodeD
 	nodeStatus := model.NodeStatusOffline
 	if status != nil {
 		nodeStatus = model.NodeStatus(*status)
-		if !nodeStatus.Valid() {
+		if !adminSettableNodeStatus(nodeStatus) {
 			return nil, ErrInvalidNodeStatus
 		}
 	}
@@ -145,6 +175,9 @@ func (s *NodeService) List(page, perPage int) (*NodeList, error) {
 }
 
 func (s *NodeService) Update(id string, input UpdateNodeInput) (*NodeDetails, error) {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+
 	node, err := s.nodes.FindByID(id)
 	if err != nil {
 		return nil, err
@@ -164,10 +197,13 @@ func (s *NodeService) Update(id string, input UpdateNodeInput) (*NodeDetails, er
 
 	if input.Status != nil {
 		status := model.NodeStatus(*input.Status)
-		if !status.Valid() {
+		if !validAdminNodeStatusTransition(node.Status, status) {
 			return nil, ErrInvalidNodeStatus
 		}
 		node.Status = status
+		if status == model.NodeStatusOffline {
+			s.applyAutomaticStatus(node, time.Now().UTC())
+		}
 	}
 
 	if err := s.nodes.Update(node); err != nil {
@@ -183,7 +219,10 @@ func (s *NodeService) Delete(id string) (*NodeDetails, error) {
 	})
 }
 
-func (s *NodeService) ReportAvailability(id, address string) (*NodeAvailabilityReport, error) {
+func (s *NodeService) ReportAvailability(id, address string, interval float64) (*NodeAvailabilityReport, error) {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+
 	node, err := s.nodes.FindByID(id)
 	if err != nil {
 		return nil, err
@@ -191,7 +230,9 @@ func (s *NodeService) ReportAvailability(id, address string) (*NodeAvailabilityR
 
 	now := time.Now().UTC()
 	node.Address = address
+	node.Interval = &interval
 	node.LastSeen = &now
+	s.applyAutomaticStatus(node, now)
 
 	if err := s.nodes.Update(node); err != nil {
 		return nil, err
@@ -208,6 +249,102 @@ func (s *NodeService) ReportAvailability(id, address string) (*NodeAvailabilityR
 		LastSeen: now.Format(time.RFC3339),
 		Commands: toNodeCommands(commands),
 	}, nil
+}
+
+func (s *NodeService) WebSocketConnected(nodeID string) error {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+
+	s.mu.Lock()
+	s.connections[nodeID]++
+	s.mu.Unlock()
+
+	if err := s.reconcileStatus(nodeID, time.Now().UTC()); err != nil {
+		s.mu.Lock()
+		s.connections[nodeID]--
+		if s.connections[nodeID] == 0 {
+			delete(s.connections, nodeID)
+		}
+		s.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
+func (s *NodeService) WebSocketDisconnected(nodeID string) error {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+
+	s.mu.Lock()
+	if s.connections[nodeID] > 1 {
+		s.connections[nodeID]--
+	} else {
+		delete(s.connections, nodeID)
+	}
+	s.mu.Unlock()
+
+	return s.reconcileStatus(nodeID, time.Now().UTC())
+}
+
+func (s *NodeService) ReconcileStatuses(now time.Time) error {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+
+	nodes, err := s.nodes.ListAll()
+	if err != nil {
+		return err
+	}
+
+	for i := range nodes {
+		node := &nodes[i]
+		previous := node.Status
+		s.applyAutomaticStatus(node, now)
+		if node.Status != previous {
+			if err := s.nodes.Update(node); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *NodeService) reconcileStatus(nodeID string, now time.Time) error {
+	node, err := s.nodes.FindByID(nodeID)
+	if err != nil {
+		return err
+	}
+
+	previous := node.Status
+	s.applyAutomaticStatus(node, now)
+	if node.Status == previous {
+		return nil
+	}
+	return s.nodes.Update(node)
+}
+
+func (s *NodeService) applyAutomaticStatus(node *model.Node, now time.Time) {
+	if node.Status == model.NodeStatusDisabled || node.Status == model.NodeStatusRevoked {
+		return
+	}
+	if s.hasActiveWebSocket(node.ID) {
+		node.Status = model.NodeStatusOnline
+		return
+	}
+	if node.Interval == nil || *node.Interval <= 0 || node.LastSeen == nil {
+		node.Status = model.NodeStatusOffline
+		return
+	}
+	if now.Sub(*node.LastSeen).Seconds() <= 2**node.Interval {
+		node.Status = model.NodeStatusUnreachable
+		return
+	}
+	node.Status = model.NodeStatusOffline
+}
+
+func (s *NodeService) hasActiveWebSocket(nodeID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.connections[nodeID] > 0
 }
 
 func (s *NodeService) UpdateCommand(nodeID string, commandID uint, input UpdateNodeCommandInput) (*NodeCommand, error) {
@@ -290,9 +427,30 @@ func toNodeDetails(node *model.Node) *NodeDetails {
 		ID:                  node.ID,
 		Status:              string(node.Status),
 		Address:             node.Address,
+		Interval:            node.Interval,
 		LastSeen:            timePtr(node.LastSeen),
 		LastCallbackSuccess: timePtr(node.LastCallbackSuccess),
 		LastCallbackFailure: timePtr(node.LastCallbackFailure),
+	}
+}
+
+func adminSettableNodeStatus(status model.NodeStatus) bool {
+	switch status {
+	case model.NodeStatusOffline, model.NodeStatusDisabled, model.NodeStatusRevoked:
+		return true
+	default:
+		return false
+	}
+}
+
+func validAdminNodeStatusTransition(current, next model.NodeStatus) bool {
+	switch next {
+	case model.NodeStatusDisabled, model.NodeStatusRevoked:
+		return true
+	case model.NodeStatusOffline:
+		return current == model.NodeStatusOffline || current == model.NodeStatusDisabled || current == model.NodeStatusRevoked
+	default:
+		return false
 	}
 }
 
