@@ -286,6 +286,17 @@ func (r *ReplicaRepository) FindByID(id uint) (*model.Replica, error) {
 	return &replica, nil
 }
 
+func (r *ReplicaRepository) FindActiveByLocationExcludingID(nodeID, uri string, excludedID uint) (*model.Replica, error) {
+	var replica model.Replica
+	if err := r.db.
+		Where("node_id = ? AND uri = ? AND status = ? AND id <> ?", nodeID, uri, model.ReplicaStatusActive, excludedID).
+		Order("id asc").
+		First(&replica).Error; err != nil {
+		return nil, err
+	}
+	return &replica, nil
+}
+
 func (r *ReplicaRepository) FindFileByID(replicaID, fileID uint) (*model.ReplicaFile, error) {
 	var file model.ReplicaFile
 	if err := r.db.Where("replica_id = ? AND file_id = ?", replicaID, fileID).First(&file).Error; err != nil {

@@ -161,21 +161,6 @@ action - read, create, update delete
 key - application-managed setting key
 value - application-managed setting value
 
-## Admin UI
-
-The coordinator exposes a server-rendered administration UI under `/admin`.
-
-The admin UI:
-- authenticates users through the public `/api/auth` endpoints
-- stores access and refresh tokens in an opaque server-side session referenced by an HTTP-only cookie
-- refreshes expired access tokens through `/api/auth/refresh`
-- uses the public `/api` endpoints for all node, inventory and replica operations
-- treats inventories as the primary navigation object and manages replicas from inventory detail pages
-- uses HTMX-enhanced forms and navigation while preserving normal HTML form and redirect behavior
-
-The first version includes node management, inventory management and inventory-scoped replica management. It does not
-include replica graphs, file browsing, sharing, users, roles or settings management.
-
 ## Operation
 ### Communication between nodes
 

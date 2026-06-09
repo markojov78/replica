@@ -47,8 +47,12 @@ func (s *ReplicaService) List() ([]model.Replica, error) {
 }
 
 func (s *ReplicaService) Create(input CreateReplicaInput) (*InventoryReplicaDetails, error) {
-	if _, err := s.inventories.FindByID(input.InventoryID); err != nil {
+	inventory, err := s.inventories.FindByID(input.InventoryID)
+	if err != nil {
 		return nil, err
+	}
+	if inventory.Status == model.InventoryStatusDeleted {
+		return nil, ErrInventoryDeleted
 	}
 
 	nodeID := strings.TrimSpace(input.NodeID)
@@ -330,6 +334,26 @@ func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput) (*Inve
 		status := model.ReplicaStatus(strings.TrimSpace(*input.Status))
 		if !status.Valid() {
 			return nil, ErrInvalidReplicaStatus
+		}
+		if replica.Status == model.ReplicaStatusDeleted && status != model.ReplicaStatusDeleted {
+			inventory, err := s.inventories.FindByID(replica.InventoryID)
+			if err != nil {
+				return nil, err
+			}
+			if inventory.Status == model.InventoryStatusDeleted {
+				return nil, ErrInventoryDeleted
+			}
+			activeReplica, err := s.repo.FindActiveByLocationExcludingID(replica.NodeID, replica.URI, replica.ID)
+			if err == nil {
+				return nil, &ActiveReplicaLocationError{
+					ReplicaID: activeReplica.ID,
+					NodeID:    activeReplica.NodeID,
+					URI:       activeReplica.URI,
+				}
+			}
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, err
+			}
 		}
 		replica.Status = status
 	}

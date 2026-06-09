@@ -668,6 +668,8 @@ Returns a single replica.
 #### POST /replicas
 Creates a replica.
 
+Creating a replica for a deleted inventory is rejected with `409 inventory is deleted`.
+
 Request body:
 - `inventory_id` required
 - `node_id` required
@@ -690,6 +692,12 @@ Example request:
 #### PATCH /replicas/{id}
 Updates a replica.
 
+Changing a deleted replica to a non-deleted status is rejected with `409 inventory is deleted` when its inventory is
+deleted. Updates that leave the replica deleted remain allowed.
+
+Changing a deleted replica to `active` is rejected with `409` when another active replica already has the same
+`node_id` and exact `uri`. The error message identifies the conflicting replica, node and URI.
+
 Request body fields are optional:
 - `type`
 - `status`
@@ -711,6 +719,8 @@ Possible errors:
 - `400` invalid replica type
 - `400` invalid replica uri
 - `400` invalid replica upstream
+- `409` inventory is deleted
+- `409` active replica location conflict
 
 ### /replicas/{id}/files endpoint
 

@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -317,6 +318,99 @@ func TestReplicaServiceCreateValidatesUpstreamReplica(t *testing.T) {
 		UpstreamReplicaID: &deletedID,
 	}); err != ErrInvalidReplicaUpstream {
 		t.Fatalf("Create(deleted upstream) error = %v, want %v", err, ErrInvalidReplicaUpstream)
+	}
+}
+
+func TestReplicaServiceRejectsActiveReplicaOnDeletedInventory(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "replica-deleted-inventory.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	inventory := &model.Inventory{Name: "deleted", Status: model.InventoryStatusDeleted, Type: model.InventoryTypeFolder}
+	if err := database.Create(inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	if err := database.Create(&model.Node{ID: "node-a", Status: model.NodeStatusOffline, Secret: "secret"}).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+	replica := &model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-a",
+		URI:         "/data/deleted",
+		Status:      model.ReplicaStatusDeleted,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(replica).Error; err != nil {
+		t.Fatalf("Create(replica) error = %v", err)
+	}
+
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
+	if _, err := svc.Create(CreateReplicaInput{
+		InventoryID: inventory.ID,
+		NodeID:      "node-a",
+		URI:         "/data/new",
+		Type:        string(model.ReplicaTypeFilesystem),
+	}); err != ErrInventoryDeleted {
+		t.Fatalf("Create() error = %v, want %v", err, ErrInventoryDeleted)
+	}
+
+	active := string(model.ReplicaStatusActive)
+	if _, err := svc.Update(replica.ID, UpdateReplicaInput{Status: &active}); err != ErrInventoryDeleted {
+		t.Fatalf("Update(enable) error = %v, want %v", err, ErrInventoryDeleted)
+	}
+
+	deleted := string(model.ReplicaStatusDeleted)
+	if _, err := svc.Update(replica.ID, UpdateReplicaInput{Status: &deleted}); err != nil {
+		t.Fatalf("Update(keep deleted) error = %v", err)
+	}
+}
+
+func TestReplicaServiceRejectsUndeleteWhenActiveReplicaUsesLocation(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "replica-active-location.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	inventory := &model.Inventory{Name: "active", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	replicas := []model.Replica{
+		{InventoryID: inventory.ID, NodeID: "node-a", URI: "/data/shared", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeFilesystem},
+		{InventoryID: inventory.ID, NodeID: "node-a", URI: "/data/shared", Status: model.ReplicaStatusDeleted, Type: model.ReplicaTypeFilesystem},
+		{InventoryID: inventory.ID, NodeID: "node-b", URI: "/data/shared", Status: model.ReplicaStatusDeleted, Type: model.ReplicaTypeFilesystem},
+	}
+	if err := database.Create(&replicas).Error; err != nil {
+		t.Fatalf("Create(replicas) error = %v", err)
+	}
+
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
+	active := string(model.ReplicaStatusActive)
+	_, err = svc.Update(replicas[1].ID, UpdateReplicaInput{Status: &active})
+	var conflict *ActiveReplicaLocationError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("Update(conflict) error = %v, want ActiveReplicaLocationError", err)
+	}
+	wantMessage := "Active replica 1 on node-a is already using location /data/shared"
+	if conflict.Error() != wantMessage {
+		t.Fatalf("conflict.Error() = %q, want %q", conflict.Error(), wantMessage)
+	}
+
+	if _, err := svc.Update(replicas[2].ID, UpdateReplicaInput{Status: &active}); err != nil {
+		t.Fatalf("Update(different node) error = %v", err)
 	}
 }
 

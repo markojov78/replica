@@ -267,6 +267,8 @@ func mapNodeError(err error, nodeService *service.NodeService) error {
 }
 
 func mapInventoryError(err error, inventoryService *service.InventoryService) error {
+	var activeReplicaLocationError *service.ActiveReplicaLocationError
+
 	switch {
 	case inventoryService.IsNotFound(err):
 		return huma.Error404NotFound("inventory not found")
@@ -276,6 +278,10 @@ func mapInventoryError(err error, inventoryService *service.InventoryService) er
 		return huma.Error400BadRequest("invalid inventory type")
 	case errors.Is(err, service.ErrInvalidInventoryURI):
 		return huma.Error400BadRequest("invalid inventory uri")
+	case errors.Is(err, service.ErrInventoryDeleted):
+		return huma.Error409Conflict("inventory is deleted")
+	case errors.As(err, &activeReplicaLocationError):
+		return huma.Error409Conflict(activeReplicaLocationError.Error())
 	case errors.Is(err, service.ErrInventoryFileNotFound):
 		return huma.Error404NotFound("inventory file not found")
 	case errors.Is(err, service.ErrReplicaFileNotFound):

@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"path"
 	"strings"
@@ -33,7 +34,18 @@ var (
 	ErrInvalidReplicaFileAction = errors.New("invalid replica file action")
 	ErrInvalidReplicaUpstream   = errors.New("invalid replica upstream")
 	ErrReplicaNotFound          = errors.New("replica not found")
+	ErrInventoryDeleted         = errors.New("inventory is deleted")
 )
+
+type ActiveReplicaLocationError struct {
+	ReplicaID uint
+	NodeID    string
+	URI       string
+}
+
+func (e *ActiveReplicaLocationError) Error() string {
+	return fmt.Sprintf("Active replica %d on %s is already using location %s", e.ReplicaID, e.NodeID, e.URI)
+}
 
 type InventoryReplicaDetails struct {
 	ID                uint   `json:"id"`
