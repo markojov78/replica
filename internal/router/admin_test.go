@@ -158,6 +158,64 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("updated users response = %d body=%q", response.Code, response.Body.String())
 	}
 
+	response = adminRequest(t, handler, http.MethodGet, "/admin/roles", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `href="/admin/roles"`) ||
+		!strings.Contains(response.Body.String(), "Admin") ||
+		!strings.Contains(response.Body.String(), `data-hide-deleted="roles"`) ||
+		!strings.Contains(response.Body.String(), `data-filter-item="roles"`) {
+		t.Fatalf("roles response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/admin/roles/new", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "New role") ||
+		!strings.Contains(response.Body.String(), `value="users:read"`) ||
+		!strings.Contains(response.Body.String(), `value="shares:update"`) ||
+		!strings.Contains(response.Body.String(), `value="inventories:create"`) ||
+		!strings.Contains(response.Body.String(), `value="nodes:delete"`) ||
+		strings.Contains(response.Body.String(), `name="status"`) {
+		t.Fatalf("new role response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodPost, "/admin/roles", url.Values{
+		"name":        {"operators"},
+		"description": {"Operations team"},
+		"permissions": {"users:read", "inventories:read", "nodes:update"},
+	}, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/roles" {
+		t.Fatalf("create role response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/admin/roles/2/edit", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "Edit role") ||
+		!strings.Contains(response.Body.String(), `value="operators"`) ||
+		!strings.Contains(response.Body.String(), `name="status"`) ||
+		!strings.Contains(response.Body.String(), `value="users:read" checked`) ||
+		!strings.Contains(response.Body.String(), `value="nodes:update" checked`) {
+		t.Fatalf("edit role response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodPost, "/admin/roles/2", url.Values{
+		"name":        {"operators-updated"},
+		"description": {"Updated operations team"},
+		"status":      {"deleted"},
+		"permissions": {"shares:read", "nodes:delete"},
+	}, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/roles" {
+		t.Fatalf("update role response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/admin/roles", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "operators-updated") ||
+		!strings.Contains(response.Body.String(), "shares: read") ||
+		!strings.Contains(response.Body.String(), "nodes: delete") ||
+		!strings.Contains(response.Body.String(), `data-filter-item="roles" data-status="deleted"`) {
+		t.Fatalf("updated roles response = %d body=%q", response.Code, response.Body.String())
+	}
+
 	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "Inventories") ||

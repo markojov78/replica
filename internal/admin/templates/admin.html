@@ -20,6 +20,7 @@
       <a href="/admin/nodes" class="{{if eq .Active "nodes"}}active{{end}}">Nodes</a>
       <a href="/admin/inventories" class="{{if eq .Active "inventories"}}active{{end}}">Inventories</a>
       <a href="/admin/users" class="{{if eq .Active "users"}}active{{end}}">Users</a>
+      <a href="/admin/roles" class="{{if eq .Active "roles"}}active{{end}}">Roles</a>
       <span>Replication <b>Later</b></span>
       <span>Settings <b>Later</b></span>
     </nav>
@@ -174,6 +175,64 @@
       </select>
     </label>
     <div class="footer-actions full"><a class="btn" href="/admin/users">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save user{{else}}Create user{{end}}</button></div>
+  </form>
+</section>
+{{template "layout_end" .}}
+{{end}}
+
+{{define "roles"}}
+{{template "layout_start" .}}
+<div class="actions">
+  <label class="filter-toggle"><input type="checkbox" data-hide-deleted="roles"> Hide deleted</label>
+  <a class="btn ghost" href="/admin/roles">Refresh</a>
+  <a class="btn primary" href="/admin/roles/new">New role</a>
+</div>
+<section class="inventory-list">
+{{range .Roles}}
+  <article class="inventory-row" data-filter-item="roles" data-status="{{.Status}}">
+    <div>
+      <span class="inventory-title">{{.Name}}</span>
+      <p>Role #{{.ID}} · {{.Description}}</p>
+      <div class="chips">{{range .Permissions}}<span>{{.Resource}}: {{.Action}}</span>{{end}}</div>
+    </div>
+    <div class="inventory-actions">
+      <span class="pill {{statusClass .Status}}">{{.Status}}</span>
+      <a class="btn" href="/admin/roles/{{.ID}}/edit">Edit</a>
+    </div>
+  </article>
+{{else}}<section class="card empty">No roles found.</section>{{end}}
+</section>
+{{template "layout_end" .}}
+{{end}}
+
+{{define "role_form"}}
+{{template "layout_start" .}}
+<section class="card form-card">
+  {{template "alert" .}}
+  <form action="{{if .IsEdit}}/admin/roles/{{.Role.ID}}{{else}}/admin/roles{{end}}" method="post" class="form-grid">
+    <label>Name<input name="name" value="{{.Role.Name}}" required></label>
+    {{if .IsEdit}}
+      <label>Status<select name="status"><option value="active" {{if eq .Role.Status "active"}}selected{{end}}>active</option><option value="deleted" {{if eq .Role.Status "deleted"}}selected{{end}}>deleted</option></select></label>
+    {{end}}
+    <label class="full">Description<input name="description" value="{{.Role.Description}}"></label>
+    <div class="full">
+      <table>
+        <thead><tr><th>Resource</th><th>Read</th><th>Update</th><th>Create</th><th>Delete</th></tr></thead>
+        <tbody>
+          {{$role := .Role}}
+          {{range .PermissionResources}}
+          <tr>
+            <td>{{.}}</td>
+            <td><label class="filter-toggle"><input type="checkbox" name="permissions" value="{{.}}:read" {{if hasPermission . "read" $role.Permissions}}checked{{end}}> Read</label></td>
+            <td><label class="filter-toggle"><input type="checkbox" name="permissions" value="{{.}}:update" {{if hasPermission . "update" $role.Permissions}}checked{{end}}> Update</label></td>
+            <td><label class="filter-toggle"><input type="checkbox" name="permissions" value="{{.}}:create" {{if hasPermission . "create" $role.Permissions}}checked{{end}}> Create</label></td>
+            <td><label class="filter-toggle"><input type="checkbox" name="permissions" value="{{.}}:delete" {{if hasPermission . "delete" $role.Permissions}}checked{{end}}> Delete</label></td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    <div class="footer-actions full"><a class="btn" href="/admin/roles">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save role{{else}}Create role{{end}}</button></div>
   </form>
 </section>
 {{template "layout_end" .}}

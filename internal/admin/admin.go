@@ -69,10 +69,21 @@ type inventoryList struct {
 }
 
 type role struct {
-	ID          uint   `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
+	ID          uint         `json:"id"`
+	Name        string       `json:"name"`
+	Description string       `json:"description"`
+	Status      string       `json:"status"`
+	Permissions []permission `json:"permissions"`
+}
+
+type permission struct {
+	Resource string `json:"resource"`
+	Action   string `json:"actions"`
+}
+
+type permissionInput struct {
+	Resource string `json:"resource"`
+	Action   string `json:"action"`
 }
 
 type roleList struct {
@@ -125,31 +136,34 @@ type filePage struct {
 }
 
 type pageData struct {
-	Title       string
-	Subtitle    string
-	Active      string
-	Error       string
-	Nodes       []node
-	Node        node
-	Inventories []inventory
-	Inventory   inventory
-	Files       filePage
-	Replica     replica
-	Users       []user
-	User        user
-	Roles       []role
-	IsEdit      bool
+	Title               string
+	Subtitle            string
+	Active              string
+	Error               string
+	Nodes               []node
+	Node                node
+	Inventories         []inventory
+	Inventory           inventory
+	Files               filePage
+	Replica             replica
+	Users               []user
+	User                user
+	Roles               []role
+	Role                role
+	PermissionResources []string
+	IsEdit              bool
 }
 
 func Register(mux *http.ServeMux, api http.Handler) error {
 	pages, err := template.New("admin").Funcs(template.FuncMap{
-		"statusClass": statusClass,
-		"formatTime":  formatTime,
-		"pathEscape":  url.PathEscape,
-		"isUpstream":  isUpstream,
-		"formatBytes": formatBytes,
-		"formatDate":  formatDate,
-		"hasRole":     hasRole,
+		"statusClass":   statusClass,
+		"formatTime":    formatTime,
+		"pathEscape":    url.PathEscape,
+		"isUpstream":    isUpstream,
+		"formatBytes":   formatBytes,
+		"formatDate":    formatDate,
+		"hasRole":       hasRole,
+		"hasPermission": hasPermission,
 	}).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		return err
@@ -186,6 +200,11 @@ func Register(mux *http.ServeMux, api http.Handler) error {
 	mux.HandleFunc("POST /admin/users", handler.protected(handler.createUser))
 	mux.HandleFunc("GET /admin/users/{id}/edit", handler.protected(handler.editUserPage))
 	mux.HandleFunc("POST /admin/users/{id}", handler.protected(handler.updateUser))
+	mux.HandleFunc("GET /admin/roles", handler.protected(handler.rolesPage))
+	mux.HandleFunc("GET /admin/roles/new", handler.protected(handler.newRolePage))
+	mux.HandleFunc("POST /admin/roles", handler.protected(handler.createRole))
+	mux.HandleFunc("GET /admin/roles/{id}/edit", handler.protected(handler.editRolePage))
+	mux.HandleFunc("POST /admin/roles/{id}", handler.protected(handler.updateRole))
 	return nil
 }
 
@@ -593,6 +612,86 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request, sess authCo
 	http.Redirect(w, r, "/admin/users", http.StatusSeeOther)
 }
 
+func (h *Handler) rolesPage(w http.ResponseWriter, r *http.Request, sess authContext) {
+	var list roleList
+	if !h.load(w, r, sess, "/api/roles?count=100", &list) {
+		return
+	}
+	h.render(w, "roles", pageData{
+		Title: "Roles", Subtitle: "Manage role permissions and status.",
+		Active: "roles", Roles: list.Items,
+	})
+}
+
+func (h *Handler) newRolePage(w http.ResponseWriter, _ *http.Request, _ authContext) {
+	h.render(w, "role_form", pageData{
+		Title: "New role", Subtitle: "Create a role and assign permissions.", Active: "roles",
+		PermissionResources: rolePermissionResources(),
+	})
+}
+
+func (h *Handler) createRole(w http.ResponseWriter, r *http.Request, sess authContext) {
+	if err := r.ParseForm(); err != nil {
+		h.roleFormError(w, false, role{}, nil, "Invalid form submission.")
+		return
+	}
+	item := role{Name: r.FormValue("name"), Description: r.FormValue("description")}
+	permissions := formPermissions(r.Form["permissions"])
+	input := map[string]any{
+		"name":        strings.TrimSpace(item.Name),
+		"description": strings.TrimSpace(item.Description),
+		"permissions": permissions,
+	}
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/roles", input, nil); err != nil {
+		if errors.Is(err, errUnauthorized) {
+			h.renderError(w, r, sess, err)
+			return
+		}
+		h.roleFormError(w, false, item, permissions, apiMessage(err))
+		return
+	}
+	http.Redirect(w, r, "/admin/roles", http.StatusSeeOther)
+}
+
+func (h *Handler) editRolePage(w http.ResponseWriter, r *http.Request, sess authContext) {
+	var item role
+	if !h.load(w, r, sess, "/api/roles/"+r.PathValue("id"), &item) {
+		return
+	}
+	h.render(w, "role_form", pageData{
+		Title: "Edit role", Subtitle: fmt.Sprintf("Update role #%d.", item.ID),
+		Active: "roles", Role: item, PermissionResources: rolePermissionResources(), IsEdit: true,
+	})
+}
+
+func (h *Handler) updateRole(w http.ResponseWriter, r *http.Request, sess authContext) {
+	if err := r.ParseForm(); err != nil {
+		id, _ := strconv.ParseUint(r.PathValue("id"), 10, 64)
+		h.roleFormError(w, true, role{ID: uint(id)}, nil, "Invalid form submission.")
+		return
+	}
+	id, _ := strconv.ParseUint(r.PathValue("id"), 10, 64)
+	item := role{
+		ID: uint(id), Name: r.FormValue("name"), Description: r.FormValue("description"), Status: r.FormValue("status"),
+	}
+	permissions := formPermissions(r.Form["permissions"])
+	input := map[string]any{
+		"name":        strings.TrimSpace(item.Name),
+		"description": strings.TrimSpace(item.Description),
+		"status":      item.Status,
+		"permissions": permissions,
+	}
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/roles/"+r.PathValue("id"), input, nil); err != nil {
+		if errors.Is(err, errUnauthorized) {
+			h.renderError(w, r, sess, err)
+			return
+		}
+		h.roleFormError(w, true, item, permissions, apiMessage(err))
+		return
+	}
+	http.Redirect(w, r, "/admin/roles", http.StatusSeeOther)
+}
+
 func (h *Handler) protected(next func(http.ResponseWriter, *http.Request, authContext)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		accessToken, ok := bearerToken(r.Header.Get("Authorization"))
@@ -701,6 +800,20 @@ func (h *Handler) userFormError(w http.ResponseWriter, r *http.Request, sess aut
 	}
 	h.render(w, "user_form", pageData{
 		Title: title, Active: "users", User: item, Roles: roles, IsEdit: edit, Error: message,
+	})
+}
+
+func (h *Handler) roleFormError(w http.ResponseWriter, edit bool, item role, permissions []permissionInput, message string) {
+	item.Permissions = make([]permission, 0, len(permissions))
+	for _, selected := range permissions {
+		item.Permissions = append(item.Permissions, permission{Resource: selected.Resource, Action: selected.Action})
+	}
+	title := "New role"
+	if edit {
+		title = "Edit role"
+	}
+	h.render(w, "role_form", pageData{
+		Title: title, Active: "roles", Role: item, PermissionResources: rolePermissionResources(), IsEdit: edit, Error: message,
 	})
 }
 
@@ -845,6 +958,30 @@ func hasRole(id uint, roles []role) bool {
 		}
 	}
 	return false
+}
+
+func formPermissions(values []string) []permissionInput {
+	result := make([]permissionInput, 0, len(values))
+	for _, value := range values {
+		resource, action, ok := strings.Cut(value, ":")
+		if ok && resource != "" && action != "" {
+			result = append(result, permissionInput{Resource: resource, Action: action})
+		}
+	}
+	return result
+}
+
+func hasPermission(resource, action string, permissions []permission) bool {
+	for _, item := range permissions {
+		if item.Resource == resource && item.Action == action {
+			return true
+		}
+	}
+	return false
+}
+
+func rolePermissionResources() []string {
+	return []string{"users", "shares", "inventories", "nodes"}
 }
 
 func positiveInt(value string, fallback int) int {
