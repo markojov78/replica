@@ -21,21 +21,22 @@ type InventoryService struct {
 }
 
 var (
-	ErrInvalidInventoryStatus    = errors.New("invalid inventory status")
-	ErrInvalidInventoryType      = errors.New("invalid inventory type")
-	ErrInvalidInventoryURI       = errors.New("invalid inventory uri")
-	ErrInventoryFileNotFound     = errors.New("inventory file not found")
-	ErrReplicaFileNotFound       = errors.New("replica file not found")
-	ErrInvalidReplicaFileStatus  = errors.New("invalid replica file status")
-	ErrInvalidReplicaStatus      = errors.New("invalid replica status")
-	ErrInvalidReplicaType        = errors.New("invalid replica type")
-	ErrInvalidReplicaURI         = errors.New("invalid replica uri")
-	ErrInvalidReplicaFileUpdate  = errors.New("invalid replica file update")
-	ErrInvalidReplicaFileAction  = errors.New("invalid replica file action")
-	ErrInvalidReplicaUpstream    = errors.New("invalid replica upstream")
-	ErrReplicaNotFound           = errors.New("replica not found")
-	ErrInventoryDeleted          = errors.New("inventory is deleted")
-	ErrInventoryHasActiveReplica = errors.New("inventory has active replicas")
+	ErrInvalidInventoryStatus     = errors.New("invalid inventory status")
+	ErrInvalidInventoryFileStatus = errors.New("invalid inventory file status")
+	ErrInvalidInventoryType       = errors.New("invalid inventory type")
+	ErrInvalidInventoryURI        = errors.New("invalid inventory uri")
+	ErrInventoryFileNotFound      = errors.New("inventory file not found")
+	ErrReplicaFileNotFound        = errors.New("replica file not found")
+	ErrInvalidReplicaFileStatus   = errors.New("invalid replica file status")
+	ErrInvalidReplicaStatus       = errors.New("invalid replica status")
+	ErrInvalidReplicaType         = errors.New("invalid replica type")
+	ErrInvalidReplicaURI          = errors.New("invalid replica uri")
+	ErrInvalidReplicaFileUpdate   = errors.New("invalid replica file update")
+	ErrInvalidReplicaFileAction   = errors.New("invalid replica file action")
+	ErrInvalidReplicaUpstream     = errors.New("invalid replica upstream")
+	ErrReplicaNotFound            = errors.New("replica not found")
+	ErrInventoryDeleted           = errors.New("inventory is deleted")
+	ErrInventoryHasActiveReplica  = errors.New("inventory has active replicas")
 )
 
 type ActiveReplicaLocationError struct {
@@ -120,6 +121,14 @@ type ReplicaFileListFilter struct {
 	Version *uint
 }
 
+type InventoryListFilter struct {
+	Status string
+}
+
+type InventoryFileListFilter struct {
+	Status string
+}
+
 type InventoryList struct {
 	Items []InventoryDetails `json:"items"`
 	Page  int                `json:"page"`
@@ -159,6 +168,7 @@ type ReplicaListFilter struct {
 	InventoryID *uint
 	NodeID      string
 	URIPrefix   string
+	Status      string
 }
 
 type UpdateReplicaInput struct {
@@ -267,7 +277,7 @@ func (s *InventoryService) Get(id uint) (*InventoryDetails, error) {
 	return toInventoryDetails(inventory), nil
 }
 
-func (s *InventoryService) List(page, perPage int) (*InventoryList, error) {
+func (s *InventoryService) List(page, perPage int, filter InventoryListFilter) (*InventoryList, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -278,7 +288,17 @@ func (s *InventoryService) List(page, perPage int) (*InventoryList, error) {
 		perPage = 100
 	}
 
-	inventories, total, err := s.repo.List(page, perPage)
+	if filter.Status != "" {
+		status := model.InventoryStatus(strings.TrimSpace(filter.Status))
+		if !status.Valid() {
+			return nil, ErrInvalidInventoryStatus
+		}
+		filter.Status = string(status)
+	}
+
+	inventories, total, err := s.repo.List(page, perPage, repository.InventoryListFilter{
+		Status: filter.Status,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +332,7 @@ func (s *InventoryService) GetFile(inventoryID, fileID uint) (*InventoryFileDeta
 	return toInventoryFileDetails(file), nil
 }
 
-func (s *InventoryService) ListFiles(inventoryID uint, page, perPage int) (*InventoryFileList, error) {
+func (s *InventoryService) ListFiles(inventoryID uint, page, perPage int, filter InventoryFileListFilter) (*InventoryFileList, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -327,7 +347,17 @@ func (s *InventoryService) ListFiles(inventoryID uint, page, perPage int) (*Inve
 		return nil, err
 	}
 
-	files, total, err := s.repo.ListFiles(inventoryID, page, perPage)
+	if filter.Status != "" {
+		status := model.InventoryFileStatus(strings.TrimSpace(filter.Status))
+		if !status.Valid() {
+			return nil, ErrInvalidInventoryFileStatus
+		}
+		filter.Status = string(status)
+	}
+
+	files, total, err := s.repo.ListFiles(inventoryID, page, perPage, repository.InventoryFileListFilter{
+		Status: filter.Status,
+	})
 	if err != nil {
 		return nil, err
 	}

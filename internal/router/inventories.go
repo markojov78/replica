@@ -20,7 +20,9 @@ func registerInventoryRoutes(api huma.API, svc services) {
 		}
 
 		page, count := resolvePagination(input.Page, input.Count)
-		inventories, err := svc.inventories.List(page, count)
+		inventories, err := svc.inventories.List(page, count, service.InventoryListFilter{
+			Status: input.Status,
+		})
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
 		}
@@ -53,7 +55,9 @@ func registerInventoryRoutes(api huma.API, svc services) {
 		}
 
 		page, count := resolvePagination(input.Page, input.Count)
-		files, err := svc.inventories.ListFiles(input.ID, page, count)
+		files, err := svc.inventories.ListFiles(input.ID, page, count, service.InventoryFileListFilter{
+			Status: input.Status,
+		})
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
 		}
@@ -141,6 +145,7 @@ type listInventoriesInput struct {
 	Authorization string `header:"Authorization"`
 	Page          int    `query:"page"`
 	Count         int    `query:"count"`
+	Status        string `query:"status"`
 }
 
 type getInventoryInput struct {
@@ -166,6 +171,7 @@ type listInventoryFilesInput struct {
 	ID            uint   `path:"id"`
 	Page          int    `query:"page"`
 	Count         int    `query:"count"`
+	Status        string `query:"status"`
 }
 
 type getInventoryFileInput struct {

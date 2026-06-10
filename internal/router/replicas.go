@@ -32,6 +32,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 			InventoryID: inventoryID,
 			NodeID:      input.NodeID,
 			URIPrefix:   input.URIPrefix,
+			Status:      input.Status,
 		})
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
@@ -168,6 +169,7 @@ type listReplicasInput struct {
 	InventoryID   uint   `query:"inventory_id"`
 	NodeID        string `query:"node_id"`
 	URIPrefix     string `query:"uri_prefix"`
+	Status        string `query:"status"`
 }
 
 type getReplicaInput struct {

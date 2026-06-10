@@ -508,6 +508,7 @@ Returns a paginated list of inventories.
 Query parameters:
 - `page` optional, default `1`
 - `count` optional, default `20`, maximum `100`
+- `status` optional, filter by inventory status: `active`, `deleted`
 
 Example response:
 
@@ -598,6 +599,7 @@ Returns a paginated list of files belonging to the inventory.
 Query parameters:
 - `page` optional, default `1`
 - `count` optional, default `20`, maximum `100`
+- `status` optional, filter by inventory file status: `active`, `deleted`
 
 Example response:
 
@@ -628,6 +630,7 @@ Returns a single file belonging to the inventory.
 Possible errors:
 - `401` missing authenticated user
 - `403` missing required permission
+- `400` invalid inventory file status
 - `404` inventory not found
 - `404` inventory file not found
 
@@ -646,6 +649,7 @@ Query parameters:
 - `inventory_id`
 - `node_id`
 - `uri_prefix`
+- `status` optional, filter by replica status: `active`, `deleted`
 
 Example response:
 

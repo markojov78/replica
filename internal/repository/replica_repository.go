@@ -309,6 +309,7 @@ type ReplicaListFilter struct {
 	InventoryID *uint
 	NodeID      string
 	URIPrefix   string
+	Status      string
 }
 
 type ReplicaFileListFilter struct {
@@ -328,6 +329,9 @@ func (r *ReplicaRepository) ListFiltered(filter ReplicaListFilter) ([]model.Repl
 	if strings.TrimSpace(filter.URIPrefix) != "" {
 		query = query.Where("uri LIKE ?", strings.TrimSpace(filter.URIPrefix)+"%")
 	}
+	if strings.TrimSpace(filter.Status) != "" {
+		query = query.Where("status = ?", strings.TrimSpace(filter.Status))
+	}
 
 	err := query.Find(&replicas).Error
 	return replicas, err
@@ -343,6 +347,9 @@ func (r *ReplicaRepository) ListPage(page, perPage int, filter ReplicaListFilter
 	}
 	if strings.TrimSpace(filter.URIPrefix) != "" {
 		query = query.Where("uri LIKE ?", strings.TrimSpace(filter.URIPrefix)+"%")
+	}
+	if strings.TrimSpace(filter.Status) != "" {
+		query = query.Where("status = ?", strings.TrimSpace(filter.Status))
 	}
 
 	var total int64
@@ -361,6 +368,9 @@ func (r *ReplicaRepository) ListPage(page, perPage int, filter ReplicaListFilter
 			}
 			if strings.TrimSpace(filter.URIPrefix) != "" {
 				tx = tx.Where("uri LIKE ?", strings.TrimSpace(filter.URIPrefix)+"%")
+			}
+			if strings.TrimSpace(filter.Status) != "" {
+				tx = tx.Where("status = ?", strings.TrimSpace(filter.Status))
 			}
 			return tx
 		}).

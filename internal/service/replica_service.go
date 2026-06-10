@@ -165,10 +165,15 @@ func (s *ReplicaService) GetFile(replicaID, fileID uint) (*ReplicaFileDetails, e
 }
 
 func (s *ReplicaService) ListFiltered(filter ReplicaListFilter) ([]InventoryReplicaDetails, error) {
+	if err := validateReplicaListFilter(&filter); err != nil {
+		return nil, err
+	}
+
 	replicas, err := s.repo.ListFiltered(repository.ReplicaListFilter{
 		InventoryID: filter.InventoryID,
 		NodeID:      filter.NodeID,
 		URIPrefix:   filter.URIPrefix,
+		Status:      filter.Status,
 	})
 	if err != nil {
 		return nil, err
@@ -193,10 +198,15 @@ func (s *ReplicaService) ListPage(page, perPage int, filter ReplicaListFilter) (
 		perPage = 100
 	}
 
+	if err := validateReplicaListFilter(&filter); err != nil {
+		return nil, err
+	}
+
 	replicas, total, err := s.repo.ListPage(page, perPage, repository.ReplicaListFilter{
 		InventoryID: filter.InventoryID,
 		NodeID:      filter.NodeID,
 		URIPrefix:   filter.URIPrefix,
+		Status:      filter.Status,
 	})
 	if err != nil {
 		return nil, err
@@ -213,6 +223,18 @@ func (s *ReplicaService) ListPage(page, perPage int, filter ReplicaListFilter) (
 		Count: perPage,
 		Total: total,
 	}, nil
+}
+
+func validateReplicaListFilter(filter *ReplicaListFilter) error {
+	if filter.Status == "" {
+		return nil
+	}
+	status := model.ReplicaStatus(strings.TrimSpace(filter.Status))
+	if !status.Valid() {
+		return ErrInvalidReplicaStatus
+	}
+	filter.Status = string(status)
+	return nil
 }
 
 func (s *ReplicaService) ListFiles(replicaID uint, page, perPage int, filter ReplicaFileListFilter) (*ReplicaFileList, error) {

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"encoding/json"
+	"strings"
 
 	"replica/internal/model"
 
@@ -79,14 +80,27 @@ func (r *InventoryRepository) FindByID(id uint) (*model.Inventory, error) {
 	return &inventory, nil
 }
 
-func (r *InventoryRepository) List(page, perPage int) ([]model.Inventory, int64, error) {
+type InventoryListFilter struct {
+	Status string
+}
+
+type InventoryFileListFilter struct {
+	Status string
+}
+
+func (r *InventoryRepository) List(page, perPage int, filter InventoryListFilter) ([]model.Inventory, int64, error) {
+	query := r.db.Model(&model.Inventory{})
+	if strings.TrimSpace(filter.Status) != "" {
+		query = query.Where("status = ?", strings.TrimSpace(filter.Status))
+	}
+
 	var total int64
-	if err := r.db.Model(&model.Inventory{}).Count(&total).Error; err != nil {
+	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
 	var inventories []model.Inventory
-	err := r.preloadDetails(r.db).
+	err := r.preloadDetails(query).
 		Order("inventories.id asc").
 		Limit(perPage).
 		Offset((page - 1) * perPage).
@@ -110,15 +124,19 @@ func (r *InventoryRepository) FindFileByID(inventoryID, fileID uint) (*model.Inv
 	return &file, nil
 }
 
-func (r *InventoryRepository) ListFiles(inventoryID uint, page, perPage int) ([]model.InventoryFile, int64, error) {
+func (r *InventoryRepository) ListFiles(inventoryID uint, page, perPage int, filter InventoryFileListFilter) ([]model.InventoryFile, int64, error) {
+	query := r.db.Model(&model.InventoryFile{}).Where("inventory_id = ?", inventoryID)
+	if strings.TrimSpace(filter.Status) != "" {
+		query = query.Where("status = ?", strings.TrimSpace(filter.Status))
+	}
+
 	var total int64
-	if err := r.db.Model(&model.InventoryFile{}).Where("inventory_id = ?", inventoryID).Count(&total).Error; err != nil {
+	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
 	var files []model.InventoryFile
-	err := r.db.
-		Where("inventory_id = ?", inventoryID).
+	err := query.
 		Order("id asc").
 		Limit(perPage).
 		Offset((page - 1) * perPage).

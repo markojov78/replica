@@ -613,6 +613,77 @@ func TestInventoryServiceListReplicaFilesRejectsInvalidStatus(t *testing.T) {
 	}
 }
 
+func TestInventoryAndReplicaListsFilterByStatus(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "status-list-filters.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	inventories := []model.Inventory{
+		{Name: "Active", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder},
+		{Name: "Deleted", Status: model.InventoryStatusDeleted, Type: model.InventoryTypeFolder},
+	}
+	if err := database.Create(&inventories).Error; err != nil {
+		t.Fatalf("Create(inventories) error = %v", err)
+	}
+	files := []model.InventoryFile{
+		{InventoryID: inventories[0].ID, RelativeURI: "active.txt", Status: model.InventoryFileStatusActive},
+		{InventoryID: inventories[0].ID, RelativeURI: "deleted.txt", Status: model.InventoryFileStatusDeleted},
+	}
+	if err := database.Create(&files).Error; err != nil {
+		t.Fatalf("Create(files) error = %v", err)
+	}
+	replicas := []model.Replica{
+		{InventoryID: inventories[0].ID, NodeID: "node-a", URI: "/active", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeFilesystem},
+		{InventoryID: inventories[0].ID, NodeID: "node-b", URI: "/deleted", Status: model.ReplicaStatusDeleted, Type: model.ReplicaTypeFilesystem},
+	}
+	if err := database.Create(&replicas).Error; err != nil {
+		t.Fatalf("Create(replicas) error = %v", err)
+	}
+
+	inventoryService := NewInventoryService(repository.NewInventoryRepository(database))
+	inventoryList, err := inventoryService.List(1, 20, InventoryListFilter{Status: " active "})
+	if err != nil {
+		t.Fatalf("List(inventories filtered) error = %v", err)
+	}
+	if inventoryList.Total != 1 || len(inventoryList.Items) != 1 || inventoryList.Items[0].Status != string(model.InventoryStatusActive) {
+		t.Fatalf("inventoryList = %+v, want one active inventory", inventoryList)
+	}
+
+	fileList, err := inventoryService.ListFiles(inventories[0].ID, 1, 20, InventoryFileListFilter{Status: string(model.InventoryFileStatusDeleted)})
+	if err != nil {
+		t.Fatalf("ListFiles(filtered) error = %v", err)
+	}
+	if fileList.Total != 1 || len(fileList.Items) != 1 || fileList.Items[0].Status != string(model.InventoryFileStatusDeleted) {
+		t.Fatalf("fileList = %+v, want one deleted inventory file", fileList)
+	}
+
+	replicaService := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
+	replicaList, err := replicaService.ListPage(1, 20, ReplicaListFilter{Status: string(model.ReplicaStatusDeleted)})
+	if err != nil {
+		t.Fatalf("ListPage(replicas filtered) error = %v", err)
+	}
+	if replicaList.Total != 1 || len(replicaList.Items) != 1 || replicaList.Items[0].Status != string(model.ReplicaStatusDeleted) {
+		t.Fatalf("replicaList = %+v, want one deleted replica", replicaList)
+	}
+
+	if _, err := inventoryService.List(1, 20, InventoryListFilter{Status: "invalid"}); err != ErrInvalidInventoryStatus {
+		t.Fatalf("List(invalid status) error = %v, want %v", err, ErrInvalidInventoryStatus)
+	}
+	if _, err := inventoryService.ListFiles(inventories[0].ID, 1, 20, InventoryFileListFilter{Status: "invalid"}); err != ErrInvalidInventoryFileStatus {
+		t.Fatalf("ListFiles(invalid status) error = %v, want %v", err, ErrInvalidInventoryFileStatus)
+	}
+	if _, err := replicaService.ListPage(1, 20, ReplicaListFilter{Status: "invalid"}); err != ErrInvalidReplicaStatus {
+		t.Fatalf("ListPage(invalid status) error = %v, want %v", err, ErrInvalidReplicaStatus)
+	}
+}
+
 func TestInventoryServiceGetReplicaFile(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
 		Driver: "sqlite",
