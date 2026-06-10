@@ -79,6 +79,67 @@ func TestInventoryServiceCreateCreatesPendingScanReplicaCommand(t *testing.T) {
 	}
 }
 
+func TestInventoryServiceDeleteRejectsActiveReplicas(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "inventory-delete-active-replicas.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	inventory := &model.Inventory{Name: "Photos", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	replicas := []model.Replica{
+		{InventoryID: inventory.ID, NodeID: "node-a", URI: "/data/active", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeFilesystem},
+		{InventoryID: inventory.ID, NodeID: "node-b", URI: "/data/deleted", Status: model.ReplicaStatusDeleted, Type: model.ReplicaTypeFilesystem},
+	}
+	if err := database.Create(&replicas).Error; err != nil {
+		t.Fatalf("Create(replicas) error = %v", err)
+	}
+
+	svc := NewInventoryService(repository.NewInventoryRepository(database))
+	if _, err := svc.Delete(inventory.ID); err != ErrInventoryHasActiveReplica {
+		t.Fatalf("Delete() error = %v, want %v", err, ErrInventoryHasActiveReplica)
+	}
+
+	var storedInventory model.Inventory
+	if err := database.First(&storedInventory, inventory.ID).Error; err != nil {
+		t.Fatalf("First(inventory) error = %v", err)
+	}
+	if storedInventory.Status != model.InventoryStatusActive {
+		t.Fatalf("storedInventory.Status = %q, want %q", storedInventory.Status, model.InventoryStatusActive)
+	}
+
+	var replicaCount int64
+	if err := database.Model(&model.Replica{}).Where("inventory_id = ?", inventory.ID).Count(&replicaCount).Error; err != nil {
+		t.Fatalf("Count(replicas) error = %v", err)
+	}
+	if replicaCount != 2 {
+		t.Fatalf("replicaCount = %d, want 2", replicaCount)
+	}
+
+	replicas[0].Status = model.ReplicaStatusDeleted
+	if err := database.Save(&replicas[0]).Error; err != nil {
+		t.Fatalf("Save(active replica as deleted) error = %v", err)
+	}
+	deletedInventory, err := svc.Delete(inventory.ID)
+	if err != nil {
+		t.Fatalf("Delete() after deleting replicas error = %v", err)
+	}
+	if deletedInventory.Status != string(model.InventoryStatusDeleted) {
+		t.Fatalf("deletedInventory.Status = %q, want %q", deletedInventory.Status, model.InventoryStatusDeleted)
+	}
+	if len(deletedInventory.Replicas) != 2 {
+		t.Fatalf("len(deletedInventory.Replicas) = %d, want 2", len(deletedInventory.Replicas))
+	}
+}
+
 func TestInventoryServiceCreateReplicaPopulatesPendingFilesAndCommand(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
 		Driver: "sqlite",

@@ -34,6 +34,9 @@ func TestPublicReplicaMutationsRejectDeletedInventory(t *testing.T) {
 	if err := database.Create(&model.Permission{RoleID: role.ID, Resource: model.PermissionResourceInventories, Action: model.PermissionActionUpdate}).Error; err != nil {
 		t.Fatalf("Create(permission) error = %v", err)
 	}
+	if err := database.Create(&model.Permission{RoleID: role.ID, Resource: model.PermissionResourceInventories, Action: model.PermissionActionDelete}).Error; err != nil {
+		t.Fatalf("Create(delete permission) error = %v", err)
+	}
 	if err := database.Create(&model.UserRole{UserID: user.ID, RoleID: role.ID}).Error; err != nil {
 		t.Fatalf("Create(user role) error = %v", err)
 	}
@@ -94,6 +97,24 @@ func TestPublicReplicaMutationsRejectDeletedInventory(t *testing.T) {
 	if err := database.Create(deletedReplica).Error; err != nil {
 		t.Fatalf("Create(deleted replica) error = %v", err)
 	}
+	assertConflict(t, handler, pair.AccessToken, http.MethodDelete, "/api/inventories/"+strconv.FormatUint(uint64(activeInventory.ID), 10), "", "inventory has active replicas")
+	assertConflict(t, handler, pair.AccessToken, http.MethodPatch, "/api/inventories/"+strconv.FormatUint(uint64(activeInventory.ID), 10), `{"status":"deleted"}`, "inventory has active replicas")
+
+	var storedInventory model.Inventory
+	if err := database.First(&storedInventory, activeInventory.ID).Error; err != nil {
+		t.Fatalf("First(active inventory) error = %v", err)
+	}
+	if storedInventory.Status != model.InventoryStatusActive {
+		t.Fatalf("storedInventory.Status = %q, want %q", storedInventory.Status, model.InventoryStatusActive)
+	}
+	var replicaCount int64
+	if err := database.Model(&model.Replica{}).Where("inventory_id = ?", activeInventory.ID).Count(&replicaCount).Error; err != nil {
+		t.Fatalf("Count(replicas) error = %v", err)
+	}
+	if replicaCount != 2 {
+		t.Fatalf("replicaCount = %d, want 2", replicaCount)
+	}
+
 	wantMessage := "Active replica " + strconv.FormatUint(uint64(activeReplica.ID), 10) + " on node-a is already using location /data/shared"
 	assertConflict(t, handler, pair.AccessToken, http.MethodPatch, "/api/replicas/"+strconv.FormatUint(uint64(deletedReplica.ID), 10), `{"status":"active"}`, wantMessage)
 }

@@ -280,6 +280,8 @@ func mapInventoryError(err error, inventoryService *service.InventoryService) er
 		return huma.Error400BadRequest("invalid inventory uri")
 	case errors.Is(err, service.ErrInventoryDeleted):
 		return huma.Error409Conflict("inventory is deleted")
+	case errors.Is(err, service.ErrInventoryHasActiveReplica):
+		return huma.Error409Conflict("inventory has active replicas")
 	case errors.As(err, &activeReplicaLocationError):
 		return huma.Error409Conflict(activeReplicaLocationError.Error())
 	case errors.Is(err, service.ErrInventoryFileNotFound):

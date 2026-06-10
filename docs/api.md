@@ -567,6 +567,9 @@ Example request:
 #### PATCH /inventories/{id}
 Updates an inventory.
 
+Changing the inventory status to `deleted` is rejected with `409 inventory has active replicas` while any replica is
+active.
+
 Request body fields are optional:
 - `name`
 - `status`
@@ -574,10 +577,13 @@ Request body fields are optional:
 #### DELETE /inventories/{id}
 Soft-deletes an inventory by setting its status to `deleted`.
 
+Deletion is rejected while the inventory has any active replicas. Replicas are not automatically deleted.
+
 Possible errors:
 - `401` missing authenticated user
 - `403` missing required permission
 - `404` inventory not found
+- `409` inventory has active replicas
 - `400` invalid inventory status
 - `400` invalid inventory type
 - `400` invalid inventory uri

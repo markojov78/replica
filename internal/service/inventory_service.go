@@ -21,20 +21,21 @@ type InventoryService struct {
 }
 
 var (
-	ErrInvalidInventoryStatus   = errors.New("invalid inventory status")
-	ErrInvalidInventoryType     = errors.New("invalid inventory type")
-	ErrInvalidInventoryURI      = errors.New("invalid inventory uri")
-	ErrInventoryFileNotFound    = errors.New("inventory file not found")
-	ErrReplicaFileNotFound      = errors.New("replica file not found")
-	ErrInvalidReplicaFileStatus = errors.New("invalid replica file status")
-	ErrInvalidReplicaStatus     = errors.New("invalid replica status")
-	ErrInvalidReplicaType       = errors.New("invalid replica type")
-	ErrInvalidReplicaURI        = errors.New("invalid replica uri")
-	ErrInvalidReplicaFileUpdate = errors.New("invalid replica file update")
-	ErrInvalidReplicaFileAction = errors.New("invalid replica file action")
-	ErrInvalidReplicaUpstream   = errors.New("invalid replica upstream")
-	ErrReplicaNotFound          = errors.New("replica not found")
-	ErrInventoryDeleted         = errors.New("inventory is deleted")
+	ErrInvalidInventoryStatus    = errors.New("invalid inventory status")
+	ErrInvalidInventoryType      = errors.New("invalid inventory type")
+	ErrInvalidInventoryURI       = errors.New("invalid inventory uri")
+	ErrInventoryFileNotFound     = errors.New("inventory file not found")
+	ErrReplicaFileNotFound       = errors.New("replica file not found")
+	ErrInvalidReplicaFileStatus  = errors.New("invalid replica file status")
+	ErrInvalidReplicaStatus      = errors.New("invalid replica status")
+	ErrInvalidReplicaType        = errors.New("invalid replica type")
+	ErrInvalidReplicaURI         = errors.New("invalid replica uri")
+	ErrInvalidReplicaFileUpdate  = errors.New("invalid replica file update")
+	ErrInvalidReplicaFileAction  = errors.New("invalid replica file action")
+	ErrInvalidReplicaUpstream    = errors.New("invalid replica upstream")
+	ErrReplicaNotFound           = errors.New("replica not found")
+	ErrInventoryDeleted          = errors.New("inventory is deleted")
+	ErrInventoryHasActiveReplica = errors.New("inventory has active replicas")
 )
 
 type ActiveReplicaLocationError struct {
@@ -357,6 +358,13 @@ func (s *InventoryService) Update(id uint, input UpdateInventoryInput) (*Invento
 		status := model.InventoryStatus(strings.TrimSpace(*input.Status))
 		if !status.Valid() {
 			return nil, ErrInvalidInventoryStatus
+		}
+		if status == model.InventoryStatusDeleted {
+			for _, replica := range inventory.Replicas {
+				if replica.Status != model.ReplicaStatusDeleted {
+					return nil, ErrInventoryHasActiveReplica
+				}
+			}
 		}
 		inventory.Status = status
 	}
