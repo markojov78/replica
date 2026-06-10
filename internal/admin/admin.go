@@ -68,6 +68,30 @@ type inventoryList struct {
 	Total int64       `json:"total"`
 }
 
+type role struct {
+	ID          uint   `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+}
+
+type roleList struct {
+	Items []role `json:"items"`
+	Total int64  `json:"total"`
+}
+
+type user struct {
+	ID     uint   `json:"id"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Roles  []role `json:"roles"`
+}
+
+type userList struct {
+	Items []user `json:"items"`
+	Total int64  `json:"total"`
+}
+
 type inventoryFile struct {
 	ID          uint      `json:"id"`
 	InventoryID uint      `json:"inventory_id"`
@@ -111,6 +135,9 @@ type pageData struct {
 	Inventory   inventory
 	Files       filePage
 	Replica     replica
+	Users       []user
+	User        user
+	Roles       []role
 	IsEdit      bool
 }
 
@@ -122,6 +149,7 @@ func Register(mux *http.ServeMux, api http.Handler) error {
 		"isUpstream":  isUpstream,
 		"formatBytes": formatBytes,
 		"formatDate":  formatDate,
+		"hasRole":     hasRole,
 	}).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		return err
@@ -153,6 +181,11 @@ func Register(mux *http.ServeMux, api http.Handler) error {
 	mux.HandleFunc("GET /admin/inventories/{id}/replicas/{replica_id}/edit", handler.protected(handler.editReplicaPage))
 	mux.HandleFunc("POST /admin/inventories/{id}/replicas/{replica_id}", handler.protected(handler.updateReplica))
 	mux.HandleFunc("POST /admin/inventories/{id}/replicas/{replica_id}/delete", handler.protected(handler.deleteReplica))
+	mux.HandleFunc("GET /admin/users", handler.protected(handler.usersPage))
+	mux.HandleFunc("GET /admin/users/new", handler.protected(handler.newUserPage))
+	mux.HandleFunc("POST /admin/users", handler.protected(handler.createUser))
+	mux.HandleFunc("GET /admin/users/{id}/edit", handler.protected(handler.editUserPage))
+	mux.HandleFunc("POST /admin/users/{id}", handler.protected(handler.updateUser))
 	return nil
 }
 
@@ -475,6 +508,91 @@ func (h *Handler) deleteReplica(w http.ResponseWriter, r *http.Request, sess aut
 	http.Redirect(w, r, "/admin/inventories/"+r.PathValue("id"), http.StatusSeeOther)
 }
 
+func (h *Handler) usersPage(w http.ResponseWriter, r *http.Request, sess authContext) {
+	var list userList
+	if !h.load(w, r, sess, "/api/users?count=100", &list) {
+		return
+	}
+	h.render(w, "users", pageData{
+		Title: "Users", Subtitle: "Manage user accounts, status, and assigned roles.",
+		Active: "users", Users: list.Items,
+	})
+}
+
+func (h *Handler) newUserPage(w http.ResponseWriter, r *http.Request, sess authContext) {
+	roles, ok := h.loadRoles(w, r, sess)
+	if !ok {
+		return
+	}
+	h.render(w, "user_form", pageData{
+		Title: "New user", Subtitle: "Create a user account and assign roles.",
+		Active: "users", Roles: roles,
+	})
+}
+
+func (h *Handler) createUser(w http.ResponseWriter, r *http.Request, sess authContext) {
+	if err := r.ParseForm(); err != nil {
+		h.userFormError(w, r, sess, false, user{}, "Invalid form submission.")
+		return
+	}
+	input := map[string]any{
+		"name":     strings.TrimSpace(r.FormValue("name")),
+		"password": r.FormValue("password"),
+		"role_ids": formUintValues(r.Form["role_ids"]),
+	}
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/users", input, nil); err != nil {
+		if errors.Is(err, errUnauthorized) {
+			h.renderError(w, r, sess, err)
+			return
+		}
+		h.userFormError(w, r, sess, false, user{Name: r.FormValue("name")}, apiMessage(err))
+		return
+	}
+	http.Redirect(w, r, "/admin/users", http.StatusSeeOther)
+}
+
+func (h *Handler) editUserPage(w http.ResponseWriter, r *http.Request, sess authContext) {
+	var item user
+	if !h.load(w, r, sess, "/api/users/"+r.PathValue("id"), &item) {
+		return
+	}
+	roles, ok := h.loadRoles(w, r, sess)
+	if !ok {
+		return
+	}
+	h.render(w, "user_form", pageData{
+		Title: "Edit user", Subtitle: fmt.Sprintf("Update user #%d.", item.ID),
+		Active: "users", User: item, Roles: roles, IsEdit: true,
+	})
+}
+
+func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request, sess authContext) {
+	if err := r.ParseForm(); err != nil {
+		id, _ := strconv.ParseUint(r.PathValue("id"), 10, 64)
+		h.userFormError(w, r, sess, true, user{ID: uint(id)}, "Invalid form submission.")
+		return
+	}
+	id, _ := strconv.ParseUint(r.PathValue("id"), 10, 64)
+	item := user{ID: uint(id), Name: r.FormValue("name"), Status: r.FormValue("status")}
+	input := map[string]any{
+		"name":     strings.TrimSpace(item.Name),
+		"status":   item.Status,
+		"role_ids": formUintValues(r.Form["role_ids"]),
+	}
+	if password := r.FormValue("password"); password != "" {
+		input["password"] = password
+	}
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/users/"+r.PathValue("id"), input, nil); err != nil {
+		if errors.Is(err, errUnauthorized) {
+			h.renderError(w, r, sess, err)
+			return
+		}
+		h.userFormError(w, r, sess, true, item, apiMessage(err))
+		return
+	}
+	http.Redirect(w, r, "/admin/users", http.StatusSeeOther)
+}
+
 func (h *Handler) protected(next func(http.ResponseWriter, *http.Request, authContext)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		accessToken, ok := bearerToken(r.Header.Get("Authorization"))
@@ -509,6 +627,14 @@ func (h *Handler) loadReplicaFormData(w http.ResponseWriter, r *http.Request, se
 	}
 	nodes, ok := h.loadNodes(w, r, sess)
 	return inv, nodes, ok
+}
+
+func (h *Handler) loadRoles(w http.ResponseWriter, r *http.Request, sess authContext) ([]role, bool) {
+	var list roleList
+	if !h.load(w, r, sess, "/api/roles?count=100", &list) {
+		return nil, false
+	}
+	return list.Items, true
 }
 
 func (h *Handler) renderError(w http.ResponseWriter, r *http.Request, _ authContext, err error) {
@@ -560,6 +686,21 @@ func (h *Handler) replicaFormError(w http.ResponseWriter, r *http.Request, sess 
 	}
 	h.render(w, "replica_form", pageData{
 		Title: title, Active: "inventories", Inventory: inv, Nodes: nodes, Replica: item, IsEdit: edit, Error: message,
+	})
+}
+
+func (h *Handler) userFormError(w http.ResponseWriter, r *http.Request, sess authContext, edit bool, item user, message string) {
+	roles, ok := h.loadRoles(w, r, sess)
+	if !ok {
+		return
+	}
+	item.Roles = selectedRoles(roles, formUintValues(r.Form["role_ids"]))
+	title := "New user"
+	if edit {
+		title = "Edit user"
+	}
+	h.render(w, "user_form", pageData{
+		Title: title, Active: "users", User: item, Roles: roles, IsEdit: edit, Error: message,
 	})
 }
 
@@ -670,6 +811,40 @@ func optionalUint(value string) *uint {
 	}
 	result := uint(parsed)
 	return &result
+}
+
+func formUintValues(values []string) []uint {
+	result := make([]uint, 0, len(values))
+	for _, value := range values {
+		parsed, err := strconv.ParseUint(value, 10, 64)
+		if err == nil && parsed > 0 {
+			result = append(result, uint(parsed))
+		}
+	}
+	return result
+}
+
+func selectedRoles(roles []role, ids []uint) []role {
+	selected := make(map[uint]struct{}, len(ids))
+	for _, id := range ids {
+		selected[id] = struct{}{}
+	}
+	result := make([]role, 0, len(ids))
+	for _, item := range roles {
+		if _, ok := selected[item.ID]; ok {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func hasRole(id uint, roles []role) bool {
+	for _, item := range roles {
+		if item.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func positiveInt(value string, fallback int) int {

@@ -19,6 +19,7 @@
     <nav class="nav">
       <a href="/admin/nodes" class="{{if eq .Active "nodes"}}active{{end}}">Nodes</a>
       <a href="/admin/inventories" class="{{if eq .Active "inventories"}}active{{end}}">Inventories</a>
+      <a href="/admin/users" class="{{if eq .Active "users"}}active{{end}}">Users</a>
       <span>Replication <b>Later</b></span>
       <span>Settings <b>Later</b></span>
     </nav>
@@ -128,6 +129,52 @@
     </div>
   </article>
 {{else}}<section class="card empty">No inventories found.</section>{{end}}
+</section>
+{{template "layout_end" .}}
+{{end}}
+
+{{define "users"}}
+{{template "layout_start" .}}
+<div class="actions">
+  <label class="filter-toggle"><input type="checkbox" data-hide-deleted="users"> Hide deleted</label>
+  <a class="btn ghost" href="/admin/users">Refresh</a>
+  <a class="btn primary" href="/admin/users/new">New user</a>
+</div>
+<section class="inventory-list">
+{{range .Users}}
+  <article class="inventory-row" data-filter-item="users" data-status="{{.Status}}">
+    <div>
+      <span class="inventory-title">{{.Name}}</span>
+      <p>User #{{.ID}} · {{len .Roles}} roles</p>
+      <div class="chips">{{range .Roles}}<span>{{.Name}}</span>{{end}}</div>
+    </div>
+    <div class="inventory-actions">
+      <span class="pill {{statusClass .Status}}">{{.Status}}</span>
+      <a class="btn" href="/admin/users/{{.ID}}/edit">Edit</a>
+    </div>
+  </article>
+{{else}}<section class="card empty">No users found.</section>{{end}}
+</section>
+{{template "layout_end" .}}
+{{end}}
+
+{{define "user_form"}}
+{{template "layout_start" .}}
+<section class="card form-card">
+  {{template "alert" .}}
+  <form action="{{if .IsEdit}}/admin/users/{{.User.ID}}{{else}}/admin/users{{end}}" method="post" class="form-grid">
+    <label>Username<input name="name" value="{{.User.Name}}" required></label>
+    <label>Password<input name="password" type="password" {{if not .IsEdit}}required{{end}}><small>{{if .IsEdit}}Leave blank to keep the current password.{{end}}</small></label>
+    {{if .IsEdit}}
+      <label>Status<select name="status"><option value="active" {{if eq .User.Status "active"}}selected{{end}}>active</option><option value="deleted" {{if eq .User.Status "deleted"}}selected{{end}}>deleted</option></select></label>
+    {{end}}
+    <label class="full">Roles
+      <select name="role_ids" multiple size="6">
+        {{range .Roles}}<option value="{{.ID}}" {{if hasRole .ID $.User.Roles}}selected{{end}}>{{.Name}} · {{.Status}}</option>{{end}}
+      </select>
+    </label>
+    <div class="footer-actions full"><a class="btn" href="/admin/users">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save user{{else}}Create user{{end}}</button></div>
+  </form>
 </section>
 {{template "layout_end" .}}
 {{end}}

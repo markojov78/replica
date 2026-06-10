@@ -108,6 +108,56 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}
 	accessToken := pair.AccessToken
 
+	response = adminRequest(t, handler, http.MethodGet, "/admin/users", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `href="/admin/users"`) ||
+		!strings.Contains(response.Body.String(), `data-hide-deleted="users"`) ||
+		!strings.Contains(response.Body.String(), "admin") {
+		t.Fatalf("users response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/admin/users/new", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "New user") ||
+		!strings.Contains(response.Body.String(), `name="role_ids"`) ||
+		!strings.Contains(response.Body.String(), "Admin") {
+		t.Fatalf("new user response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodPost, "/admin/users", url.Values{
+		"name":     {"operator"},
+		"password": {"operator-secret"},
+		"role_ids": {"1"},
+	}, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/users" {
+		t.Fatalf("create user response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/admin/users/2/edit", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "Edit user") ||
+		!strings.Contains(response.Body.String(), `value="operator"`) ||
+		!strings.Contains(response.Body.String(), `value="1" selected`) {
+		t.Fatalf("edit user response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodPost, "/admin/users/2", url.Values{
+		"name":     {"operator-updated"},
+		"password": {""},
+		"status":   {"deleted"},
+		"role_ids": {"1"},
+	}, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/users" {
+		t.Fatalf("update user response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/admin/users", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "operator-updated") ||
+		!strings.Contains(response.Body.String(), `data-filter-item="users" data-status="deleted"`) {
+		t.Fatalf("updated users response = %d body=%q", response.Code, response.Body.String())
+	}
+
 	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "Inventories") ||
