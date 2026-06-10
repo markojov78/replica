@@ -6,6 +6,7 @@
     "refresh_token_expires_at",
   ];
   const userIDKey = "replica_admin_user_id";
+  const usernameKey = "replica_admin_username";
   let refreshPromise;
 
   function token(name) {
@@ -24,6 +25,7 @@
       localStorage.removeItem(key);
     }
     localStorage.removeItem(userIDKey);
+    localStorage.removeItem(usernameKey);
   }
 
   function preferenceKey(name) {
@@ -129,6 +131,9 @@
   }
 
   function bindAdminPage() {
+    for (const element of document.querySelectorAll("[data-current-username]")) {
+      element.textContent = localStorage.getItem(usernameKey) || "";
+    }
     bindDeletedFilters();
     document.addEventListener("click", (event) => {
       const link = event.target.closest("a[href]");
@@ -172,6 +177,7 @@
       return;
     }
     storeTokens(await response.json());
+    localStorage.setItem(usernameKey, form.elements.username.value.trim());
     window.location.replace("/admin");
   }
 
@@ -189,6 +195,7 @@
     if (response?.ok) {
       const user = await response.json();
       localStorage.setItem(userIDKey, user.id);
+      localStorage.setItem(usernameKey, user.username);
       const destination = window.location.pathname === "/admin/login" ? "/admin" : window.location.href;
       await showPage(destination, undefined, false);
     }

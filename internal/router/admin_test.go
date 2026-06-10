@@ -82,6 +82,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		"/api/auth/me",
 		"data-hide-deleted",
 		"replica_admin_user_",
+		"replica_admin_username",
 	} {
 		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), required) {
 			t.Fatalf("admin.js response = %d, missing %q", response.Code, required)
@@ -111,6 +112,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	response = adminRequest(t, handler, http.MethodGet, "/admin/users", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), `href="/admin/users"`) ||
+		!strings.Contains(response.Body.String(), `data-current-username`) ||
 		!strings.Contains(response.Body.String(), `data-hide-deleted="users"`) ||
 		!strings.Contains(response.Body.String(), "admin") {
 		t.Fatalf("users response = %d body=%q", response.Code, response.Body.String())

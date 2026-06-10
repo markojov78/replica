@@ -7,6 +7,10 @@
   <title>{{.Title}} · Replica Admin</title>
   <link rel="stylesheet" href="/admin/static/admin.css">
   <script src="/admin/static/admin.js" defer></script>
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/admin/static/favicon-96x96.png">
+  <link rel="shortcut icon" type="image/x-icon" href="/admin/static/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/admin/static/apple-touch-icon.png">
 </head>
 {{end}}
 
@@ -19,12 +23,16 @@
     <nav class="nav">
       <a href="/admin/nodes" class="{{if eq .Active "nodes"}}active{{end}}">Nodes</a>
       <a href="/admin/inventories" class="{{if eq .Active "inventories"}}active{{end}}">Inventories</a>
+      <span>Shares <b>Later</b></span>
       <a href="/admin/users" class="{{if eq .Active "users"}}active{{end}}">Users</a>
       <a href="/admin/roles" class="{{if eq .Active "roles"}}active{{end}}">Roles</a>
       <span>Replication <b>Later</b></span>
       <span>Settings <b>Later</b></span>
     </nav>
-    <form action="/admin/logout" method="post" class="logout"><button type="submit">Log out</button></form>
+    <form action="/admin/logout" method="post" class="logout">
+      <div class="current-user">User: <span data-current-username></span></div>
+      <button type="submit">Log out</button>
+    </form>
   </aside>
   <main>
     <header class="topbar">
