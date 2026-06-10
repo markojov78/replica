@@ -168,6 +168,35 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("updatedReplica.UpstreamReplicaID = %v, want nil", updatedReplica.UpstreamReplicaID)
 	}
 
+	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/999/delete", nil, cookies)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "inventory not found") {
+		t.Fatalf("delete missing inventory response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/1/delete", nil, cookies)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "inventory has active replicas") {
+		t.Fatalf("delete active inventory response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	for _, replicaID := range []string{"2", "1"} {
+		response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/1/replicas/"+replicaID+"/delete", nil, cookies)
+		if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/inventories/1" {
+			t.Fatalf("delete replica %s response = %d location=%q body=%q", replicaID, response.Code, response.Header().Get("Location"), response.Body.String())
+		}
+	}
+
+	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/1/delete", nil, cookies)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/inventories" {
+		t.Fatalf("delete inventory response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	var deletedInventory model.Inventory
+	if err := database.First(&deletedInventory, 1).Error; err != nil {
+		t.Fatalf("First(deleted inventory) error = %v", err)
+	}
+	if deletedInventory.Status != model.InventoryStatusDeleted {
+		t.Fatalf("deletedInventory.Status = %q, want %q", deletedInventory.Status, model.InventoryStatusDeleted)
+	}
+
 	response = adminRequest(t, handler, http.MethodGet, "/admin/nodes", nil, cookies)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "node-a") {
 		t.Fatalf("nodes response = %d body=%q", response.Code, response.Body.String())

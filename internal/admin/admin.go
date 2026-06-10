@@ -367,25 +367,42 @@ func (h *Handler) createInventory(w http.ResponseWriter, r *http.Request, sess s
 }
 
 func (h *Handler) inventoryPage(w http.ResponseWriter, r *http.Request, sess session) {
+	h.renderInventoryPage(w, r, sess, "")
+}
+
+func (h *Handler) renderInventoryPage(w http.ResponseWriter, r *http.Request, sess session, message string) {
 	var item inventory
-	if !h.load(w, r, sess, "/api/inventories/"+r.PathValue("id"), &item) {
+	if err := h.apiSessionJSON(r.Context(), &sess, http.MethodGet, "/api/inventories/"+r.PathValue("id"), nil, &item); err != nil {
+		h.renderInventoryPageLoadError(w, r, sess, err, message)
 		return
 	}
 	page := positiveInt(r.URL.Query().Get("page"), 1)
 	count := filePageSize(r.URL.Query().Get("count"))
 	var files inventoryFileList
-	if !h.load(w, r, sess, fmt.Sprintf("/api/inventories/%s/files?page=%d&count=%d", r.PathValue("id"), page, count), &files) {
+	if err := h.apiSessionJSON(r.Context(), &sess, http.MethodGet, fmt.Sprintf("/api/inventories/%s/files?page=%d&count=%d", r.PathValue("id"), page, count), nil, &files); err != nil {
+		h.renderInventoryPageLoadError(w, r, sess, err, message)
 		return
 	}
 	totalPages := pageCount(files.Total, files.Count)
 	if files.Total > 0 && files.Page > totalPages {
-		if !h.load(w, r, sess, fmt.Sprintf("/api/inventories/%s/files?page=%d&count=%d", r.PathValue("id"), totalPages, count), &files) {
+		if err := h.apiSessionJSON(r.Context(), &sess, http.MethodGet, fmt.Sprintf("/api/inventories/%s/files?page=%d&count=%d", r.PathValue("id"), totalPages, count), nil, &files); err != nil {
+			h.renderInventoryPageLoadError(w, r, sess, err, message)
 			return
 		}
 	}
 	h.render(w, "inventory", pageData{
 		Title: item.Name, Subtitle: fmt.Sprintf("Inventory #%d · %s · %s", item.ID, item.Type, item.Status),
-		Active: "inventories", Inventory: item, Files: newFilePage(files),
+		Active: "inventories", Error: message, Inventory: item, Files: newFilePage(files),
+	})
+}
+
+func (h *Handler) renderInventoryPageLoadError(w http.ResponseWriter, r *http.Request, sess session, loadErr error, message string) {
+	if message == "" {
+		h.renderError(w, r, sess, loadErr)
+		return
+	}
+	h.render(w, "error", pageData{
+		Title: "Request failed", Subtitle: "The inventory could not be loaded after the delete request.", Error: message,
 	})
 }
 
@@ -418,7 +435,11 @@ func (h *Handler) updateInventory(w http.ResponseWriter, r *http.Request, sess s
 
 func (h *Handler) deleteInventory(w http.ResponseWriter, r *http.Request, sess session) {
 	if err := h.apiSessionJSON(r.Context(), &sess, http.MethodDelete, "/api/inventories/"+r.PathValue("id"), nil, nil); err != nil {
-		h.renderError(w, r, sess, err)
+		if errors.Is(err, errUnauthorized) {
+			h.renderError(w, r, sess, err)
+			return
+		}
+		h.renderInventoryPage(w, r, sess, apiMessage(err))
 		return
 	}
 	http.Redirect(w, r, "/admin/inventories", http.StatusSeeOther)

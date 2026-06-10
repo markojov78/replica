@@ -135,6 +135,7 @@
   <a class="btn primary" href="/admin/inventories/{{.Inventory.ID}}/replicas/new">Add replica</a>
   {{if ne .Inventory.Status "deleted"}}<form action="/admin/inventories/{{.Inventory.ID}}/delete" method="post"><button class="danger" type="submit">Delete inventory</button></form>{{end}}
 </div>
+{{template "alert" .}}
 <section class="card detail">
   <dl><dt>ID</dt><dd>#{{.Inventory.ID}}</dd><dt>Type</dt><dd>{{.Inventory.Type}}</dd><dt>Status</dt><dd><span class="pill {{statusClass .Inventory.Status}}">{{.Inventory.Status}}</span></dd></dl>
 </section>
