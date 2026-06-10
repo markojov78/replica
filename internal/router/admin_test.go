@@ -1,6 +1,8 @@
 package router
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -64,24 +66,47 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService, settingService),
 	)
 
-	response := adminRequest(t, handler, http.MethodGet, "/admin/nodes", nil, nil)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/login" {
-		t.Fatalf("protected response = %d location=%q, want 303 /admin/login", response.Code, response.Header().Get("Location"))
+	response := adminRequest(t, handler, http.MethodGet, "/admin/nodes", nil, "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "data-login-form") {
+		t.Fatalf("protected response = %d body=%q, want login page", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/login", url.Values{
-		"username": {"admin"},
-		"password": {"secret"},
-	}, nil)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin" {
-		t.Fatalf("login response = %d location=%q", response.Code, response.Header().Get("Location"))
-	}
-	cookies := response.Result().Cookies()
-	if len(cookies) == 0 {
-		t.Fatal("login response has no session cookie")
+	response = adminRequest(t, handler, http.MethodGet, "/admin/static/admin.js", nil, "")
+	for _, required := range []string{
+		"localStorage",
+		"access_token_expires_at",
+		"refresh_token_expires_at",
+		"/api/auth/login",
+		"/api/auth/refresh",
+		"/api/auth/logout",
+		"/api/auth/me",
+	} {
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), required) {
+			t.Fatalf("admin.js response = %d, missing %q", response.Code, required)
+		}
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories", nil, cookies)
+	loginBody, err := json.Marshal(map[string]string{"username": "admin", "password": "secret"})
+	if err != nil {
+		t.Fatalf("json.Marshal(login) error = %v", err)
+	}
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
+	loginRequest.Header.Set("Content-Type", "application/json")
+	loginRequest.Header.Set("X-API-Version", "1")
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, loginRequest)
+	if response.Code != http.StatusOK {
+		t.Fatalf("login response = %d body=%q", response.Code, response.Body.String())
+	}
+	var pair struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&pair); err != nil {
+		t.Fatalf("decode login response error = %v", err)
+	}
+	accessToken := pair.AccessToken
+
+	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories", nil, accessToken)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Inventories") {
 		t.Fatalf("inventories response = %d body=%q", response.Code, response.Body.String())
 	}
@@ -91,7 +116,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		"type":    {"folder"},
 		"node_id": {"node-a"},
 		"uri":     {"/srv/documents"},
-	}, cookies)
+	}, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/inventories/1" {
 		t.Fatalf("create inventory response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
@@ -114,7 +139,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("Create(files) error = %v", err)
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories/1", nil, cookies)
+	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories/1", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "Documents") ||
 		!strings.Contains(response.Body.String(), "Replicas") ||
@@ -126,7 +151,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("inventory detail response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories/1?page=2&count=20", nil, cookies)
+	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories/1?page=2&count=20", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "file-21.txt") ||
 		!strings.Contains(response.Body.String(), "1 of 21 files, page 2 of 2") ||
@@ -134,7 +159,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("inventory files page 2 response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories/1?page=2&count=10", nil, cookies)
+	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories/1?page=2&count=10", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "10 of 21 files, page 2 of 3") ||
 		!strings.Contains(response.Body.String(), "/admin/inventories/1?page=1&count=10") ||
@@ -147,7 +172,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		"uri":                 {"/backup/documents"},
 		"type":                {"filesystem"},
 		"upstream_replica_id": {"1"},
-	}, cookies)
+	}, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/inventories/1" {
 		t.Fatalf("create replica response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
@@ -156,7 +181,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		"type":                {"filesystem"},
 		"status":              {"active"},
 		"upstream_replica_id": {""},
-	}, cookies)
+	}, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/inventories/1" {
 		t.Fatalf("update replica response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
@@ -168,24 +193,24 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("updatedReplica.UpstreamReplicaID = %v, want nil", updatedReplica.UpstreamReplicaID)
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/999/delete", nil, cookies)
+	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/999/delete", nil, accessToken)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "inventory not found") {
 		t.Fatalf("delete missing inventory response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/1/delete", nil, cookies)
+	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/1/delete", nil, accessToken)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "inventory has active replicas") {
 		t.Fatalf("delete active inventory response = %d body=%q", response.Code, response.Body.String())
 	}
 
 	for _, replicaID := range []string{"2", "1"} {
-		response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/1/replicas/"+replicaID+"/delete", nil, cookies)
+		response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/1/replicas/"+replicaID+"/delete", nil, accessToken)
 		if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/inventories/1" {
 			t.Fatalf("delete replica %s response = %d location=%q body=%q", replicaID, response.Code, response.Header().Get("Location"), response.Body.String())
 		}
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/1/delete", nil, cookies)
+	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/1/delete", nil, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/inventories" {
 		t.Fatalf("delete inventory response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
@@ -197,32 +222,27 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("deletedInventory.Status = %q, want %q", deletedInventory.Status, model.InventoryStatusDeleted)
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/nodes", nil, cookies)
+	response = adminRequest(t, handler, http.MethodGet, "/admin/nodes", nil, accessToken)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "node-a") {
 		t.Fatalf("nodes response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/logout", nil, cookies)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/login" {
-		t.Fatalf("logout response = %d location=%q", response.Code, response.Header().Get("Location"))
+	response = adminRequest(t, handler, http.MethodGet, "/admin/nodes", nil, "invalid")
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid token response = %d body=%q, want 401", response.Code, response.Body.String())
 	}
 }
 
-func adminRequest(t *testing.T, handler http.Handler, method, path string, form url.Values, cookies []*http.Cookie) *httptest.ResponseRecorder {
+func adminRequest(t *testing.T, handler http.Handler, method, path string, form url.Values, accessToken string) *httptest.ResponseRecorder {
 	t.Helper()
-	var body *strings.Reader
-	if form == nil {
-		body = strings.NewReader("")
-	} else {
-		body = strings.NewReader(form.Encode())
-	}
-	request := httptest.NewRequest(method, path, body)
+	request := httptest.NewRequest(method, path, strings.NewReader(form.Encode()))
 	if form != nil {
 		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
-	for _, cookie := range cookies {
-		request.AddCookie(cookie)
+	if accessToken != "" {
+		request.Header.Set("Authorization", "Bearer "+accessToken)
 	}
+	request.Header.Set("X-API-Version", "1")
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 	return recorder

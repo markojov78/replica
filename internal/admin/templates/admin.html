@@ -6,13 +6,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{.Title}} · Replica Admin</title>
   <link rel="stylesheet" href="/admin/static/admin.css">
-  <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+  <script src="/admin/static/admin.js" defer></script>
 </head>
 {{end}}
 
 {{define "layout_start"}}
 {{template "head" .}}
-<body hx-boost="true">
+<body data-admin-authenticated="true">
 <div class="app">
   <aside>
     <a class="logo" href="/admin">Replica Admin<small>Coordinator console</small></a>
@@ -46,8 +46,8 @@
     <div class="logo dark">Replica Admin<small>Coordinator console</small></div>
     <h1>Sign in</h1>
     <p>Use your Replica user credentials.</p>
-    {{template "alert" .}}
-    <form action="/admin/login" method="post" class="stack">
+    <div class="alert login-error" data-login-error>{{.Error}}</div>
+    <form action="/api/auth/login" method="post" class="stack" data-login-form>
       <label>Username<input name="username" required autofocus autocomplete="username"></label>
       <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
       <button type="submit" class="primary">Sign in</button>
