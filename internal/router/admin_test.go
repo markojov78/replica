@@ -80,6 +80,8 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		"/api/auth/refresh",
 		"/api/auth/logout",
 		"/api/auth/me",
+		"data-hide-deleted",
+		"replica_admin_user_",
 	} {
 		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), required) {
 			t.Fatalf("admin.js response = %d, missing %q", response.Code, required)
@@ -107,7 +109,9 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	accessToken := pair.AccessToken
 
 	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories", nil, accessToken)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Inventories") {
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "Inventories") ||
+		!strings.Contains(response.Body.String(), `data-hide-deleted="inventories"`) {
 		t.Fatalf("inventories response = %d body=%q", response.Code, response.Body.String())
 	}
 
@@ -119,6 +123,11 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/inventories/1" {
 		t.Fatalf("create inventory response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories", nil, accessToken)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `data-filter-item="inventories"`) {
+		t.Fatalf("inventories filtering markup response = %d body=%q", response.Code, response.Body.String())
 	}
 
 	now := time.Now().UTC()
@@ -143,6 +152,8 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "Documents") ||
 		!strings.Contains(response.Body.String(), "Replicas") ||
+		!strings.Contains(response.Body.String(), `data-hide-deleted="replicas"`) ||
+		!strings.Contains(response.Body.String(), `data-filter-item="replicas"`) ||
 		!strings.Contains(response.Body.String(), "Inventory files") ||
 		!strings.Contains(response.Body.String(), "file-1.txt") ||
 		!strings.Contains(response.Body.String(), "20 of 21 files, page 1 of 2") ||

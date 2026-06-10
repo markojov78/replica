@@ -220,7 +220,6 @@ Example response:
     {
       "id": 1,
       "name": "jsmith",
-      "password": "$2a$10$example",
       "status": "active",
       "roles": [
         {

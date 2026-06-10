@@ -16,11 +16,10 @@ var (
 )
 
 type UserDetails struct {
-	ID       uint          `json:"id"`
-	Name     string        `json:"name"`
-	Password string        `json:"password"`
-	Status   string        `json:"status"`
-	Roles    []RoleDetails `json:"roles"`
+	ID     uint          `json:"id"`
+	Name   string        `json:"name"`
+	Status string        `json:"status"`
+	Roles  []RoleDetails `json:"roles"`
 }
 
 type UserList struct {
@@ -179,11 +178,10 @@ func toUserDetails(user *model.User) *UserDetails {
 	}
 
 	return &UserDetails{
-		ID:       user.ID,
-		Name:     user.Name,
-		Password: user.Password,
-		Status:   string(user.Status),
-		Roles:    roles,
+		ID:     user.ID,
+		Name:   user.Name,
+		Status: string(user.Status),
+		Roles:  roles,
 	}
 }
 

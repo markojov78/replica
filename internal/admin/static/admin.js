@@ -5,6 +5,7 @@
     "access_token_expires_at",
     "refresh_token_expires_at",
   ];
+  const userIDKey = "replica_admin_user_id";
   let refreshPromise;
 
   function token(name) {
@@ -15,11 +16,37 @@
     for (const key of keys) {
       localStorage.setItem(key, pair[key]);
     }
+    localStorage.setItem(userIDKey, pair.user_id);
   }
 
   function clearTokens() {
     for (const key of keys) {
       localStorage.removeItem(key);
+    }
+    localStorage.removeItem(userIDKey);
+  }
+
+  function preferenceKey(name) {
+    const userID = localStorage.getItem(userIDKey);
+    return userID ? `replica_admin_user_${userID}_${name}` : "";
+  }
+
+  function bindDeletedFilters() {
+    for (const toggle of document.querySelectorAll("[data-hide-deleted]")) {
+      const key = preferenceKey(toggle.dataset.hideDeleted);
+      toggle.checked = key !== "" && localStorage.getItem(key) === "true";
+      const apply = () => {
+        for (const item of document.querySelectorAll(`[data-filter-item="${toggle.dataset.hideDeleted}"]`)) {
+          item.hidden = toggle.checked && item.dataset.status === "deleted";
+        }
+      };
+      toggle.addEventListener("change", () => {
+        if (key) {
+          localStorage.setItem(key, String(toggle.checked));
+        }
+        apply();
+      });
+      apply();
     }
   }
 
@@ -102,6 +129,7 @@
   }
 
   function bindAdminPage() {
+    bindDeletedFilters();
     document.addEventListener("click", (event) => {
       const link = event.target.closest("a[href]");
       if (!link || link.origin !== window.location.origin || !link.pathname.startsWith("/admin")) {
@@ -159,6 +187,8 @@
     }
     const response = await requestWithRefresh("/api/auth/me");
     if (response?.ok) {
+      const user = await response.json();
+      localStorage.setItem(userIDKey, user.id);
       const destination = window.location.pathname === "/admin/login" ? "/admin" : window.location.href;
       await showPage(destination, undefined, false);
     }

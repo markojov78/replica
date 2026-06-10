@@ -108,10 +108,14 @@
 
 {{define "inventories"}}
 {{template "layout_start" .}}
-<div class="actions"><a class="btn ghost" href="/admin/inventories">Refresh</a><a class="btn primary" href="/admin/inventories/new">New inventory</a></div>
+<div class="actions">
+  <label class="filter-toggle"><input type="checkbox" data-hide-deleted="inventories"> Hide deleted</label>
+  <a class="btn ghost" href="/admin/inventories">Refresh</a>
+  <a class="btn primary" href="/admin/inventories/new">New inventory</a>
+</div>
 <section class="inventory-list">
 {{range .Inventories}}
-  <article class="inventory-row">
+  <article class="inventory-row" data-filter-item="inventories" data-status="{{.Status}}">
     <div>
       <a class="inventory-title" href="/admin/inventories/{{.ID}}">{{.Name}}</a>
       <p>{{.Type}} · Inventory #{{.ID}} · {{len .Replicas}} replicas</p>
@@ -140,12 +144,15 @@
   <dl><dt>ID</dt><dd>#{{.Inventory.ID}}</dd><dt>Type</dt><dd>{{.Inventory.Type}}</dd><dt>Status</dt><dd><span class="pill {{statusClass .Inventory.Status}}">{{.Inventory.Status}}</span></dd></dl>
 </section>
 <section class="card">
-  <div class="section-head"><div><h2>Replicas</h2><p>Physical locations belonging to this inventory.</p></div></div>
+  <div class="section-head">
+    <div><h2>Replicas</h2><p>Physical locations belonging to this inventory.</p></div>
+    <label class="filter-toggle"><input type="checkbox" data-hide-deleted="replicas"> Hide deleted</label>
+  </div>
   <table>
     <thead><tr><th>ID</th><th>Node</th><th>URI</th><th>Type</th><th>Role / upstream</th><th>Status</th><th>Actions</th></tr></thead>
     <tbody>
     {{range .Inventory.Replicas}}
-      <tr>
+      <tr data-filter-item="replicas" data-status="{{.Status}}">
         <td class="mono">#{{.ID}}</td><td class="mono">{{.NodeID}}</td><td class="mono">{{.URI}}</td>
         <td><span class="pill neutral">{{.Type}}</span></td>
         <td>{{if .UpstreamReplicaID}}downstream from #{{.UpstreamReplicaID}}{{else}}base{{end}}</td>
