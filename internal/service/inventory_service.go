@@ -52,6 +52,7 @@ func (e *ActiveReplicaLocationError) Error() string {
 type InventoryReplicaDetails struct {
 	ID                uint   `json:"id"`
 	InventoryID       uint   `json:"inventory_id"`
+	InventoryType     string `json:"inventory_type"`
 	NodeID            string `json:"node_id"`
 	URI               string `json:"uri"`
 	Status            string `json:"status"`
@@ -223,6 +224,21 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 		return nil, ErrInvalidInventoryType
 	}
 
+	replicaURI := uri
+	var inventoryFile *model.InventoryFile
+	if inventoryType == model.InventoryTypeFile {
+		var relativeURI string
+		replicaURI, relativeURI = splitFileInventoryURI(uri)
+		if replicaURI == "" || relativeURI == "" {
+			return nil, ErrInvalidInventoryURI
+		}
+		inventoryFile = &model.InventoryFile{
+			RelativeURI: relativeURI,
+			Status:      model.InventoryFileStatusActive,
+			Version:     0,
+		}
+	}
+
 	inventory := &model.Inventory{
 		Name:   name,
 		Status: model.InventoryStatusActive,
@@ -230,7 +246,7 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 	}
 	replica := &model.Replica{
 		NodeID: nodeID,
-		URI:    uri,
+		URI:    replicaURI,
 		Status: model.ReplicaStatusActive,
 		Type:   model.ReplicaTypeFilesystem,
 	}
@@ -246,7 +262,7 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 		string(model.PermissionActionUpdate),
 		string(model.PermissionActionDelete),
 	}
-	if err := s.repo.CreateWithDefaultReplica(inventory, replica, command, input.UserID, permissions); err != nil {
+	if err := s.repo.CreateWithDefaultReplica(inventory, replica, inventoryFile, command, input.UserID, permissions); err != nil {
 		return nil, err
 	}
 
@@ -424,7 +440,9 @@ func (s *InventoryService) IsNotFound(err error) bool {
 func toInventoryDetails(inventory *model.Inventory) *InventoryDetails {
 	replicas := make([]InventoryReplicaDetails, 0, len(inventory.Replicas))
 	for _, replica := range inventory.Replicas {
-		replicas = append(replicas, *toInventoryReplicaDetails(&replica))
+		details := toInventoryReplicaDetails(&replica)
+		details.InventoryType = string(inventory.Type)
+		replicas = append(replicas, *details)
 	}
 
 	return &InventoryDetails{
@@ -440,6 +458,7 @@ func toInventoryReplicaDetails(replica *model.Replica) *InventoryReplicaDetails 
 	return &InventoryReplicaDetails{
 		ID:                replica.ID,
 		InventoryID:       replica.InventoryID,
+		InventoryType:     string(replica.Inventory.Type),
 		NodeID:            replica.NodeID,
 		URI:               replica.URI,
 		Status:            string(replica.Status),
@@ -470,6 +489,36 @@ func toReplicaFileDetails(file *model.ReplicaFile) *ReplicaFileDetails {
 		Version:   file.Version,
 		Status:    string(file.Status),
 	}
+}
+
+func splitFileInventoryURI(value string) (string, string) {
+	clean := strings.TrimSpace(value)
+	if !isAbsoluteFilesystemPath(clean) || strings.HasSuffix(clean, "/") || strings.HasSuffix(clean, "\\") {
+		return "", ""
+	}
+	separator := strings.LastIndexAny(clean, `/\`)
+	if separator < 0 || separator == len(clean)-1 {
+		return "", ""
+	}
+	prefix := clean[:separator]
+	if separator == 0 || (separator == 2 && len(clean) >= 3 && clean[1] == ':') {
+		prefix = clean[:separator+1]
+	}
+	relativeURI := clean[separator+1:]
+	if prefix == "" || relativeURI == "" {
+		return "", ""
+	}
+	return prefix, normalizeInventoryRelativeURI(relativeURI)
+}
+
+func isAbsoluteFilesystemPath(value string) bool {
+	return strings.HasPrefix(value, "/") ||
+		strings.HasPrefix(value, `\\`) ||
+		(len(value) >= 3 && value[1] == ':' && (value[2] == '/' || value[2] == '\\'))
+}
+
+func normalizeInventoryRelativeURI(value string) string {
+	return strings.ReplaceAll(value, "\\", "/")
 }
 
 func inventoryNameFromURI(value string) string {

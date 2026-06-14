@@ -76,6 +76,7 @@ func (s *ReplicaService) Create(input CreateReplicaInput) (*InventoryReplicaDeta
 		Status:            model.ReplicaStatusActive,
 		Type:              replicaType,
 		UpstreamReplicaID: input.UpstreamReplicaID,
+		Inventory:         *inventory,
 	}
 	command := &model.Command{
 		NodeID: nodeID,

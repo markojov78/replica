@@ -70,7 +70,7 @@ type sequenceScanner struct {
 	index   int
 }
 
-func (s *sequenceScanner) Scan(_ context.Context, _ string, _ map[string]FileState) ([]FileState, error) {
+func (s *sequenceScanner) Scan(_ context.Context, _ string, _ map[string]FileState, _ ...string) ([]FileState, error) {
 	if s.index >= len(s.results) {
 		return s.results[len(s.results)-1], nil
 	}

@@ -70,6 +70,7 @@ type NodeTokenPair struct {
 type Replica struct {
 	ID                uint   `json:"id"`
 	InventoryID       uint   `json:"inventory_id"`
+	InventoryType     string `json:"inventory_type"`
 	NodeID            string `json:"node_id"`
 	URI               string `json:"uri"`
 	Status            string `json:"status"`

@@ -60,7 +60,7 @@ func NewS3ScannerWithAllClients(listClient s3ListObjectsV2API, headClient s3Head
 	}
 }
 
-func (s *S3Scanner) Scan(ctx context.Context, rootURI string, oldStates map[string]FileState) ([]FileState, error) {
+func (s *S3Scanner) Scan(ctx context.Context, rootURI string, oldStates map[string]FileState, targetRelativeURI ...string) ([]FileState, error) {
 	location, err := parseS3URI(rootURI)
 	if err != nil {
 		return nil, err
@@ -84,6 +84,9 @@ func (s *S3Scanner) Scan(ctx context.Context, rootURI string, oldStates map[stri
 				return nil, err
 			}
 			if state == nil {
+				continue
+			}
+			if len(targetRelativeURI) > 0 && targetRelativeURI[0] != "" && state.RelativeURI != normalizeRelativeURI(targetRelativeURI[0]) {
 				continue
 			}
 			states = append(states, *state)

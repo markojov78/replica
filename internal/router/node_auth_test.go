@@ -449,8 +449,9 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 	}
 
 	var body []struct {
-		NodeID string `json:"node_id"`
-		URI    string `json:"uri"`
+		NodeID        string `json:"node_id"`
+		URI           string `json:"uri"`
+		InventoryType string `json:"inventory_type"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
@@ -463,6 +464,9 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 	}
 	if body[0].URI != "/data/a" {
 		t.Fatalf("body[0].URI = %q, want %q", body[0].URI, "/data/a")
+	}
+	if body[0].InventoryType != string(model.InventoryTypeFolder) {
+		t.Fatalf("body[0].InventoryType = %q, want %q", body[0].InventoryType, model.InventoryTypeFolder)
 	}
 }
 

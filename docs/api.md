@@ -544,18 +544,20 @@ Returns a single inventory with its replicas.
 Creates an inventory together with its default replica.
 
 Request body:
-- `name` optional
-- `type` optional, defaults to `folder`
+- `name` optional, if omitted, it is derived from the last path segment of `uri`
+- `type` optional, could be `file` or `folder`, defaults to `folder`
 - `node_id` required
 - `uri` required
 
 Behavior:
-- if `name` is omitted, it is derived from the last path segment of `uri`
 - the default replica type is currently hardcoded to `filesystem`
-- the creating user is inserted into `inventory_users`
-- the creating user receives `read`, `create`, `update`, and `delete` inventory permissions in `inventory_permissions`
+- the creating user is inserted into `inventory_users`, and the creating user receives `read`, `create`, `update`, and `delete` inventory permissions in `inventory_permissions`
+- for a folder inventory, stores `uri` unchanged as the default replica prefix and discovers files during the initial scan
+- for a file inventory, requires an absolute filesystem file path, stores its parent path as the default replica
+  `uri`, creates one active version-`0` inventory file using the basename as `relative_uri`, and scopes the initial
+  scan to that file
 
-Example request:
+Example requests:
 
 ```json
 {
@@ -564,6 +566,13 @@ Example request:
 }
 ```
 
+```json
+{
+  "node_id": "node-1",
+  "type": "file",
+  "uri": "/home/username/database.db"
+}
+```
 #### PATCH /inventories/{id}
 Updates an inventory.
 
@@ -1103,6 +1112,7 @@ Example response:
   {
     "id": 1,
     "inventory_id": 1,
+    "inventory_type": "folder",
     "node_id": "node-a",
     "uri": "/data/photos",
     "status": "active",

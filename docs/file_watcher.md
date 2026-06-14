@@ -42,11 +42,12 @@ Watcher events are hints, not authoritative state transitions. If an implementat
 
 ```go
 type Scanner interface {
-    Scan(ctx context.Context, rootURI string, oldStates map[string]FileState) ([]FileState, error)
+    Scan(ctx context.Context, rootURI string, oldStates map[string]FileState, targetRelativeURI ...string) ([]FileState, error)
 }
 ```
 
 A scanner performs a snapshot-style inventory of a replica root.
+When `targetRelativeURI` is provided, the scan is restricted to that one known file relative to `rootURI`.
 `oldStates` is an optional map keyed by relative URI. When a file is present in `oldStates` and the scanner can
 confirm that file metadata has not changed, the scanner may reuse the known BLAKE3 hash instead of reading file
 content again. A nil map or a missing entry preserves the old behavior: the scanner reads the file content and
@@ -70,11 +71,12 @@ Scanners are appropriate for:
 
 ```go
 type Watcher interface {
-    Watch(ctx context.Context, rootURI string) (<-chan FileChange, <-chan error, error)
+    Watch(ctx context.Context, rootURI string, targetRelativeURI ...string) (<-chan FileChange, <-chan error, error)
 }
 ```
 
 A watcher produces a stream of change hints for a replica root.
+When `targetRelativeURI` is provided, only that one known file is watched and unrelated paths are ignored.
 
 Implementation requirements:
 

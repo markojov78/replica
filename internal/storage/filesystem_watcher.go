@@ -18,8 +18,14 @@ func NewFilesystemWatcher() *FilesystemWatcher {
 	}
 }
 
-func (w *FilesystemWatcher) Watch(ctx context.Context, rootURI string) (<-chan FileChange, <-chan error, error) {
-	root, err := resolveFilesystemRoot(rootURI)
+func (w *FilesystemWatcher) Watch(ctx context.Context, rootURI string, targetRelativeURI ...string) (<-chan FileChange, <-chan error, error) {
+	var root filesystemRoot
+	var err error
+	if len(targetRelativeURI) > 0 && targetRelativeURI[0] != "" {
+		root, err = resolveFilesystemTarget(rootURI, targetRelativeURI[0])
+	} else {
+		root, err = resolveFilesystemRoot(rootURI)
+	}
 	if err != nil {
 		return nil, nil, err
 	}

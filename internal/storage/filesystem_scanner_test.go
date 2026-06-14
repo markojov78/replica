@@ -184,6 +184,33 @@ func TestFilesystemScannerScansSingleFileRoot(t *testing.T) {
 	}
 }
 
+func TestFilesystemScannerScansOnlyExplicitTargetRelativeURI(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "target.txt"), []byte("target"), 0o644); err != nil {
+		t.Fatalf("WriteFile(target) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "other.txt"), []byte("other"), 0o644); err != nil {
+		t.Fatalf("WriteFile(other) error = %v", err)
+	}
+
+	scanner := NewFilesystemScanner()
+	states, err := scanner.Scan(context.Background(), root, nil, "target.txt")
+	if err != nil {
+		t.Fatalf("Scan(target) error = %v", err)
+	}
+	if len(states) != 1 || states[0].RelativeURI != "target.txt" {
+		t.Fatalf("states = %+v, want only target.txt", states)
+	}
+
+	states, err = scanner.Scan(context.Background(), root, nil, "missing.txt")
+	if err != nil {
+		t.Fatalf("Scan(missing target) error = %v", err)
+	}
+	if len(states) != 0 {
+		t.Fatalf("missing target states = %+v, want empty", states)
+	}
+}
+
 func TestFilesystemScannerIgnoresTemporaryWritePaths(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "nested"), 0o755); err != nil {

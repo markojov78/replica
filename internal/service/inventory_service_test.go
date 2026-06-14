@@ -31,6 +31,32 @@ func TestInventoryNameFromURI(t *testing.T) {
 	}
 }
 
+func TestSplitFileInventoryURI(t *testing.T) {
+	tests := []struct {
+		uri          string
+		wantPrefix   string
+		wantRelative string
+	}{
+		{uri: "/home/username/database.db", wantPrefix: "/home/username", wantRelative: "database.db"},
+		{uri: "/database.db", wantPrefix: "/", wantRelative: "database.db"},
+		{uri: `C:\data\database.db`, wantPrefix: `C:\data`, wantRelative: "database.db"},
+		{uri: `C:\database.db`, wantPrefix: `C:\`, wantRelative: "database.db"},
+	}
+	for _, test := range tests {
+		prefix, relative := splitFileInventoryURI(test.uri)
+		if prefix != test.wantPrefix || relative != test.wantRelative {
+			t.Fatalf("splitFileInventoryURI(%q) = %q, %q; want %q, %q", test.uri, prefix, relative, test.wantPrefix, test.wantRelative)
+		}
+	}
+
+	for _, uri := range []string{"relative.db", "relative/database.db", "/home/username/"} {
+		prefix, relative := splitFileInventoryURI(uri)
+		if prefix != "" || relative != "" {
+			t.Fatalf("splitFileInventoryURI(%q) = %q, %q; want invalid", uri, prefix, relative)
+		}
+	}
+}
+
 func TestInventoryServiceCreateCreatesPendingScanReplicaCommand(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
 		Driver: "sqlite",
@@ -59,6 +85,16 @@ func TestInventoryServiceCreateCreatesPendingScanReplicaCommand(t *testing.T) {
 	if len(inventory.Replicas) != 1 {
 		t.Fatalf("len(inventory.Replicas) = %d, want 1", len(inventory.Replicas))
 	}
+	if inventory.Replicas[0].URI != "/data/photos" {
+		t.Fatalf("inventory.Replicas[0].URI = %q, want %q", inventory.Replicas[0].URI, "/data/photos")
+	}
+	var folderFileCount int64
+	if err := database.Model(&model.InventoryFile{}).Where("inventory_id = ?", inventory.ID).Count(&folderFileCount).Error; err != nil {
+		t.Fatalf("Count(folder inventory files) error = %v", err)
+	}
+	if folderFileCount != 0 {
+		t.Fatalf("folderFileCount = %d, want 0 before discovery", folderFileCount)
+	}
 
 	var command model.Command
 	if err := database.First(&command, "node_id = ? AND type = ?", "node-a", model.NodeCommandTypeScanReplica).Error; err != nil {
@@ -76,6 +112,81 @@ func TestInventoryServiceCreateCreatesPendingScanReplicaCommand(t *testing.T) {
 	}
 	if payload.ReplicaID != inventory.Replicas[0].ID {
 		t.Fatalf("payload.ReplicaID = %d, want %d", payload.ReplicaID, inventory.Replicas[0].ID)
+	}
+}
+
+func TestInventoryServiceCreateFileInventorySplitsURIAndSeedsPlaceholder(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "file-inventory-create.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	svc := NewInventoryService(repository.NewInventoryRepository(database))
+	inventory, err := svc.Create(CreateInventoryInput{
+		Type:   string(model.InventoryTypeFile),
+		NodeID: "node-a",
+		URI:    "/home/username/database.db",
+		UserID: 7,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if inventory.Name != "database.db" {
+		t.Fatalf("inventory.Name = %q, want %q", inventory.Name, "database.db")
+	}
+	if len(inventory.Replicas) != 1 || inventory.Replicas[0].URI != "/home/username" {
+		t.Fatalf("inventory.Replicas = %+v, want one replica rooted at /home/username", inventory.Replicas)
+	}
+	if inventory.Replicas[0].InventoryType != string(model.InventoryTypeFile) {
+		t.Fatalf("inventory.Replicas[0].InventoryType = %q, want %q", inventory.Replicas[0].InventoryType, model.InventoryTypeFile)
+	}
+
+	var file model.InventoryFile
+	if err := database.Where("inventory_id = ?", inventory.ID).First(&file).Error; err != nil {
+		t.Fatalf("First(inventory file) error = %v", err)
+	}
+	if file.RelativeURI != "database.db" || file.Status != model.InventoryFileStatusActive || file.Version != 0 || file.Size != 0 || file.Hash != "" || !file.Created.IsZero() || !file.Modified.IsZero() {
+		t.Fatalf("file = %+v, want active database.db placeholder at version 0", file)
+	}
+
+	var replicaFile model.ReplicaFile
+	if err := database.Where("replica_id = ? AND file_id = ?", inventory.Replicas[0].ID, file.ID).First(&replicaFile).Error; err != nil {
+		t.Fatalf("First(replica file) error = %v", err)
+	}
+	if replicaFile.Version != 0 || replicaFile.Status != model.ReplicaFileStatusSynchronized {
+		t.Fatalf("replicaFile = %+v, want synchronized version 0", replicaFile)
+	}
+
+	replicaService := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
+	now := time.Now().UTC()
+	fileID := file.ID
+	if err := replicaService.ReportFileChanges(inventory.Replicas[0].ID, "node-a", []ReplicaFileChangeInput{{
+		FileID:          &fileID,
+		Action:          string(model.ReplicaFileActionUpdated),
+		RelativeURI:     "database.db",
+		FileSize:        42,
+		FileSizeSet:     true,
+		FileHash:        "database-hash",
+		FileHashSet:     true,
+		CreatedTime:     now,
+		CreatedTimeSet:  true,
+		ModifiedTime:    now,
+		ModifiedTimeSet: true,
+	}}); err != nil {
+		t.Fatalf("ReportFileChanges() error = %v", err)
+	}
+
+	if err := database.First(&file, file.ID).Error; err != nil {
+		t.Fatalf("First(updated inventory file) error = %v", err)
+	}
+	if file.Version != 1 || file.Size != 42 || file.Hash != "database-hash" {
+		t.Fatalf("updated file = %+v, want version 1 with scanned metadata", file)
 	}
 }
 

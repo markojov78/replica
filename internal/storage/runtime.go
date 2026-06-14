@@ -185,7 +185,11 @@ func (r *Runtime) reportStartupLocalChanges(ctx context.Context) error {
 			return fmt.Errorf("startup scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
 		}
 
-		states, err := scanner.Scan(ctx, replica.URI, r.getReplicaFiles(replica.ID))
+		targetRelativeURI, err := replicaScanTarget(replica, r.replicaFilesSnapshot(replica.ID))
+		if err != nil {
+			return fmt.Errorf("startup scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
+		}
+		states, err := scanner.Scan(ctx, replica.URI, r.getReplicaFiles(replica.ID), targetRelativeURI)
 		if err != nil {
 			return fmt.Errorf("startup scan replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
 		}
@@ -279,7 +283,12 @@ func (r *Runtime) startReplicaWatchers(ctx context.Context, replicas []apiclient
 			continue
 		}
 
-		changeCh, errCh, err := watcher.Watch(ctx, replica.URI)
+		targetRelativeURI, err := replicaScanTarget(replica, r.replicaFilesSnapshot(replica.ID))
+		if err != nil {
+			log.Printf("storage runtime watcher setup skipped replica_id=%d uri=%s error=%v", replica.ID, replica.URI, err)
+			continue
+		}
+		changeCh, errCh, err := watcher.Watch(ctx, replica.URI, targetRelativeURI)
 		if err != nil {
 			log.Printf("storage runtime watcher start failed replica_id=%d uri=%s error=%v", replica.ID, replica.URI, err)
 			continue
@@ -360,7 +369,7 @@ func (r *Runtime) reportWatcherChange(ctx context.Context, replica apiclient.Rep
 	} else {
 		var ok bool
 		var err error
-		state, ok, err = r.currentFileState(ctx, replica.URI, change.RelativeURI, r.getReplicaFiles(replica.ID))
+		state, ok, err = r.currentFileState(ctx, replica, change.RelativeURI, r.getReplicaFiles(replica.ID))
 		if err != nil {
 			return err
 		}
@@ -385,12 +394,16 @@ func (r *Runtime) reportWatcherChange(ctx context.Context, replica apiclient.Rep
 	return nil
 }
 
-func (r *Runtime) currentFileState(ctx context.Context, replicaURI, relativeURI string, oldStates map[string]FileState) (FileState, bool, error) {
-	scanner, err := GetScanner(ctx, replicaURI)
+func (r *Runtime) currentFileState(ctx context.Context, replica apiclient.Replica, relativeURI string, oldStates map[string]FileState) (FileState, bool, error) {
+	scanner, err := GetScanner(ctx, replica.URI)
 	if err != nil {
 		return FileState{}, false, err
 	}
-	states, err := scanner.Scan(ctx, replicaURI, oldStates)
+	targetRelativeURI, err := replicaScanTarget(replica, r.replicaFilesSnapshot(replica.ID))
+	if err != nil {
+		return FileState{}, false, err
+	}
+	states, err := scanner.Scan(ctx, replica.URI, oldStates, targetRelativeURI)
 	if err != nil {
 		return FileState{}, false, err
 	}
@@ -820,7 +833,11 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 	if err != nil {
 		return err
 	}
-	states, err := scanner.Scan(ctx, replica.URI, r.getReplicaFiles(replica.ID))
+	targetRelativeURI, err := replicaScanTarget(replica, files)
+	if err != nil {
+		return err
+	}
+	states, err := scanner.Scan(ctx, replica.URI, r.getReplicaFiles(replica.ID), targetRelativeURI)
 	if err != nil {
 		return err
 	}
@@ -844,6 +861,16 @@ func replicaFileReports(files []apiclient.ReplicaInventoryFile, states []FileSta
 
 func replicaIsActive(replica apiclient.Replica) bool {
 	return replica.Status == "" || replica.Status == "active"
+}
+
+func replicaScanTarget(replica apiclient.Replica, files []apiclient.ReplicaInventoryFile) (string, error) {
+	if replica.InventoryType != "file" {
+		return "", nil
+	}
+	if len(files) != 1 || strings.TrimSpace(files[0].RelativeURI) == "" {
+		return "", fmt.Errorf("file inventory replica must have exactly one inventory file")
+	}
+	return files[0].RelativeURI, nil
 }
 
 func replicaHasPendingFiles(files []apiclient.ReplicaInventoryFile) bool {

@@ -280,7 +280,7 @@ func (r *ReplicaRepository) selectMultiDirectionalReconcileSource(tx *gorm.DB, d
 
 func (r *ReplicaRepository) FindByID(id uint) (*model.Replica, error) {
 	var replica model.Replica
-	if err := r.db.First(&replica, id).Error; err != nil {
+	if err := r.db.Preload("Inventory").First(&replica, id).Error; err != nil {
 		return nil, err
 	}
 	return &replica, nil
@@ -319,7 +319,7 @@ type ReplicaFileListFilter struct {
 
 func (r *ReplicaRepository) ListFiltered(filter ReplicaListFilter) ([]model.Replica, error) {
 	var replicas []model.Replica
-	query := r.db.Order("id asc")
+	query := r.db.Preload("Inventory").Order("id asc")
 	if filter.InventoryID != nil {
 		query = query.Where("inventory_id = ?", *filter.InventoryID)
 	}
@@ -359,6 +359,7 @@ func (r *ReplicaRepository) ListPage(page, perPage int, filter ReplicaListFilter
 
 	var replicas []model.Replica
 	err := r.db.
+		Preload("Inventory").
 		Scopes(func(tx *gorm.DB) *gorm.DB {
 			if filter.InventoryID != nil {
 				tx = tx.Where("inventory_id = ?", *filter.InventoryID)

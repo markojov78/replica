@@ -22,8 +22,8 @@ func NewS3Watcher(scanner Scanner, interval time.Duration) *S3Watcher {
 	}
 }
 
-func (w *S3Watcher) Watch(ctx context.Context, rootURI string) (<-chan FileChange, <-chan error, error) {
-	initial, err := w.scanner.Scan(ctx, rootURI, nil)
+func (w *S3Watcher) Watch(ctx context.Context, rootURI string, targetRelativeURI ...string) (<-chan FileChange, <-chan error, error) {
+	initial, err := w.scanner.Scan(ctx, rootURI, nil, targetRelativeURI...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -44,7 +44,7 @@ func (w *S3Watcher) Watch(ctx context.Context, rootURI string) (<-chan FileChang
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				current, err := w.scanner.Scan(ctx, rootURI, fileStateMap(previous))
+				current, err := w.scanner.Scan(ctx, rootURI, fileStateMap(previous), targetRelativeURI...)
 				if err != nil {
 					sendError(ctx, errCh, err)
 					continue

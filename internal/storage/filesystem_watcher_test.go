@@ -122,3 +122,44 @@ func TestFilesystemWatcherSingleFileRootEmitsTargetChanges(t *testing.T) {
 		}
 	}
 }
+
+func TestFilesystemWatcherExplicitTargetIgnoresOtherFiles(t *testing.T) {
+	rootDir := t.TempDir()
+	targetPath := filepath.Join(rootDir, "target.txt")
+	otherPath := filepath.Join(rootDir, "other.txt")
+
+	watcher := NewFilesystemWatcher()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	changeCh, errCh, err := watcher.Watch(ctx, rootDir, "target.txt")
+	if err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	if err := os.WriteFile(otherPath, []byte("other"), 0o644); err != nil {
+		t.Fatalf("WriteFile(other) error = %v", err)
+	}
+	if err := os.WriteFile(targetPath, []byte("target"), 0o644); err != nil {
+		t.Fatalf("WriteFile(target) error = %v", err)
+	}
+
+	for {
+		select {
+		case err := <-errCh:
+			if err != nil {
+				t.Fatalf("watcher error = %v", err)
+			}
+		case change := <-changeCh:
+			if change.RelativeURI == "other.txt" {
+				t.Fatalf("watcher reported unrelated file: %+v", change)
+			}
+			if change.RelativeURI == "target.txt" {
+				return
+			}
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for explicit target watcher event")
+		}
+	}
+}

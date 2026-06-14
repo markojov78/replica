@@ -51,6 +51,30 @@ func resolveFilesystemRoot(rootURI string) (filesystemRoot, error) {
 	}, nil
 }
 
+func resolveFilesystemTarget(rootURI, targetRelativeURI string) (filesystemRoot, error) {
+	targetRelativeURI, err := cleanWriteRelativeURI(targetRelativeURI)
+	if err != nil {
+		return filesystemRoot{}, err
+	}
+	rootPath, err := localFilesystemPath(rootURI)
+	if err != nil {
+		return filesystemRoot{}, err
+	}
+	cleanRoot := filepath.Clean(rootPath)
+	targetPath := filepath.Join(cleanRoot, filepath.FromSlash(targetRelativeURI))
+	rel, err := filepath.Rel(cleanRoot, targetPath)
+	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return filesystemRoot{}, errors.New("target relative uri escapes filesystem root")
+	}
+	return filesystemRoot{
+		scanPath:    targetPath,
+		relativeDir: cleanRoot,
+		watchPath:   filepath.Dir(targetPath),
+		targetPath:  targetPath,
+		singleFile:  true,
+	}, nil
+}
+
 func (r filesystemRoot) includesPath(path string) bool {
 	if !r.singleFile {
 		return true

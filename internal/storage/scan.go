@@ -34,11 +34,11 @@ type FileChange struct {
 }
 
 type Scanner interface {
-	Scan(ctx context.Context, rootURI string, oldStates map[string]FileState) ([]FileState, error)
+	Scan(ctx context.Context, rootURI string, oldStates map[string]FileState, targetRelativeURI ...string) ([]FileState, error)
 }
 
 type Watcher interface {
-	Watch(ctx context.Context, rootURI string) (<-chan FileChange, <-chan error, error)
+	Watch(ctx context.Context, rootURI string, targetRelativeURI ...string) (<-chan FileChange, <-chan error, error)
 }
 
 type Reader interface {

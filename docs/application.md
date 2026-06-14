@@ -126,7 +126,7 @@ replica_id - replica on which action occurred
 
 #### replicas
 node_id - id of the service node on which replica exists  
-uri - data prefix uri for the replica  
+uri - data prefix uri for the replica; full file paths are formed from replica `uri` plus `inventory_files.relative_uri`
 status - active, deleted  
 type - storage, filesystem, removable
 upstream_replica_id - nullable reference to another replica in the same inventory; null means base multi-directional replica, non-null means downstream/read-only from replication perspective
@@ -299,6 +299,14 @@ Deleted replicas may still be returned to storage nodes as runtime assignments. 
 ### Creating a new inventory
 When an inventory is created, the coordinator creates the logical inventory record and its first/default replica. 
 The default replica is the initial physical location from which the inventory content is discovered. 
+
+For a file inventory, the supplied creation URI identifies the one file. The coordinator stores the parent path as
+the default replica URI and creates one active `inventory_files` placeholder using the file name as `relative_uri`,
+placeholder metadata and version `0`. The matching default `replica_files` row is synchronized at version `0`.
+The first scan is scoped to that known relative URI and populates its metadata, advancing the file to version `1`.
+
+For a folder inventory, the supplied URI is stored unchanged as the replica prefix and the initial recursive scan
+discovers its inventory files.
 
 #### 1) User requests inventory creation
 For example:  
