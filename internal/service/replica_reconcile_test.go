@@ -88,6 +88,29 @@ func TestReplicaServiceUpdateClearsUpstreamReplica(t *testing.T) {
 	if updated.UpstreamReplicaID != nil {
 		t.Fatalf("updated.UpstreamReplicaID = %v, want nil", updated.UpstreamReplicaID)
 	}
+	var command model.Command
+	if err := database.First(&command, "node_id = ? AND type = ?", destination.NodeID, model.NodeCommandTypeRefreshState).Error; err != nil {
+		t.Fatalf("First(refresh_state command) error = %v", err)
+	}
+	if command.Status != model.NodeCommandStatusPending {
+		t.Fatalf("command.Status = %q, want %q", command.Status, model.NodeCommandStatusPending)
+	}
+}
+
+func TestReplicaServiceDeleteCreatesRefreshStateCommand(t *testing.T) {
+	database, svc, _, destination := newReconcileCommandTest(t)
+
+	if _, err := svc.Delete(destination.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	var command model.Command
+	if err := database.First(&command, "node_id = ? AND type = ?", destination.NodeID, model.NodeCommandTypeRefreshState).Error; err != nil {
+		t.Fatalf("First(refresh_state command) error = %v", err)
+	}
+	if command.Status != model.NodeCommandStatusPending {
+		t.Fatalf("command.Status = %q, want %q", command.Status, model.NodeCommandStatusPending)
+	}
 }
 
 func newReconcileCommandTest(t *testing.T) (*gorm.DB, *ReplicaService, model.Replica, model.Replica) {

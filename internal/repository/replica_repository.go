@@ -67,7 +67,7 @@ func (r *ReplicaRepository) Create(replica *model.Replica) error {
 	return r.db.Create(replica).Error
 }
 
-func (r *ReplicaRepository) CreateWithPendingFiles(replica *model.Replica, command *model.Command, payloadBuilders ...ReconcilePayloadBuilder) error {
+func (r *ReplicaRepository) CreateWithPendingFiles(replica *model.Replica, command, refreshCommand *model.Command, payloadBuilders ...ReconcilePayloadBuilder) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(replica).Error; err != nil {
 			return err
@@ -93,33 +93,49 @@ func (r *ReplicaRepository) CreateWithPendingFiles(replica *model.Replica, comma
 			}
 		}
 
-		if command == nil {
+		if command != nil {
+			command.NodeID = replica.NodeID
+			if command.Type == model.NodeCommandTypeReconcileReplica {
+				if len(payloadBuilders) > 0 {
+					created, err := r.createReconcileCommand(tx, *replica, payloadBuilders[0], nil)
+					if err != nil {
+						return err
+					}
+					*command = created
+				} else {
+					if len(command.Payload) == 0 {
+						payload, err := json.Marshal(struct {
+							DestinationReplicaID uint `json:"destination_replica_id"`
+						}{
+							DestinationReplicaID: replica.ID,
+						})
+						if err != nil {
+							return err
+						}
+						command.Payload = payload
+					}
+					if err := tx.Create(command).Error; err != nil {
+						return err
+					}
+				}
+			} else {
+				if len(command.Payload) == 0 {
+					command.Payload = []byte("{}")
+				}
+				if err := tx.Create(command).Error; err != nil {
+					return err
+				}
+			}
+		}
+
+		if refreshCommand == nil {
 			return nil
 		}
-		command.NodeID = replica.NodeID
-		if command.Type == model.NodeCommandTypeReconcileReplica {
-			if len(payloadBuilders) > 0 {
-				created, err := r.createReconcileCommand(tx, *replica, payloadBuilders[0], nil)
-				if err != nil {
-					return err
-				}
-				*command = created
-				return nil
-			} else if len(command.Payload) == 0 {
-				payload, err := json.Marshal(struct {
-					DestinationReplicaID uint `json:"destination_replica_id"`
-				}{
-					DestinationReplicaID: replica.ID,
-				})
-				if err != nil {
-					return err
-				}
-				command.Payload = payload
-			}
-		} else if len(command.Payload) == 0 {
-			command.Payload = []byte("{}")
+		refreshCommand.NodeID = replica.NodeID
+		if len(refreshCommand.Payload) == 0 {
+			refreshCommand.Payload = []byte("{}")
 		}
-		return tx.Create(command).Error
+		return tx.Create(refreshCommand).Error
 	})
 }
 
@@ -462,6 +478,22 @@ func (r *ReplicaRepository) ListInventoryFiles(replicaID uint, filters ...Replic
 
 func (r *ReplicaRepository) Update(replica *model.Replica) error {
 	return r.db.Save(replica).Error
+}
+
+func (r *ReplicaRepository) UpdateWithCommand(replica *model.Replica, command *model.Command) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(replica).Error; err != nil {
+			return err
+		}
+		if command == nil {
+			return nil
+		}
+		command.NodeID = replica.NodeID
+		if len(command.Payload) == 0 {
+			command.Payload = []byte("{}")
+		}
+		return tx.Create(command).Error
+	})
 }
 
 func (r *ReplicaRepository) UpdateFileStatus(replicaID, fileID uint, status model.ReplicaFileStatus, version *uint) error {

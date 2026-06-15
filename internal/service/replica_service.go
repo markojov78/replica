@@ -83,11 +83,17 @@ func (s *ReplicaService) Create(input CreateReplicaInput) (*InventoryReplicaDeta
 		Type:   model.NodeCommandTypeReconcileReplica,
 		Status: model.NodeCommandStatusPending,
 	}
-	if err := s.repo.CreateWithPendingFiles(replica, command, s.reconcilePayloadBuilder()); err != nil {
+	refreshCommand := &model.Command{
+		NodeID: nodeID,
+		Type:   model.NodeCommandTypeRefreshState,
+		Status: model.NodeCommandStatusPending,
+	}
+	if err := s.repo.CreateWithPendingFiles(replica, command, refreshCommand, s.reconcilePayloadBuilder()); err != nil {
 		return nil, err
 	}
 	if s.nodes != nil {
 		s.nodes.PublishCommand(command)
+		s.nodes.PublishCommand(refreshCommand)
 	}
 
 	return toInventoryReplicaDetails(replica), nil
@@ -346,11 +352,13 @@ func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput) (*Inve
 		return nil, err
 	}
 
+	changed := false
 	if input.Type != nil {
 		replicaType := model.ReplicaType(strings.TrimSpace(*input.Type))
 		if !replicaType.Valid() {
 			return nil, ErrInvalidReplicaType
 		}
+		changed = changed || replica.Type != replicaType
 		replica.Type = replicaType
 	}
 	if input.Status != nil {
@@ -378,20 +386,40 @@ func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput) (*Inve
 				return nil, err
 			}
 		}
+		changed = changed || replica.Status != status
 		replica.Status = status
 	}
 	if input.UpstreamReplicaIDSet || input.UpstreamReplicaID != nil {
 		if err := s.validateUpstreamReplica(replica.InventoryID, replica.ID, input.UpstreamReplicaID); err != nil {
 			return nil, err
 		}
+		changed = changed || !uintPointersEqual(replica.UpstreamReplicaID, input.UpstreamReplicaID)
 		replica.UpstreamReplicaID = input.UpstreamReplicaID
 	}
 
-	if err := s.repo.Update(replica); err != nil {
+	var command *model.Command
+	if changed {
+		command = &model.Command{
+			NodeID: replica.NodeID,
+			Type:   model.NodeCommandTypeRefreshState,
+			Status: model.NodeCommandStatusPending,
+		}
+	}
+	if err := s.repo.UpdateWithCommand(replica, command); err != nil {
 		return nil, err
+	}
+	if command != nil && s.nodes != nil {
+		s.nodes.PublishCommand(command)
 	}
 
 	return toInventoryReplicaDetails(replica), nil
+}
+
+func uintPointersEqual(left, right *uint) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return *left == *right
 }
 
 func (s *ReplicaService) Delete(replicaID uint) (*InventoryReplicaDetails, error) {

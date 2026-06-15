@@ -940,6 +940,23 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 	if command.Payload.ReplicaID == 0 {
 		t.Fatal("command.Payload.ReplicaID = 0, want created replica id")
 	}
+	var refreshCommand struct {
+		NodeID string `json:"node_id"`
+		Type   string `json:"type"`
+		Status string `json:"status"`
+	}
+	if err := conn.ReadJSON(&refreshCommand); err != nil {
+		t.Fatalf("ReadJSON(refresh_state) error = %v", err)
+	}
+	if refreshCommand.NodeID != "node-a" {
+		t.Fatalf("refreshCommand.NodeID = %q, want %q", refreshCommand.NodeID, "node-a")
+	}
+	if refreshCommand.Type != string(model.NodeCommandTypeRefreshState) {
+		t.Fatalf("refreshCommand.Type = %q, want %q", refreshCommand.Type, model.NodeCommandTypeRefreshState)
+	}
+	if refreshCommand.Status != string(model.NodeCommandStatusPending) {
+		t.Fatalf("refreshCommand.Status = %q, want %q", refreshCommand.Status, model.NodeCommandStatusPending)
+	}
 
 	reportReq := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
 	reportReq.Header.Set("Authorization", "Bearer "+nodePair.AccessToken)
@@ -965,8 +982,8 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 	if err := json.Unmarshal(reportRecorder.Body.Bytes(), &heartbeat); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if len(heartbeat.Commands) != 1 {
-		t.Fatalf("len(heartbeat.Commands) = %d, want 1", len(heartbeat.Commands))
+	if len(heartbeat.Commands) != 2 {
+		t.Fatalf("len(heartbeat.Commands) = %d, want 2", len(heartbeat.Commands))
 	}
 	if heartbeat.Commands[0].Type != string(model.NodeCommandTypeScanReplica) {
 		t.Fatalf("heartbeat.Commands[0].Type = %q, want %q", heartbeat.Commands[0].Type, model.NodeCommandTypeScanReplica)
@@ -976,6 +993,12 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 	}
 	if heartbeat.Commands[0].Payload.ReplicaID != command.Payload.ReplicaID {
 		t.Fatalf("heartbeat.Commands[0].Payload.ReplicaID = %d, want %d", heartbeat.Commands[0].Payload.ReplicaID, command.Payload.ReplicaID)
+	}
+	if heartbeat.Commands[1].Type != string(model.NodeCommandTypeRefreshState) {
+		t.Fatalf("heartbeat.Commands[1].Type = %q, want %q", heartbeat.Commands[1].Type, model.NodeCommandTypeRefreshState)
+	}
+	if heartbeat.Commands[1].Status != string(model.NodeCommandStatusPending) {
+		t.Fatalf("heartbeat.Commands[1].Status = %q, want %q", heartbeat.Commands[1].Status, model.NodeCommandStatusPending)
 	}
 }
 

@@ -542,6 +542,7 @@ Returns a single inventory with its replicas.
 
 #### POST /inventories
 Creates an inventory together with its default replica.
+Creating the default replica creates durable `scan_replica` and `refresh_state` commands for its storage node.
 
 Request body:
 - `name` optional, if omitted, it is derived from the last path segment of `uri`
@@ -687,6 +688,8 @@ Returns a single replica.
 Creates a replica.
 
 Creating a replica for a deleted inventory is rejected with `409 inventory is deleted`.
+Creating a replica also creates a durable `refresh_state` command for the responsible storage node, in addition to
+the replica's initial scan or reconciliation command.
 
 Request body:
 - `inventory_id` required
@@ -710,6 +713,9 @@ Example request:
 #### PATCH /replicas/{id}
 Updates a replica.
 
+When the update changes replica state, the coordinator creates a durable `refresh_state` command for the responsible
+storage node.
+
 Changing a deleted replica to a non-deleted status is rejected with `409 inventory is deleted` when its inventory is
 deleted. Updates that leave the replica deleted remain allowed.
 
@@ -728,6 +734,8 @@ Replica topology:
 
 #### DELETE /replicas/{id}
 Soft-deletes a replica by setting its status to `deleted`.
+Deleting a replica creates a durable `refresh_state` command for the responsible storage node so it can stop runtime
+work, including its replica watcher.
 
 Possible errors:
 - `401` missing authenticated user

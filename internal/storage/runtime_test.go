@@ -624,7 +624,8 @@ func TestRuntimeScanReplicaRefreshesLocalStateBeforeScan(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	var reported bool
+	var mu sync.Mutex
+	reportCalls := 0
 	var commandCompleted bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -639,18 +640,32 @@ func TestRuntimeScanReplicaRefreshesLocalStateBeforeScan(t *testing.T) {
 		case "/internal/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
-					"id":           7,
-					"inventory_id": 3,
-					"node_id":      "node-a",
-					"uri":          replicaRoot,
-					"status":       "active",
-					"type":         "filesystem",
+					"id":             7,
+					"inventory_id":   3,
+					"inventory_type": "file",
+					"node_id":        "node-a",
+					"uri":            replicaRoot,
+					"status":         "active",
+					"type":           "filesystem",
 				},
 			})
 		case "/internal/replica/7/files":
 			switch r.Method {
 			case http.MethodGet:
-				_ = json.NewEncoder(w).Encode(map[string]any{"files": []any{}})
+				_ = json.NewEncoder(w).Encode(map[string]any{"files": []map[string]any{
+					{
+						"file_id":           10,
+						"replica_id":        7,
+						"inventory_id":      3,
+						"relative_uri":      "file.txt",
+						"size":              0,
+						"hash":              "",
+						"inventory_status":  "active",
+						"inventory_version": 0,
+						"replica_status":    "synchronized",
+						"replica_version":   0,
+					},
+				}})
 			case http.MethodPost:
 				var body struct {
 					Files []apiclient.ReplicaFileReport `json:"files"`
@@ -658,10 +673,12 @@ func TestRuntimeScanReplicaRefreshesLocalStateBeforeScan(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 					t.Fatalf("Decode(report) error = %v", err)
 				}
-				if len(body.Files) != 1 || body.Files[0].RelativeURI != "file.txt" || body.Files[0].Action != "created" {
-					t.Fatalf("reported files = %+v, want created file.txt", body.Files)
+				if len(body.Files) != 1 || body.Files[0].RelativeURI != "file.txt" || body.Files[0].Action != "updated" || body.Files[0].FileID == nil || *body.Files[0].FileID != 10 {
+					t.Fatalf("reported files = %+v, want updated file_id=10 file.txt", body.Files)
 				}
-				reported = true
+				mu.Lock()
+				reportCalls++
+				mu.Unlock()
 				w.WriteHeader(http.StatusNoContent)
 			default:
 				t.Fatalf("method = %s, want GET or POST", r.Method)
@@ -711,7 +728,9 @@ func TestRuntimeScanReplicaRefreshesLocalStateBeforeScan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal(payload) error = %v", err)
 	}
-	ok := runtime.handleCommand(context.Background(), apiclient.Command{
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ok := runtime.handleCommand(ctx, apiclient.Command{
 		ID:      118,
 		NodeID:  "node-a",
 		Type:    "scan_replica",
@@ -721,16 +740,69 @@ func TestRuntimeScanReplicaRefreshesLocalStateBeforeScan(t *testing.T) {
 	if !ok {
 		t.Fatal("handleCommand() = false, want true")
 	}
-	if !reported {
-		t.Fatal("replica files were not reported")
+	mu.Lock()
+	initialReportCalls := reportCalls
+	mu.Unlock()
+	if initialReportCalls != 1 {
+		t.Fatalf("reportCalls = %d, want 1 after scan", initialReportCalls)
 	}
 	if !commandCompleted {
 		t.Fatal("command was not marked completed")
+	}
+	if !runtime.replicaWatcherExists(7) {
+		t.Fatal("scan_replica did not create watcher for newly loaded replica")
+	}
+
+	runtime.watcherMu.Lock()
+	firstWatcher := runtime.watchers[7]
+	runtime.watcherMu.Unlock()
+	replica, ok := runtime.findReplica(7)
+	if !ok {
+		t.Fatal("replica 7 missing from local state")
+	}
+	if err := runtime.ensureReplicaWatcher(ctx, replica); err != nil {
+		t.Fatalf("ensureReplicaWatcher(second) error = %v", err)
+	}
+	runtime.watcherMu.Lock()
+	secondWatcher := runtime.watchers[7]
+	runtime.watcherMu.Unlock()
+	if secondWatcher != firstWatcher {
+		t.Fatal("ensureReplicaWatcher created duplicate watcher")
+	}
+
+	if err := os.WriteFile(filePath, []byte("changed content"), 0o644); err != nil {
+		t.Fatalf("WriteFile(changed) error = %v", err)
+	}
+	reportDeadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(reportDeadline) {
+		mu.Lock()
+		gotReportCalls := reportCalls
+		mu.Unlock()
+		if gotReportCalls >= 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	mu.Lock()
+	gotReportCalls := reportCalls
+	mu.Unlock()
+	if gotReportCalls < 2 {
+		t.Fatalf("reportCalls = %d, want watcher to report edit after scan", gotReportCalls)
+	}
+
+	firstWatcher.cancel()
+	deadline := time.Now().Add(time.Second)
+	for runtime.replicaWatcherExists(7) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if runtime.replicaWatcherExists(7) {
+		t.Fatal("canceled watcher was not removed from runtime state")
 	}
 }
 
 func TestRuntimeRefreshLocalStateSkipsDeletedReplicaFiles(t *testing.T) {
 	deletedFileListRequested := false
+	commandCompleted := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/internal/auth/login":
@@ -755,6 +827,26 @@ func TestRuntimeRefreshLocalStateSkipsDeletedReplicaFiles(t *testing.T) {
 		case "/internal/replica/8/files":
 			deletedFileListRequested = true
 			t.Fatalf("deleted replica files should not be requested")
+		case "/internal/commands/120":
+			var body struct {
+				Status string `json:"status"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("Decode(command update) error = %v", err)
+			}
+			if body.Status != "completed" {
+				t.Fatalf("command status = %q, want completed", body.Status)
+			}
+			commandCompleted = true
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":         120,
+				"node_id":    "node-a",
+				"type":       "refresh_state",
+				"status":     "completed",
+				"payload":    map[string]any{},
+				"created_at": "2026-06-14T08:03:42Z",
+				"updated_at": "2026-06-14T08:03:43Z",
+			})
 		default:
 			t.Fatalf("unexpected path %q", r.URL.RequestURI())
 		}
@@ -776,10 +868,20 @@ func TestRuntimeRefreshLocalStateSkipsDeletedReplicaFiles(t *testing.T) {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 
-	err = runtime.refreshLocalState(context.Background())
+	cancelCalls := 0
+	runtime.watchers[8] = &runningReplicaWatcher{cancel: func() { cancelCalls++ }}
+	ok := runtime.handleCommand(context.Background(), apiclient.Command{
+		ID:     120,
+		NodeID: "node-a",
+		Type:   "refresh_state",
+		Status: "pending",
+	})
 	replicas := runtime.replicas
-	if err != nil {
-		t.Fatalf("refreshLocalState() error = %v", err)
+	if !ok {
+		t.Fatal("handleCommand() = false, want true")
+	}
+	if !commandCompleted {
+		t.Fatal("refresh_state command was not marked completed")
 	}
 	if len(replicas) != 1 || replicas[0].Status != "deleted" {
 		t.Fatalf("replicas = %+v, want one deleted replica", replicas)
@@ -789,6 +891,56 @@ func TestRuntimeRefreshLocalStateSkipsDeletedReplicaFiles(t *testing.T) {
 	}
 	if files := runtime.replicaFilesSnapshot(8); len(files) != 0 {
 		t.Fatalf("replicaFilesSnapshot(8) = %+v, want empty", files)
+	}
+	if cancelCalls != 1 || runtime.replicaWatcherExists(8) {
+		t.Fatalf("deleted watcher cancelCalls = %d exists = %t, want 1 and false", cancelCalls, runtime.replicaWatcherExists(8))
+	}
+}
+
+func TestRuntimeStopReplicaWatcherIsIdempotent(t *testing.T) {
+	runtime := &Runtime{watchers: make(map[uint]*runningReplicaWatcher)}
+	cancelCalls := 0
+	runtime.watchers[8] = &runningReplicaWatcher{
+		cancel: func() {
+			cancelCalls++
+		},
+	}
+
+	runtime.stopReplicaWatcher(8)
+	runtime.stopReplicaWatcher(8)
+
+	if cancelCalls != 1 {
+		t.Fatalf("cancelCalls = %d, want 1", cancelCalls)
+	}
+	if runtime.replicaWatcherExists(8) {
+		t.Fatal("watcher still exists after stopReplicaWatcher")
+	}
+}
+
+func TestRuntimeStopDeletedReplicaWatchers(t *testing.T) {
+	runtime := &Runtime{watchers: make(map[uint]*runningReplicaWatcher)}
+	deletedCancelCalls := 0
+	activeCancelCalls := 0
+	runtime.watchers[8] = &runningReplicaWatcher{cancel: func() { deletedCancelCalls++ }}
+	runtime.watchers[9] = &runningReplicaWatcher{cancel: func() { activeCancelCalls++ }}
+	runtime.setLocalState([]apiclient.Replica{
+		{ID: 8, Status: "deleted"},
+		{ID: 9, Status: "active"},
+	}, nil)
+
+	runtime.stopDeletedReplicaWatchers()
+
+	if deletedCancelCalls != 1 {
+		t.Fatalf("deletedCancelCalls = %d, want 1", deletedCancelCalls)
+	}
+	if activeCancelCalls != 0 {
+		t.Fatalf("activeCancelCalls = %d, want 0", activeCancelCalls)
+	}
+	if runtime.replicaWatcherExists(8) {
+		t.Fatal("deleted replica watcher still exists")
+	}
+	if !runtime.replicaWatcherExists(9) {
+		t.Fatal("active replica watcher was stopped")
 	}
 }
 

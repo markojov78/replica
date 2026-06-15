@@ -103,6 +103,13 @@ func TestInventoryServiceCreateCreatesPendingScanReplicaCommand(t *testing.T) {
 	if command.Status != model.NodeCommandStatusPending {
 		t.Fatalf("command.Status = %q, want %q", command.Status, model.NodeCommandStatusPending)
 	}
+	var refreshCommand model.Command
+	if err := database.First(&refreshCommand, "node_id = ? AND type = ?", "node-a", model.NodeCommandTypeRefreshState).Error; err != nil {
+		t.Fatalf("First(refresh_state command) error = %v", err)
+	}
+	if refreshCommand.Status != model.NodeCommandStatusPending {
+		t.Fatalf("refreshCommand.Status = %q, want %q", refreshCommand.Status, model.NodeCommandStatusPending)
+	}
 
 	var payload struct {
 		ReplicaID uint `json:"replica_id"`
@@ -379,6 +386,13 @@ func TestInventoryServiceCreateReplicaPopulatesPendingFilesAndCommand(t *testing
 	}
 	if command.Status != model.NodeCommandStatusPending {
 		t.Fatalf("command.Status = %q, want %q", command.Status, model.NodeCommandStatusPending)
+	}
+	var refreshCommand model.Command
+	if err := database.First(&refreshCommand, "node_id = ? AND type = ?", "node-b", model.NodeCommandTypeRefreshState).Error; err != nil {
+		t.Fatalf("First(refresh_state command) error = %v", err)
+	}
+	if refreshCommand.Status != model.NodeCommandStatusPending {
+		t.Fatalf("refreshCommand.Status = %q, want %q", refreshCommand.Status, model.NodeCommandStatusPending)
 	}
 
 	var payload ReconcileReplicaCommandPayload

@@ -17,7 +17,7 @@ func NewInventoryRepository(db *gorm.DB) *InventoryRepository {
 	return &InventoryRepository{db: db}
 }
 
-func (r *InventoryRepository) CreateWithDefaultReplica(inventory *model.Inventory, replica *model.Replica, inventoryFile *model.InventoryFile, command *model.Command, creatorUserID uint, permissions []string) error {
+func (r *InventoryRepository) CreateWithDefaultReplica(inventory *model.Inventory, replica *model.Replica, inventoryFile *model.InventoryFile, command, refreshCommand *model.Command, creatorUserID uint, permissions []string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(inventory).Error; err != nil {
 			return err
@@ -67,23 +67,32 @@ func (r *InventoryRepository) CreateWithDefaultReplica(inventory *model.Inventor
 			return err
 		}
 
-		if command == nil {
-			return nil
-		}
-
-		command.NodeID = replica.NodeID
-		if command.Type == model.NodeCommandTypeScanReplica {
-			payload, err := json.Marshal(map[string]uint{
-				"replica_id": replica.ID,
-			})
-			if err != nil {
+		if command != nil {
+			command.NodeID = replica.NodeID
+			if command.Type == model.NodeCommandTypeScanReplica {
+				payload, err := json.Marshal(map[string]uint{
+					"replica_id": replica.ID,
+				})
+				if err != nil {
+					return err
+				}
+				command.Payload = payload
+			} else if len(command.Payload) == 0 {
+				command.Payload = []byte("{}")
+			}
+			if err := tx.Create(command).Error; err != nil {
 				return err
 			}
-			command.Payload = payload
-		} else if len(command.Payload) == 0 {
-			command.Payload = []byte("{}")
 		}
-		return tx.Create(command).Error
+
+		if refreshCommand == nil {
+			return nil
+		}
+		refreshCommand.NodeID = replica.NodeID
+		if len(refreshCommand.Payload) == 0 {
+			refreshCommand.Payload = []byte("{}")
+		}
+		return tx.Create(refreshCommand).Error
 	})
 }
 

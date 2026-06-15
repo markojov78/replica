@@ -182,6 +182,12 @@ When a storage service starts, it:
 The storage service does not persist authoritative replication state locally.  
 After restart, all required runtime state is rebuilt from the coordinator.
 
+Storage services track active watcher state by replica ID in volatile runtime state. A `scan_replica` command starts
+the replica watcher when one is not already running, allowing newly-created replica assignments to be monitored
+without restarting the storage service. Every replica creation or update creates a durable `refresh_state` command
+for the responsible storage node. After refreshing its assignments, the storage service stops watchers for replicas
+whose current status is `deleted`.
+
 #### Heartbeat
 Storage services periodically report heartbeat information to the coordinator using 
 [/nodes endpoint of the internal API](api.md#nodes-endpoint-1)
@@ -297,58 +303,151 @@ This keeps storage-node behavior consistent between:
 Deleted replicas may still be returned to storage nodes as runtime assignments. Storage nodes use deleted replica records to stop or avoid runtime work, but they do not scan, watch, reconcile, report files for, or fetch replica file lists for deleted replicas. Physical files for deleted replicas are not removed by storage nodes.
 
 ### Creating a new inventory
-When an inventory is created, the coordinator creates the logical inventory record and its first/default replica. 
-The default replica is the initial physical location from which the inventory content is discovered. 
 
-For a file inventory, the supplied creation URI identifies the one file. The coordinator stores the parent path as
-the default replica URI and creates one active `inventory_files` placeholder using the file name as `relative_uri`,
-placeholder metadata and version `0`. The matching default `replica_files` row is synchronized at version `0`.
-The first scan is scoped to that known relative URI and populates its metadata, advancing the file to version `1`.
+When an inventory is created, the coordinator creates the logical inventory record and its first/default replica.
 
-For a folder inventory, the supplied URI is stored unchanged as the replica prefix and the initial recursive scan
-discovers its inventory files.
+The default replica is the initial physical location from which the inventory content is discovered.
 
-#### 1) User requests inventory creation
-For example:  
-inventory name: Photos  
-inventory type: folder  
-default replica node: A  
-default replica uri: /data/photos  
-replica type: filesystem  
+The creation process differs slightly depending on whether the inventory represents a folder or a single file.
 
-#### 2) Coordinator inserts `inventories`
+#### Folder inventory
+
+For a folder inventory, the supplied URI represents the inventory root and is stored unchanged as the default replica URI.
+
+Example:
+
+```
+Inventory URI:
+/data/photos
+
+Replica URI:
+/data/photos
+```
+
+The storage service recursively scans the entire folder tree under the replica URI and reports all discovered files to the coordinator.
+
+The coordinator creates `inventory_files`, `file_journal` and `replica_files` records based on the discovered content.
+
+Every discovered file starts at version `1`.
+
+#### File inventory
+
+For a file inventory, the supplied URI represents a single file.
+
+Example:
+
+```
+Inventory URI:
+/data/photos/album/img001.jpg
+```
+
+The coordinator splits the supplied path into:
+
+```
+Replica URI:
+/data/photos/album
+
+Inventory file relative_uri:
+img001.jpg
+```
+
+Before the storage service performs its first scan, the coordinator creates a placeholder file entry:
+
+```
+inventory_files
+file_id  inventory_id  relative_uri  version  status
+----------------------------------------------------
+10       1             img001.jpg    0        active
+```
+
+A matching synchronized placeholder is also created:
+
+```
+replica_files
+file_id  replica_id  version  status
+------------------------------------------
+10       A           0        synchronized
+```
+
+Version `0` indicates that the file is known to exist logically, but its metadata has not yet been collected from the storage service.
+
+The first scan is restricted to the expected `relative_uri`.
+
+When the storage service reports the file metadata:
+
+* size
+* BLAKE3 hash
+* created timestamp
+* modified timestamp
+
+the coordinator updates the existing placeholder entry and records the initial creation event.
+
+The file version becomes `1`, exactly as if it had just been discovered in a folder inventory.
+
+#### Example: creating a folder inventory
+
+##### 1) User requests inventory creation
+
+For example:
+
+```
+inventory name: Photos
+inventory type: folder
+default replica node: A
+default replica uri: /data/photos
+replica type: filesystem
+```
+
+##### 2) Coordinator inserts `inventories`
+
 ```
 inventories
 id  name    type    status
 --------------------------
 1   Photos  folder  active
 ```
-This says:  
-Inventory 1 exists as a logical dataset.  
 
-#### 3) Coordinator creates default replica
+This says:
+
+Inventory 1 exists as a logical dataset.
+
+##### 3) Coordinator creates default replica
+
 ```
 replicas
 id  inventory_id  node_id  uri           type        status  upstream_replica_id
 --------------------------------------------------------------------------------
 A   1             node-1   /data/photos  filesystem  active  null
 ```
-This says:  
-Replica A is the first physical location for inventory 1.  
+
+This says:
+
+Replica A is the first physical location for inventory 1.
 
 At this point, no files have necessarily been indexed yet.
-#### 4) Storage service scans default replica
-The storage service responsible for replica A scans `/data/photos`  
-For every discovered file, it calculates: relative_uri , size, hash, modified (timestamp)   
-Example discovered files:  
+
+##### 4) Storage service scans default replica
+
+The storage service responsible for replica A scans `/data/photos`.
+
+For every discovered file it calculates:
+
+* relative URI
+* size
+* hash
+* modification timestamp
+
+Example discovered files:
 
 | relative_uri     | size  | hash  |
-|------------------|-------|-------|
+| ---------------- | ----- | ----- |
 | img001.jpg       | size1 | hash1 |
 | album/img002.jpg | size2 | hash2 |
 
-#### 5) Coordinator inserts `inventory_files`
-For each discovered file:  
+##### 5) Coordinator inserts `inventory_files`
+
+For each discovered file:
+
 ```
 inventory_files
 file_id  inventory_id  relative_uri       version  status  created  modified  size  hash
@@ -356,24 +455,33 @@ file_id  inventory_id  relative_uri       version  status  created  modified  si
 10       1             img001.jpg         1        active  time_1   time_3    125   hash1
 11       1             album/img002.jpg   1        active  time_2   time_4    256   hash2
 ```
-This says:  
-These are the authoritative logical files currently known for the inventory.  
-Each starts at version 1.  
 
-#### 6) Coordinator inserts `file_journal`
-For each discovered file, insert a creation event:  
+This says:
+
+These are the authoritative logical files currently known for the inventory.
+
+Each starts at version `1`.
+
+##### 6) Coordinator inserts `file_journal`
+
+For each discovered file:
+
 ```
 file_journal
 id   file_id  inventory_id  replica_id  version  action   timestamp
 --------------------------------------------------------------------
-101  10       1             A           0        created  event_time  
-102  11       1             A           0        created  event_time  
+101  10       1             A           0        created  event_time
+102  11       1             A           0        created  event_time
 ```
-Version in `file_journal` is the old version on which action has been performed, 
-and version 0 here means that the file did not exist before this creation event.  
 
-#### 7) Coordinator inserts `replica_files`
-For each discovered file on default replica A:  
+Version in `file_journal` is the old version on which action has been performed.
+
+Version `0` means the file did not exist before the creation event.
+
+##### 7) Coordinator inserts `replica_files`
+
+For each discovered file on replica A:
+
 ```
 replica_files
 file_id  replica_id  version  status
@@ -381,10 +489,13 @@ file_id  replica_id  version  status
 10       A           1        synchronized
 11       A           1        synchronized
 ```
-This says:  
-Replica A already has the current version of these files.  
 
-#### 8) Final state after inventory creation
+This says:
+
+Replica A already has the current version of these files.
+
+##### 8) Final state after inventory creation
+
 ```
 inventories
 id  name    type    status
@@ -401,7 +512,7 @@ file_id  inventory_id  relative_uri       version  status  created  modified  si
 -----------------------------------------------------------------------------------------
 10       1             img001.jpg         1        active  time1    time3     125   hash1
 11       1             album/img002.jpg   1        active  time2    time4     256   hash2
- 
+
 replica_files
 file_id  replica_id  version  status
 ------------------------------------------
@@ -409,12 +520,103 @@ file_id  replica_id  version  status
 11       A           1        synchronized
 ```
 
+#### Example: creating a file inventory
+
+##### 1) User requests inventory creation
+
+```
+inventory name: Cover Photo
+inventory type: file
+default replica node: A
+default replica uri: /data/photos/album/cover.jpg
+replica type: filesystem
+```
+
+##### 2) Coordinator inserts `inventories`
+
+```
+inventories
+id  name         type  status
+-----------------------------
+2   Cover Photo  file  active
+```
+
+##### 3) Coordinator creates default replica
+
+```
+replicas
+id  inventory_id  node_id  uri                 type        status  upstream_replica_id
+--------------------------------------------------------------------------------------
+B   2             node-1   /data/photos/album  filesystem  active  null
+```
+
+##### 4) Coordinator creates placeholder file
+
+```
+inventory_files
+file_id  inventory_id  relative_uri  version  status
+----------------------------------------------------
+20       2             cover.jpg     0        active
+```
+
+##### 5) Coordinator creates placeholder replica state
+
+```
+replica_files
+file_id  replica_id  version  status
+------------------------------------------
+20       B           0        synchronized
+```
+
+##### 6) Storage service scans expected file
+
+The storage service checks only:
+
+```
+cover.jpg
+```
+
+and reports its metadata.
+
+##### 7) Coordinator updates file metadata and creates initial version
+
+```
+inventory_files
+file_id  inventory_id  relative_uri  version  status  created  modified  size  hash
+------------------------------------------------------------------------------------
+20       2             cover.jpg     1        active  time1    time2     512   hashX
+```
+
+```
+file_journal
+id   file_id  inventory_id  replica_id  version  action   timestamp
+--------------------------------------------------------------------
+201  20       2             B           0        created  event_time
+```
+
+```
+replica_files
+file_id  replica_id  version  status
+------------------------------------------
+20       B           1        synchronized
+```
+
+##### 8) Final state after inventory creation
+
+The resulting state is identical to a folder inventory containing a single file.
+
+The only difference is that the file entry existed as a version `0` placeholder before the first scan completed.
+
 #### Important note
-During inventory creation, the default replica is not `pending`.  
-It is the source from which the initial inventory state is built.  
-  
-So the default replica starts as `synchronized`, and additional replicas added later start as `pending` 
-because they need to receive the already-known inventory files.  
+
+During inventory creation, the default replica is not `pending`.
+
+It is the source from which the initial inventory state is built.
+
+The default replica starts as `synchronized`.
+
+Additional replicas created later start as `pending` because they must receive the already-known inventory content from an existing synchronized replica.
+
 
 ### Creating a new replica
 This explains what happens when a new replica is created for an existing inventory.  

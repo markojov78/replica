@@ -255,6 +255,11 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 		Type:   model.NodeCommandTypeScanReplica,
 		Status: model.NodeCommandStatusPending,
 	}
+	refreshCommand := &model.Command{
+		NodeID: nodeID,
+		Type:   model.NodeCommandTypeRefreshState,
+		Status: model.NodeCommandStatusPending,
+	}
 
 	permissions := []string{
 		string(model.PermissionActionRead),
@@ -262,7 +267,7 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 		string(model.PermissionActionUpdate),
 		string(model.PermissionActionDelete),
 	}
-	if err := s.repo.CreateWithDefaultReplica(inventory, replica, inventoryFile, command, input.UserID, permissions); err != nil {
+	if err := s.repo.CreateWithDefaultReplica(inventory, replica, inventoryFile, command, refreshCommand, input.UserID, permissions); err != nil {
 		return nil, err
 	}
 
@@ -275,6 +280,7 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 	command.Payload = commandPayload
 	if s.nodes != nil {
 		s.nodes.PublishCommand(command)
+		s.nodes.PublishCommand(refreshCommand)
 	}
 
 	inventory, err = s.repo.FindByID(inventory.ID)
