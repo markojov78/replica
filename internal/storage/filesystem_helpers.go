@@ -18,6 +18,7 @@ type filesystemRoot struct {
 	relativeDir string
 	watchPath   string
 	targetPath  string
+	targetPaths map[string]struct{}
 	singleFile  bool
 }
 
@@ -75,7 +76,35 @@ func resolveFilesystemTarget(rootURI, targetRelativeURI string) (filesystemRoot,
 	}, nil
 }
 
+func resolveFilesystemWatcherRoot(rootURI string, targetRelativeURIs []string) (filesystemRoot, error) {
+	root, err := resolveFilesystemRoot(rootURI)
+	if err != nil {
+		return filesystemRoot{}, err
+	}
+	if root.singleFile {
+		return filesystemRoot{}, errors.New("watcher root uri must be a directory")
+	}
+
+	targets, err := cleanRelativeURISet(targetRelativeURIs)
+	if err != nil {
+		return filesystemRoot{}, err
+	}
+	if len(targets) == 0 {
+		return root, nil
+	}
+
+	root.targetPaths = make(map[string]struct{}, len(targets))
+	for target := range targets {
+		root.targetPaths[filepath.Clean(filepath.Join(root.scanPath, filepath.FromSlash(target)))] = struct{}{}
+	}
+	return root, nil
+}
+
 func (r filesystemRoot) includesPath(path string) bool {
+	if len(r.targetPaths) > 0 {
+		_, ok := r.targetPaths[filepath.Clean(path)]
+		return ok
+	}
 	if !r.singleFile {
 		return true
 	}

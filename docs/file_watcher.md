@@ -47,7 +47,8 @@ type Scanner interface {
 ```
 
 A scanner performs a snapshot-style inventory of a replica root.
-When `targetRelativeURI` is provided, the scan is restricted to that one known file relative to `rootURI`.
+When one or more `targetRelativeURI` values are provided, the scan is restricted to those known files relative to
+`rootURI`.
 `oldStates` is an optional map keyed by relative URI. When a file is present in `oldStates` and the scanner can
 confirm that file metadata has not changed, the scanner may reuse the known BLAKE3 hash instead of reading file
 content again. A nil map or a missing entry preserves the old behavior: the scanner reads the file content and
@@ -71,12 +72,13 @@ Scanners are appropriate for:
 
 ```go
 type Watcher interface {
-    Watch(ctx context.Context, rootURI string, targetRelativeURI ...string) (<-chan FileChange, <-chan error, error)
+    Watch(ctx context.Context, rootURI string, targetRelativeURIs []string) (<-chan FileChange, <-chan error, error)
 }
 ```
 
 A watcher produces a stream of change hints for a replica root.
-When `targetRelativeURI` is provided, only that one known file is watched and unrelated paths are ignored.
+`rootURI` identifies a directory or backend prefix. When `targetRelativeURIs` is nil or empty, every file under that
+root is watched. When the list contains relative URIs, only those files are watched and unrelated paths are ignored.
 
 Implementation requirements:
 
@@ -146,13 +148,13 @@ This fallback is isolated behind helper functions so platform-specific improveme
 
 ### Filesystem watcher
 
-`FilesystemWatcher` uses `github.com/fsnotify/fsnotify`.
+`FilesystemWatcher` uses `github.com/fsnotify/fsnotify`. Its `rootURI` must identify a directory.
 
 Behavior:
 
-- accepts either a directory root or a single file root
-- when the root is a directory, creates recursive watches for all existing directories
-- when the root is a file, watches the parent directory and filters events to that one target file
+- creates recursive watches for all existing directories under the root
+- when target relative URIs are provided, filters events to those files
+- when target relative URIs are nil or empty, reports files throughout the directory tree
 - when a new directory is created, adds watches for that directory tree
 - converts `fsnotify` events into normalized `FileChange` values
 - stats the file when possible and includes `State` for existing files

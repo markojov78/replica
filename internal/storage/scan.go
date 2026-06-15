@@ -38,7 +38,7 @@ type Scanner interface {
 }
 
 type Watcher interface {
-	Watch(ctx context.Context, rootURI string, targetRelativeURI ...string) (<-chan FileChange, <-chan error, error)
+	Watch(ctx context.Context, rootURI string, targetRelativeURIs []string) (<-chan FileChange, <-chan error, error)
 }
 
 type Reader interface {
@@ -54,6 +54,22 @@ func sortFileStates(states []FileState) {
 	sort.Slice(states, func(i, j int) bool {
 		return states[i].RelativeURI < states[j].RelativeURI
 	})
+}
+
+func cleanRelativeURISet(relativeURIs []string) (map[string]struct{}, error) {
+	if len(relativeURIs) == 0 {
+		return nil, nil
+	}
+
+	result := make(map[string]struct{}, len(relativeURIs))
+	for _, relativeURI := range relativeURIs {
+		clean, err := cleanWriteRelativeURI(relativeURI)
+		if err != nil {
+			return nil, err
+		}
+		result[clean] = struct{}{}
+	}
+	return result, nil
 }
 
 func oldStateWithMatchingMetadata(oldStates map[string]FileState, relativeURI string, size int64, modified time.Time) (FileState, bool) {

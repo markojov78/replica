@@ -65,6 +65,10 @@ func (s *S3Scanner) Scan(ctx context.Context, rootURI string, oldStates map[stri
 	if err != nil {
 		return nil, err
 	}
+	targets, err := cleanRelativeURISet(targetRelativeURI)
+	if err != nil {
+		return nil, err
+	}
 
 	states := make([]FileState, 0)
 	var continuation *string
@@ -79,14 +83,20 @@ func (s *S3Scanner) Scan(ctx context.Context, rootURI string, oldStates map[stri
 		}
 
 		for _, object := range output.Contents {
+			if len(targets) > 0 {
+				relativeURI, ok := location.RelativeKey(aws.ToString(object.Key))
+				if !ok {
+					continue
+				}
+				if _, ok := targets[normalizeRelativeURI(relativeURI)]; !ok {
+					continue
+				}
+			}
 			state, err := s.fileStateFromObject(ctx, location, object, oldStates)
 			if err != nil {
 				return nil, err
 			}
 			if state == nil {
-				continue
-			}
-			if len(targetRelativeURI) > 0 && targetRelativeURI[0] != "" && state.RelativeURI != normalizeRelativeURI(targetRelativeURI[0]) {
 				continue
 			}
 			states = append(states, *state)

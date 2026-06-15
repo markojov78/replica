@@ -211,6 +211,27 @@ func TestFilesystemScannerScansOnlyExplicitTargetRelativeURI(t *testing.T) {
 	}
 }
 
+func TestFilesystemScannerScansMultipleExplicitTargetRelativeURIs(t *testing.T) {
+	root := t.TempDir()
+	for _, relative := range []string{"first.txt", "nested/second.txt", "other.txt"} {
+		path := filepath.Join(root, relative)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", relative, err)
+		}
+		if err := os.WriteFile(path, []byte(relative), 0o644); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", relative, err)
+		}
+	}
+
+	states, err := NewFilesystemScanner().Scan(context.Background(), root, nil, "nested/second.txt", "first.txt")
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if len(states) != 2 || states[0].RelativeURI != "first.txt" || states[1].RelativeURI != "nested/second.txt" {
+		t.Fatalf("states = %+v, want first.txt and nested/second.txt", states)
+	}
+}
+
 func TestFilesystemScannerIgnoresTemporaryWritePaths(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "nested"), 0o755); err != nil {

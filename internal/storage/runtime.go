@@ -42,10 +42,10 @@ type Runtime struct {
 }
 
 type runningReplicaWatcher struct {
-	uri               string
-	inventoryType     string
-	targetRelativeURI string
-	cancel            context.CancelFunc
+	uri                string
+	inventoryType      string
+	targetRelativeURIs []string
+	cancel             context.CancelFunc
 }
 
 func NewRuntime(cfg config.Config) (*Runtime, error) {
@@ -200,7 +200,7 @@ func (r *Runtime) reportStartupLocalChanges(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("startup scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
 		}
-		states, err := scanner.Scan(ctx, replica.URI, r.getReplicaFiles(replica.ID), targetRelativeURI)
+		states, err := scanner.Scan(ctx, replica.URI, r.getReplicaFiles(replica.ID), scannerTargets(targetRelativeURI)...)
 		if err != nil {
 			return fmt.Errorf("startup scan replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
 		}
@@ -295,7 +295,7 @@ func (r *Runtime) ensureReplicaWatcher(ctx context.Context, replica apiclient.Re
 		return fmt.Errorf("inactive replica status=%s", replica.Status)
 	}
 
-	targetRelativeURI, err := replicaScanTarget(replica, r.replicaFilesSnapshot(replica.ID))
+	targetRelativeURIs, err := replicaWatcherTargets(replica, r.replicaFilesSnapshot(replica.ID))
 	if err != nil {
 		return err
 	}
@@ -311,17 +311,17 @@ func (r *Runtime) ensureReplicaWatcher(ctx context.Context, replica apiclient.Re
 		return err
 	}
 	watcherCtx, cancel := context.WithCancel(ctx)
-	changeCh, errCh, err := watcher.Watch(watcherCtx, replica.URI, targetRelativeURI)
+	changeCh, errCh, err := watcher.Watch(watcherCtx, replica.URI, targetRelativeURIs)
 	if err != nil {
 		cancel()
 		return err
 	}
 
 	running := &runningReplicaWatcher{
-		uri:               replica.URI,
-		inventoryType:     replica.InventoryType,
-		targetRelativeURI: targetRelativeURI,
-		cancel:            cancel,
+		uri:                replica.URI,
+		inventoryType:      replica.InventoryType,
+		targetRelativeURIs: targetRelativeURIs,
+		cancel:             cancel,
 	}
 	r.watchers[replica.ID] = running
 	log.Printf("storage runtime watcher started replica_id=%d uri=%s", replica.ID, replica.URI)
@@ -483,7 +483,7 @@ func (r *Runtime) currentFileState(ctx context.Context, replica apiclient.Replic
 	if err != nil {
 		return FileState{}, false, err
 	}
-	states, err := scanner.Scan(ctx, replica.URI, oldStates, targetRelativeURI)
+	states, err := scanner.Scan(ctx, replica.URI, oldStates, scannerTargets(targetRelativeURI)...)
 	if err != nil {
 		return FileState{}, false, err
 	}
@@ -935,7 +935,7 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 	if err != nil {
 		return err
 	}
-	states, err := scanner.Scan(ctx, replica.URI, r.getReplicaFiles(replica.ID), targetRelativeURI)
+	states, err := scanner.Scan(ctx, replica.URI, r.getReplicaFiles(replica.ID), scannerTargets(targetRelativeURI)...)
 	if err != nil {
 		return err
 	}
@@ -969,6 +969,24 @@ func replicaScanTarget(replica apiclient.Replica, files []apiclient.ReplicaInven
 		return "", fmt.Errorf("file inventory replica must have exactly one inventory file")
 	}
 	return files[0].RelativeURI, nil
+}
+
+func replicaWatcherTargets(replica apiclient.Replica, files []apiclient.ReplicaInventoryFile) ([]string, error) {
+	target, err := replicaScanTarget(replica, files)
+	if err != nil {
+		return nil, err
+	}
+	if target == "" {
+		return nil, nil
+	}
+	return []string{target}, nil
+}
+
+func scannerTargets(target string) []string {
+	if target == "" {
+		return nil
+	}
+	return []string{target}
 }
 
 func replicaHasPendingFiles(files []apiclient.ReplicaInventoryFile) bool {

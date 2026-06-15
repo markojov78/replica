@@ -18,14 +18,8 @@ func NewFilesystemWatcher() *FilesystemWatcher {
 	}
 }
 
-func (w *FilesystemWatcher) Watch(ctx context.Context, rootURI string, targetRelativeURI ...string) (<-chan FileChange, <-chan error, error) {
-	var root filesystemRoot
-	var err error
-	if len(targetRelativeURI) > 0 && targetRelativeURI[0] != "" {
-		root, err = resolveFilesystemTarget(rootURI, targetRelativeURI[0])
-	} else {
-		root, err = resolveFilesystemRoot(rootURI)
-	}
+func (w *FilesystemWatcher) Watch(ctx context.Context, rootURI string, targetRelativeURIs []string) (<-chan FileChange, <-chan error, error) {
+	root, err := resolveFilesystemWatcherRoot(rootURI, targetRelativeURIs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -34,12 +28,7 @@ func (w *FilesystemWatcher) Watch(ctx context.Context, rootURI string, targetRel
 	if err != nil {
 		return nil, nil, err
 	}
-	if root.singleFile {
-		if err := fsw.Add(root.watchPath); err != nil {
-			_ = fsw.Close()
-			return nil, nil, err
-		}
-	} else if err := addRecursiveWatches(fsw, root.watchPath); err != nil {
+	if err := addRecursiveWatches(fsw, root.watchPath); err != nil {
 		_ = fsw.Close()
 		return nil, nil, err
 	}
@@ -99,13 +88,7 @@ func filesystemChangesForEvent(ctx context.Context, watcher *fsnotify.Watcher, r
 	if isTemporaryWritePath(event.Name) {
 		return nil, nil
 	}
-	if !root.includesPath(event.Name) {
-		if root.singleFile {
-			return nil, nil
-		}
-	}
-
-	if event.Has(fsnotify.Create) && !root.singleFile {
+	if event.Has(fsnotify.Create) {
 		info, err := os.Lstat(event.Name)
 		if err == nil && info.IsDir() {
 			if err := addRecursiveWatches(watcher, event.Name); err != nil {
@@ -116,6 +99,10 @@ func filesystemChangesForEvent(ctx context.Context, watcher *fsnotify.Watcher, r
 		if err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
+	}
+
+	if !root.includesPath(event.Name) {
+		return nil, nil
 	}
 
 	if event.Has(fsnotify.Remove) {

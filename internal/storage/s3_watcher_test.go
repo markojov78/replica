@@ -46,7 +46,7 @@ func TestS3WatcherEmitsSnapshotDiffs(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	changeCh, errCh, err := watcher.Watch(ctx, "s3://bucket")
+	changeCh, errCh, err := watcher.Watch(ctx, "s3://bucket", nil)
 	if err != nil {
 		t.Fatalf("Watch() error = %v", err)
 	}
@@ -65,12 +65,31 @@ func TestS3WatcherEmitsSnapshotDiffs(t *testing.T) {
 	}
 }
 
+func TestS3WatcherPassesExplicitTargetsToScanner(t *testing.T) {
+	scanner := &sequenceScanner{
+		results: [][]FileState{{}},
+	}
+	watcher := NewS3Watcher(scanner, time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if _, _, err := watcher.Watch(ctx, "s3://bucket/prefix", []string{"first.txt", "nested/second.txt"}); err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
+	if len(scanner.targets) != 1 || len(scanner.targets[0]) != 2 ||
+		scanner.targets[0][0] != "first.txt" || scanner.targets[0][1] != "nested/second.txt" {
+		t.Fatalf("scanner targets = %+v, want first.txt and nested/second.txt", scanner.targets)
+	}
+}
+
 type sequenceScanner struct {
 	results [][]FileState
 	index   int
+	targets [][]string
 }
 
-func (s *sequenceScanner) Scan(_ context.Context, _ string, _ map[string]FileState, _ ...string) ([]FileState, error) {
+func (s *sequenceScanner) Scan(_ context.Context, _ string, _ map[string]FileState, targets ...string) ([]FileState, error) {
+	s.targets = append(s.targets, append([]string(nil), targets...))
 	if s.index >= len(s.results) {
 		return s.results[len(s.results)-1], nil
 	}

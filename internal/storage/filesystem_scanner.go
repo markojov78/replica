@@ -14,6 +14,36 @@ func NewFilesystemScanner() *FilesystemScanner {
 }
 
 func (s *FilesystemScanner) Scan(ctx context.Context, rootURI string, oldStates map[string]FileState, targetRelativeURI ...string) ([]FileState, error) {
+	if len(targetRelativeURI) > 1 {
+		targets, err := cleanRelativeURISet(targetRelativeURI)
+		if err != nil {
+			return nil, err
+		}
+
+		states := make([]FileState, 0, len(targets))
+		for target := range targets {
+			root, err := resolveFilesystemTarget(rootURI, target)
+			if err != nil {
+				return nil, err
+			}
+			if isTemporaryWritePath(root.scanPath) {
+				continue
+			}
+			state, err := fileStateFromPath(ctx, root.relativeDir, root.scanPath, oldStates)
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			if state != nil {
+				states = append(states, *state)
+			}
+		}
+		sortFileStates(states)
+		return states, nil
+	}
+
 	var root filesystemRoot
 	var err error
 	if len(targetRelativeURI) > 0 && targetRelativeURI[0] != "" {

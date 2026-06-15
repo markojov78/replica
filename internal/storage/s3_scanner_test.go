@@ -91,6 +91,36 @@ func TestS3ScannerReturnsBLAKE3InsteadOfObjectChecksumOrETag(t *testing.T) {
 	}
 }
 
+func TestS3ScannerScansMultipleExplicitTargetRelativeURIs(t *testing.T) {
+	modified := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
+	scanner := NewS3ScannerWithAllClients(
+		&mockS3ListClient{
+			output: &s3.ListObjectsV2Output{
+				Contents: []types.Object{
+					{Key: aws.String("prefix/first.txt"), Size: aws.Int64(1), LastModified: aws.Time(modified)},
+					{Key: aws.String("prefix/nested/second.txt"), Size: aws.Int64(2), LastModified: aws.Time(modified)},
+					{Key: aws.String("prefix/other.txt"), Size: aws.Int64(3), LastModified: aws.Time(modified)},
+				},
+			},
+		},
+		nil,
+		nil,
+	)
+	oldStates := map[string]FileState{
+		"first.txt":         {RelativeURI: "first.txt", Size: 1, Modified: modified, Hash: "first-hash"},
+		"nested/second.txt": {RelativeURI: "nested/second.txt", Size: 2, Modified: modified, Hash: "second-hash"},
+		"other.txt":         {RelativeURI: "other.txt", Size: 3, Modified: modified, Hash: "other-hash"},
+	}
+
+	states, err := scanner.Scan(context.Background(), "s3://bucket/prefix", oldStates, "nested/second.txt", "first.txt")
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if len(states) != 2 || states[0].RelativeURI != "first.txt" || states[1].RelativeURI != "nested/second.txt" {
+		t.Fatalf("states = %+v, want first.txt and nested/second.txt", states)
+	}
+}
+
 func TestS3ScannerReusesBLAKE3WhenMetadataIsUnchanged(t *testing.T) {
 	modified := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
 	listClient := &mockS3ListClient{
