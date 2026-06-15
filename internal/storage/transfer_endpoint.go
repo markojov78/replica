@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -244,6 +245,9 @@ func localFilesystemPath(rootURI string) (string, error) {
 	case "file":
 		if parsed.Host != "" && parsed.Host != "localhost" {
 			return "", errTransferUnsupportedURI
+		}
+		if runtime.GOOS == "windows" && len(parsed.Path) >= 3 && parsed.Path[0] == '/' && parsed.Path[2] == ':' {
+			return strings.TrimPrefix(parsed.Path, "/"), nil
 		}
 		return parsed.Path, nil
 	default:

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -12,50 +13,6 @@ import (
 	"replica/internal/model"
 	"replica/internal/repository"
 )
-
-func TestInventoryNameFromURI(t *testing.T) {
-	tests := []struct {
-		uri  string
-		want string
-	}{
-		{uri: "/home/username/images/Vacation March 2026", want: "Vacation March 2026"},
-		{uri: "/home/username/images/Vacation March 2026/", want: "Vacation March 2026"},
-		{uri: "s3://photo-bucket/album-one", want: "album-one"},
-		{uri: `C:\photos\summer`, want: "summer"},
-	}
-
-	for _, test := range tests {
-		if got := inventoryNameFromURI(test.uri); got != test.want {
-			t.Fatalf("inventoryNameFromURI(%q) = %q, want %q", test.uri, got, test.want)
-		}
-	}
-}
-
-func TestSplitFileInventoryURI(t *testing.T) {
-	tests := []struct {
-		uri          string
-		wantPrefix   string
-		wantRelative string
-	}{
-		{uri: "/home/username/database.db", wantPrefix: "/home/username", wantRelative: "database.db"},
-		{uri: "/database.db", wantPrefix: "/", wantRelative: "database.db"},
-		{uri: `C:\data\database.db`, wantPrefix: `C:\data`, wantRelative: "database.db"},
-		{uri: `C:\database.db`, wantPrefix: `C:\`, wantRelative: "database.db"},
-	}
-	for _, test := range tests {
-		prefix, relative := splitFileInventoryURI(test.uri)
-		if prefix != test.wantPrefix || relative != test.wantRelative {
-			t.Fatalf("splitFileInventoryURI(%q) = %q, %q; want %q, %q", test.uri, prefix, relative, test.wantPrefix, test.wantRelative)
-		}
-	}
-
-	for _, uri := range []string{"relative.db", "relative/database.db", "/home/username/"} {
-		prefix, relative := splitFileInventoryURI(uri)
-		if prefix != "" || relative != "" {
-			t.Fatalf("splitFileInventoryURI(%q) = %q, %q; want invalid", uri, prefix, relative)
-		}
-	}
-}
 
 func TestInventoryServiceCreateCreatesPendingScanReplicaCommand(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
@@ -73,11 +30,10 @@ func TestInventoryServiceCreateCreatesPendingScanReplicaCommand(t *testing.T) {
 	svc := NewInventoryService(repository.NewInventoryRepository(database), nodeService)
 
 	inventory, err := svc.Create(CreateInventoryInput{
-		Name:   "Photos",
-		Type:   string(model.InventoryTypeFolder),
-		NodeID: "node-a",
-		URI:    "/data/photos",
-		UserID: 7,
+		Name:      "Photos",
+		NodeID:    "node-a",
+		FolderURI: stringPointer("/data/photos"),
+		UserID:    7,
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -122,7 +78,7 @@ func TestInventoryServiceCreateCreatesPendingScanReplicaCommand(t *testing.T) {
 	}
 }
 
-func TestInventoryServiceCreateFileInventorySplitsURIAndSeedsPlaceholder(t *testing.T) {
+func TestInventoryServiceCreateFileSetInventorySeedsPlaceholders(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
 		Driver: "sqlite",
 		DSN:    filepath.Join(t.TempDir(), "file-inventory-create.db"),
@@ -136,47 +92,54 @@ func TestInventoryServiceCreateFileInventorySplitsURIAndSeedsPlaceholder(t *test
 
 	svc := NewInventoryService(repository.NewInventoryRepository(database))
 	inventory, err := svc.Create(CreateInventoryInput{
-		Type:   string(model.InventoryTypeFile),
+		Name:   "Album",
 		NodeID: "node-a",
-		URI:    "/home/username/database.db",
+		FileURIs: stringSlicePointer([]string{
+			"/home/username/images/album/file1.jpg",
+			"file:///home/username/images/album/subfolder/file2.jpg",
+		}),
 		UserID: 7,
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if inventory.Name != "database.db" {
-		t.Fatalf("inventory.Name = %q, want %q", inventory.Name, "database.db")
+	if inventory.Name != "Album" {
+		t.Fatalf("inventory.Name = %q, want %q", inventory.Name, "Album")
 	}
-	if len(inventory.Replicas) != 1 || inventory.Replicas[0].URI != "/home/username" {
-		t.Fatalf("inventory.Replicas = %+v, want one replica rooted at /home/username", inventory.Replicas)
+	if len(inventory.Replicas) != 1 || inventory.Replicas[0].URI != "file:///home/username/images/album" {
+		t.Fatalf("inventory.Replicas = %+v, want one replica rooted at file:///home/username/images/album", inventory.Replicas)
 	}
 	if inventory.Replicas[0].InventoryType != string(model.InventoryTypeFile) {
 		t.Fatalf("inventory.Replicas[0].InventoryType = %q, want %q", inventory.Replicas[0].InventoryType, model.InventoryTypeFile)
 	}
 
-	var file model.InventoryFile
-	if err := database.Where("inventory_id = ?", inventory.ID).First(&file).Error; err != nil {
-		t.Fatalf("First(inventory file) error = %v", err)
+	var files []model.InventoryFile
+	if err := database.Where("inventory_id = ?", inventory.ID).Order("relative_uri asc").Find(&files).Error; err != nil {
+		t.Fatalf("Find(inventory files) error = %v", err)
 	}
-	if file.RelativeURI != "database.db" || file.Status != model.InventoryFileStatusActive || file.Version != 0 || file.Size != 0 || file.Hash != "" || !file.Created.IsZero() || !file.Modified.IsZero() {
-		t.Fatalf("file = %+v, want active database.db placeholder at version 0", file)
+	if len(files) != 2 || files[0].RelativeURI != "file1.jpg" || files[1].RelativeURI != "subfolder/file2.jpg" {
+		t.Fatalf("files = %+v, want file-set placeholders", files)
 	}
-
-	var replicaFile model.ReplicaFile
-	if err := database.Where("replica_id = ? AND file_id = ?", inventory.Replicas[0].ID, file.ID).First(&replicaFile).Error; err != nil {
-		t.Fatalf("First(replica file) error = %v", err)
-	}
-	if replicaFile.Version != 0 || replicaFile.Status != model.ReplicaFileStatusSynchronized {
-		t.Fatalf("replicaFile = %+v, want synchronized version 0", replicaFile)
+	for _, file := range files {
+		if file.Status != model.InventoryFileStatusActive || file.Version != 0 || file.Size != 0 || file.Hash != "" || !file.Created.IsZero() || !file.Modified.IsZero() {
+			t.Fatalf("file = %+v, want active placeholder at version 0", file)
+		}
+		var replicaFile model.ReplicaFile
+		if err := database.Where("replica_id = ? AND file_id = ?", inventory.Replicas[0].ID, file.ID).First(&replicaFile).Error; err != nil {
+			t.Fatalf("First(replica file) error = %v", err)
+		}
+		if replicaFile.Version != 0 || replicaFile.Status != model.ReplicaFileStatusSynchronized {
+			t.Fatalf("replicaFile = %+v, want synchronized version 0", replicaFile)
+		}
 	}
 
 	replicaService := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
 	now := time.Now().UTC()
-	fileID := file.ID
+	fileID := files[0].ID
 	if err := replicaService.ReportFileChanges(inventory.Replicas[0].ID, "node-a", []ReplicaFileChangeInput{{
 		FileID:          &fileID,
 		Action:          string(model.ReplicaFileActionUpdated),
-		RelativeURI:     "database.db",
+		RelativeURI:     "file1.jpg",
 		FileSize:        42,
 		FileSizeSet:     true,
 		FileHash:        "database-hash",
@@ -189,12 +152,117 @@ func TestInventoryServiceCreateFileInventorySplitsURIAndSeedsPlaceholder(t *test
 		t.Fatalf("ReportFileChanges() error = %v", err)
 	}
 
-	if err := database.First(&file, file.ID).Error; err != nil {
+	if err := database.First(&files[0], files[0].ID).Error; err != nil {
 		t.Fatalf("First(updated inventory file) error = %v", err)
 	}
-	if file.Version != 1 || file.Size != 42 || file.Hash != "database-hash" {
-		t.Fatalf("updated file = %+v, want version 1 with scanned metadata", file)
+	if files[0].Version != 1 || files[0].Size != 42 || files[0].Hash != "database-hash" {
+		t.Fatalf("updated file = %+v, want version 1 with scanned metadata", files[0])
 	}
+
+	s3Files := []string{"s3://photos/album/a.jpg", "s3://photos/album/sub/b.jpg"}
+	s3Inventory, err := svc.Create(CreateInventoryInput{
+		Name:     "S3 album",
+		NodeID:   "node-a",
+		FileURIs: &s3Files,
+		UserID:   7,
+	})
+	if err != nil {
+		t.Fatalf("Create(S3 file set) error = %v", err)
+	}
+	if len(s3Inventory.Replicas) != 1 ||
+		s3Inventory.Replicas[0].URI != "s3://photos/album" ||
+		s3Inventory.Replicas[0].Type != string(model.ReplicaTypeStorage) {
+		t.Fatalf("S3 inventory replicas = %+v, want storage replica rooted at s3://photos/album", s3Inventory.Replicas)
+	}
+}
+
+func TestResolveFileSetURIs(t *testing.T) {
+	tests := []struct {
+		name          string
+		values        []string
+		wantReplica   string
+		wantRelatives []string
+		wantErr       bool
+	}{
+		{
+			name: "filesystem",
+			values: []string{
+				"/home/username/images/album1/file1.jpg",
+				"file:///home/username/images/album1/subfolder/file3.jpg",
+			},
+			wantReplica:   "file:///home/username/images/album1",
+			wantRelatives: []string{"file1.jpg", "subfolder/file3.jpg"},
+		},
+		{
+			name:          "windows",
+			values:        []string{`c:\dir\file.txt`, `C:\other\file2.txt`},
+			wantReplica:   "file:///C:/",
+			wantRelatives: []string{"dir/file.txt", "other/file2.txt"},
+		},
+		{
+			name:          "s3",
+			values:        []string{"s3://bucket/album/a.jpg", "s3://bucket/album/sub/b.jpg"},
+			wantReplica:   "s3://bucket/album",
+			wantRelatives: []string{"a.jpg", "sub/b.jpg"},
+		},
+		{name: "duplicate", values: []string{"/data/a.txt", "file:///data/a.txt"}, wantErr: true},
+		{name: "mixed", values: []string{"/data/a.txt", "s3://bucket/a.txt"}, wantErr: true},
+		{name: "different buckets", values: []string{"s3://a/a.txt", "s3://b/b.txt"}, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			replica, relatives, err := resolveFileSetURIs(test.values)
+			if test.wantErr {
+				if err == nil {
+					t.Fatalf("resolveFileSetURIs() = %q, %+v, nil; want error", replica, relatives)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveFileSetURIs() error = %v", err)
+			}
+			if replica != test.wantReplica || !reflect.DeepEqual(relatives, test.wantRelatives) {
+				t.Fatalf("resolveFileSetURIs() = %q, %+v; want %q, %+v", replica, relatives, test.wantReplica, test.wantRelatives)
+			}
+		})
+	}
+}
+
+func TestInventoryServiceCreateRejectsInvalidLocationSelection(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "invalid-inventory-create.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+	svc := NewInventoryService(repository.NewInventoryRepository(database))
+
+	inputs := []CreateInventoryInput{
+		{Name: "Missing", NodeID: "node-a"},
+		{Name: "Both", NodeID: "node-a", FolderURI: stringPointer("/data"), FileURIs: stringSlicePointer([]string{"/data/a.txt"})},
+		{Name: "Empty folder", NodeID: "node-a", FolderURI: stringPointer("")},
+		{Name: "Empty list", NodeID: "node-a", FileURIs: stringSlicePointer([]string{})},
+		{Name: "Empty file", NodeID: "node-a", FileURIs: stringSlicePointer([]string{""})},
+		{Name: "Duplicate", NodeID: "node-a", FileURIs: stringSlicePointer([]string{"/data/a.txt", "file:///data/a.txt"})},
+		{Name: "", NodeID: "node-a", FolderURI: stringPointer("/data")},
+	}
+	for _, input := range inputs {
+		if _, err := svc.Create(input); !errors.Is(err, ErrInvalidInventoryURI) {
+			t.Fatalf("Create(%+v) error = %v, want %v", input, err, ErrInvalidInventoryURI)
+		}
+	}
+}
+
+func stringPointer(value string) *string {
+	return &value
+}
+
+func stringSlicePointer(value []string) *[]string {
+	return &value
 }
 
 func TestInventoryServiceDeleteRejectsActiveReplicas(t *testing.T) {

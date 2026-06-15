@@ -901,7 +901,7 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 	}
 	defer conn.Close()
 
-	createReq := httptest.NewRequest(http.MethodPost, "/api/inventories", strings.NewReader(`{"name":"Photos","type":"folder","node_id":"node-a","uri":"/data/photos"}`))
+	createReq := httptest.NewRequest(http.MethodPost, "/api/inventories", strings.NewReader(`{"name":"Photos","node_id":"node-a","folder_uri":"/data/photos"}`))
 	createReq.Header.Set("Authorization", "Bearer "+userPair.AccessToken)
 	createReq.Header.Set("X-API-Version", "1")
 	createReq.Header.Set("Content-Type", "application/json")

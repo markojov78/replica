@@ -328,13 +328,13 @@
 <section class="card form-card">
   {{template "alert" .}}
   <form action="{{if .IsEdit}}/admin/inventories/{{.Inventory.ID}}{{else}}/admin/inventories{{end}}" method="post" class="form-grid">
-    <label>Name<input name="name" value="{{.Inventory.Name}}" {{if .IsEdit}}required{{end}}></label>
+    <label>Name<input name="name" value="{{.Inventory.Name}}" required></label>
     {{if .IsEdit}}
       <label>Status<select name="status"><option value="active" {{if eq .Inventory.Status "active"}}selected{{end}}>active</option><option value="deleted" {{if eq .Inventory.Status "deleted"}}selected{{end}}>deleted</option></select></label>
     {{else}}
-      <label>Type<select name="type"><option value="folder" selected>folder</option><option value="file">file</option></select></label>
       <label>Node<select name="node_id" required><option value="">Select node</option>{{range .Nodes}}<option value="{{.ID}}">{{.ID}} · {{.Status}}</option>{{end}}</select></label>
-      <label class="full">URI<input name="uri" required placeholder="/srv/data or s3://bucket/prefix"></label>
+      <label class="full">Folder URI<input name="folder_uri" value="{{.FolderURI}}" placeholder="/srv/data or s3://bucket/prefix"><small>Set this to create a folder inventory. Leave file URIs empty.</small></label>
+      <label class="full">File URIs<textarea name="file_uris" rows="7" placeholder="/home/user/images/file1.jpg&#10;/home/user/images/file2.jpg">{{.FileURIs}}</textarea><small>One absolute filesystem, file://, or s3:// URI per line. Leave folder URI empty.</small></label>
     {{end}}
     <div class="footer-actions full"><a class="btn" href="{{if .IsEdit}}/admin/inventories/{{.Inventory.ID}}{{else}}/admin/inventories{{end}}">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save inventory{{else}}Create inventory{{end}}</button></div>
   </form>

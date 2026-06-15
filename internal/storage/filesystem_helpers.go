@@ -27,7 +27,11 @@ func normalizeRelativeURI(path string) string {
 }
 
 func resolveFilesystemRoot(rootURI string) (filesystemRoot, error) {
-	cleanRoot := filepath.Clean(rootURI)
+	rootPath, err := localFilesystemPath(rootURI)
+	if err != nil {
+		return filesystemRoot{}, err
+	}
+	cleanRoot := filepath.Clean(rootPath)
 	info, err := os.Stat(cleanRoot)
 	if err != nil {
 		return filesystemRoot{}, err

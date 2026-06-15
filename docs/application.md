@@ -13,7 +13,7 @@ These are the main functionalities that the service offers:
 ## Key concepts
 
 ### Inventory
-Inventory entry is either individual file or a folder holding a collection of files and folders (i.e. photos).
+Inventory entry is either a selected set of files or a folder holding a collection of files and folders (i.e. photos).
 
 Inventory can have replication rules, sharing rules, ownership and permissions.  
 
@@ -308,7 +308,7 @@ When an inventory is created, the coordinator creates the logical inventory reco
 
 The default replica is the initial physical location from which the inventory content is discovered.
 
-The creation process differs slightly depending on whether the inventory represents a folder or a single file.
+The creation process differs slightly depending on whether the inventory represents a folder or a selected file set.
 
 #### Folder inventory
 
@@ -330,34 +330,39 @@ The coordinator creates `inventory_files`, `file_journal` and `replica_files` re
 
 Every discovered file starts at version `1`.
 
-#### File inventory
+#### File-set inventory
 
-For a file inventory, the supplied URI represents a single file.
+For a file inventory, the request supplies one or more file URIs. Absolute filesystem paths and local `file://` URIs
+are normalized to unified `file://` URIs. S3 file URIs must belong to one bucket. Filesystem and S3 URIs cannot be
+mixed in one inventory.
 
 Example:
 
 ```
-Inventory URI:
+File URIs:
 /data/photos/album/img001.jpg
+/data/photos/album/subfolder/img002.jpg
 ```
 
-The coordinator splits the supplied path into:
+The coordinator finds the deepest common directory or S3 prefix:
 
 ```
 Replica URI:
-/data/photos/album
+file:///data/photos/album
 
-Inventory file relative_uri:
+Inventory file relative_uris:
 img001.jpg
+subfolder/img002.jpg
 ```
 
-Before the storage service performs its first scan, the coordinator creates a placeholder file entry:
+Before the storage service performs its first scan, the coordinator creates a placeholder entry for every selected file:
 
 ```
 inventory_files
 file_id  inventory_id  relative_uri  version  status
 ----------------------------------------------------
 10       1             img001.jpg    0        active
+11       1             subfolder/img002.jpg  0        active
 ```
 
 A matching synchronized placeholder is also created:
@@ -367,11 +372,13 @@ replica_files
 file_id  replica_id  version  status
 ------------------------------------------
 10       A           0        synchronized
+11       A           0        synchronized
 ```
 
 Version `0` indicates that the file is known to exist logically, but its metadata has not yet been collected from the storage service.
 
-The first scan is restricted to the expected `relative_uri`.
+The first scan is restricted to the expected `relative_uri` values. Missing selected files are reported as deleted
+because the coordinator cannot inspect storage-node files while creating the inventory.
 
 When the storage service reports the file metadata:
 
@@ -382,7 +389,7 @@ When the storage service reports the file metadata:
 
 the coordinator updates the existing placeholder entry and records the initial creation event.
 
-The file version becomes `1`, exactly as if it had just been discovered in a folder inventory.
+Each discovered file version becomes `1`, exactly as if it had just been discovered in a folder inventory.
 
 #### Example: creating a folder inventory
 
@@ -392,10 +399,8 @@ For example:
 
 ```
 inventory name: Photos
-inventory type: folder
 default replica node: A
-default replica uri: /data/photos
-replica type: filesystem
+folder uri: /data/photos
 ```
 
 ##### 2) Coordinator inserts `inventories`
@@ -520,16 +525,14 @@ file_id  replica_id  version  status
 11       A           1        synchronized
 ```
 
-#### Example: creating a file inventory
+#### Example: creating a file-set inventory
 
 ##### 1) User requests inventory creation
 
 ```
-inventory name: Cover Photo
-inventory type: file
+inventory name: Album highlights
 default replica node: A
-default replica uri: /data/photos/album/cover.jpg
-replica type: filesystem
+file uris: /data/photos/album/cover.jpg, /data/photos/album/subfolder/feature.jpg
 ```
 
 ##### 2) Coordinator inserts `inventories`
@@ -538,7 +541,7 @@ replica type: filesystem
 inventories
 id  name         type  status
 -----------------------------
-2   Cover Photo  file  active
+2   Album highlights  file  active
 ```
 
 ##### 3) Coordinator creates default replica
@@ -547,16 +550,17 @@ id  name         type  status
 replicas
 id  inventory_id  node_id  uri                 type        status  upstream_replica_id
 --------------------------------------------------------------------------------------
-B   2             node-1   /data/photos/album  filesystem  active  null
+B   2             node-1   file:///data/photos/album  filesystem  active  null
 ```
 
-##### 4) Coordinator creates placeholder file
+##### 4) Coordinator creates placeholder files
 
 ```
 inventory_files
 file_id  inventory_id  relative_uri  version  status
 ----------------------------------------------------
 20       2             cover.jpg     0        active
+21       2             subfolder/feature.jpg  0        active
 ```
 
 ##### 5) Coordinator creates placeholder replica state
@@ -566,14 +570,16 @@ replica_files
 file_id  replica_id  version  status
 ------------------------------------------
 20       B           0        synchronized
+21       B           0        synchronized
 ```
 
-##### 6) Storage service scans expected file
+##### 6) Storage service scans expected files
 
 The storage service checks only:
 
 ```
 cover.jpg
+subfolder/feature.jpg
 ```
 
 and reports its metadata.
@@ -585,6 +591,7 @@ inventory_files
 file_id  inventory_id  relative_uri  version  status  created  modified  size  hash
 ------------------------------------------------------------------------------------
 20       2             cover.jpg     1        active  time1    time2     512   hashX
+21       2             subfolder/feature.jpg  1        active  time1    time2     256   hashY
 ```
 
 ```
@@ -592,6 +599,7 @@ file_journal
 id   file_id  inventory_id  replica_id  version  action   timestamp
 --------------------------------------------------------------------
 201  20       2             B           0        created  event_time
+202  21       2             B           0        created  event_time
 ```
 
 ```
@@ -599,13 +607,14 @@ replica_files
 file_id  replica_id  version  status
 ------------------------------------------
 20       B           1        synchronized
+21       B           1        synchronized
 ```
 
 ##### 8) Final state after inventory creation
 
-The resulting state is identical to a folder inventory containing a single file.
-
-The only difference is that the file entry existed as a version `0` placeholder before the first scan completed.
+The resulting state is identical to a folder inventory containing those selected files, except unrelated files under
+the common replica prefix are excluded. The selected file entries existed as version `0` placeholders before the
+first scan completed.
 
 #### Important note
 

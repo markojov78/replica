@@ -152,6 +152,8 @@ type pageData struct {
 	Role                role
 	PermissionResources []string
 	IsEdit              bool
+	FolderURI           string
+	FileURIs            string
 }
 
 func Register(mux *http.ServeMux, api http.Handler) error {
@@ -335,9 +337,13 @@ func (h *Handler) createInventory(w http.ResponseWriter, r *http.Request, sess a
 	}
 	input := map[string]any{
 		"name":    strings.TrimSpace(r.FormValue("name")),
-		"type":    r.FormValue("type"),
 		"node_id": r.FormValue("node_id"),
-		"uri":     strings.TrimSpace(r.FormValue("uri")),
+	}
+	if folderURI := strings.TrimSpace(r.FormValue("folder_uri")); folderURI != "" {
+		input["folder_uri"] = folderURI
+	}
+	if fileURIs := fileURILines(r.FormValue("file_uris")); fileURIs != nil {
+		input["file_uris"] = fileURIs
 	}
 	var created inventory
 	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/inventories", input, &created); err != nil {
@@ -345,7 +351,7 @@ func (h *Handler) createInventory(w http.ResponseWriter, r *http.Request, sess a
 			h.renderError(w, r, sess, err)
 			return
 		}
-		h.inventoryFormError(w, r, sess, false, inventory{Name: r.FormValue("name"), Type: r.FormValue("type")}, apiMessage(err))
+		h.inventoryFormError(w, r, sess, false, inventory{Name: r.FormValue("name")}, apiMessage(err))
 		return
 	}
 	http.Redirect(w, r, fmt.Sprintf("/admin/inventories/%d", created.ID), http.StatusSeeOther)
@@ -771,7 +777,22 @@ func (h *Handler) inventoryFormError(w http.ResponseWriter, r *http.Request, ses
 	if edit {
 		title = "Edit inventory"
 	}
-	h.render(w, "inventory_form", pageData{Title: title, Active: "inventories", Inventory: item, Nodes: nodes, IsEdit: edit, Error: message})
+	h.render(w, "inventory_form", pageData{
+		Title: title, Active: "inventories", Inventory: item, Nodes: nodes, IsEdit: edit, Error: message,
+		FolderURI: r.FormValue("folder_uri"), FileURIs: r.FormValue("file_uris"),
+	})
+}
+
+func fileURILines(value string) []string {
+	normalized := strings.ReplaceAll(value, "\r\n", "\n")
+	if strings.TrimSpace(normalized) == "" {
+		return nil
+	}
+	lines := strings.Split(normalized, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimSpace(lines[i])
+	}
+	return lines
 }
 
 func (h *Handler) replicaFormError(w http.ResponseWriter, r *http.Request, sess authContext, edit bool, item replica, message string) {

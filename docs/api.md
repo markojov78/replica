@@ -545,33 +545,42 @@ Creates an inventory together with its default replica.
 Creating the default replica creates durable `scan_replica` and `refresh_state` commands for its storage node.
 
 Request body:
-- `name` optional, if omitted, it is derived from the last path segment of `uri`
-- `type` optional, could be `file` or `folder`, defaults to `folder`
+- `name` required
 - `node_id` required
-- `uri` required
+- exactly one of `folder_uri` or `file_uris` is required
+- `folder_uri` is a non-empty URI for a folder inventory
+- `file_uris` is a non-empty list of unique absolute filesystem paths, local `file://` URIs, or `s3://` object URIs
 
 Behavior:
-- the default replica type is currently hardcoded to `filesystem`
 - the creating user is inserted into `inventory_users`, and the creating user receives `read`, `create`, `update`, and `delete` inventory permissions in `inventory_permissions`
-- for a folder inventory, stores `uri` unchanged as the default replica prefix and discovers files during the initial scan
-- for a file inventory, requires an absolute filesystem file path, stores its parent path as the default replica
-  `uri`, creates one active version-`0` inventory file using the basename as `relative_uri`, and scopes the initial
-  scan to that file
+- `folder_uri` creates a `folder` inventory, stores the URI unchanged as the default replica prefix, and discovers files during the initial scan
+- `file_uris` creates a `file` inventory representing a file set
+- filesystem paths and local `file://` URIs are normalized to unified `file://` URIs; they may be mixed in one file set
+- S3 file URIs in a file set must use the same bucket
+- filesystem and S3 file URIs cannot be mixed
+- the deepest common directory/prefix becomes the default replica URI
+- one active synchronized version-`0` placeholder is created for every requested file
+- the initial scan is restricted to the placeholder relative URIs; missing files are reported as deleted
+- S3-derived default replicas use replica type `storage`; filesystem-derived default replicas use `filesystem`
 
 Example requests:
 
 ```json
 {
+  "name": "Vacation March 2026",
   "node_id": "node-1",
-  "uri": "/home/username/images/Vacation March 2026"
+  "folder_uri": "/home/username/images/Vacation March 2026"
 }
 ```
 
 ```json
 {
+  "name": "Album highlights",
   "node_id": "node-1",
-  "type": "file",
-  "uri": "/home/username/database.db"
+  "file_uris": [
+    "/home/username/images/album/file1.jpg",
+    "file:///home/username/images/album/subfolder/file2.jpg"
+  ]
 }
 ```
 #### PATCH /inventories/{id}

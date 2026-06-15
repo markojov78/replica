@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -797,6 +798,19 @@ func TestRuntimeScanReplicaRefreshesLocalStateBeforeScan(t *testing.T) {
 	}
 	if runtime.replicaWatcherExists(7) {
 		t.Fatal("canceled watcher was not removed from runtime state")
+	}
+}
+
+func TestReplicaScanTargetsReturnsAllFileSetFiles(t *testing.T) {
+	targets, err := replicaScanTargets(apiclient.Replica{InventoryType: "file"}, []apiclient.ReplicaInventoryFile{
+		{RelativeURI: "file1.jpg"},
+		{RelativeURI: "subfolder/file2.jpg"},
+	})
+	if err != nil {
+		t.Fatalf("replicaScanTargets() error = %v", err)
+	}
+	if !reflect.DeepEqual(targets, []string{"file1.jpg", "subfolder/file2.jpg"}) {
+		t.Fatalf("replicaScanTargets() = %+v, want all file-set files", targets)
 	}
 }
 

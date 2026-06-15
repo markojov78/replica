@@ -91,11 +91,11 @@ func registerInventoryRoutes(api huma.API, svc services) {
 		}
 
 		inventory, err := svc.inventories.Create(service.CreateInventoryInput{
-			Name:   input.Body.Name,
-			Type:   input.Body.Type,
-			NodeID: input.Body.NodeID,
-			URI:    input.Body.URI,
-			UserID: user.ID,
+			Name:      input.Body.Name,
+			NodeID:    input.Body.NodeID,
+			FolderURI: input.Body.FolderURI,
+			FileURIs:  input.Body.FileURIs,
+			UserID:    user.ID,
 		})
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
@@ -158,10 +158,10 @@ type createInventoryInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
 	Body          struct {
-		Name   string `json:"name,omitempty"`
-		Type   string `json:"type,omitempty"`
-		NodeID string `json:"node_id" minLength:"1"`
-		URI    string `json:"uri" minLength:"1"`
+		Name      string    `json:"name" minLength:"1"`
+		NodeID    string    `json:"node_id" minLength:"1"`
+		FolderURI *string   `json:"folder_uri,omitempty"`
+		FileURIs  *[]string `json:"file_uris,omitempty"`
 	}
 }
 

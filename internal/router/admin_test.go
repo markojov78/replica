@@ -225,11 +225,17 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("inventories response = %d body=%q", response.Code, response.Body.String())
 	}
 
+	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories/new", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `name="folder_uri"`) ||
+		!strings.Contains(response.Body.String(), `name="file_uris"`) {
+		t.Fatalf("new inventory form response = %d body=%q", response.Code, response.Body.String())
+	}
+
 	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories", url.Values{
-		"name":    {"Documents"},
-		"type":    {"folder"},
-		"node_id": {"node-a"},
-		"uri":     {"/srv/documents"},
+		"name":       {"Documents"},
+		"node_id":    {"node-a"},
+		"folder_uri": {"/srv/documents"},
 	}, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/inventories/1" {
 		t.Fatalf("create inventory response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())

@@ -17,7 +17,7 @@ func NewInventoryRepository(db *gorm.DB) *InventoryRepository {
 	return &InventoryRepository{db: db}
 }
 
-func (r *InventoryRepository) CreateWithDefaultReplica(inventory *model.Inventory, replica *model.Replica, inventoryFile *model.InventoryFile, command, refreshCommand *model.Command, creatorUserID uint, permissions []string) error {
+func (r *InventoryRepository) CreateWithDefaultReplica(inventory *model.Inventory, replica *model.Replica, inventoryFiles []model.InventoryFile, command, refreshCommand *model.Command, creatorUserID uint, permissions []string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(inventory).Error; err != nil {
 			return err
@@ -28,13 +28,13 @@ func (r *InventoryRepository) CreateWithDefaultReplica(inventory *model.Inventor
 			return err
 		}
 
-		if inventoryFile != nil {
-			inventoryFile.InventoryID = inventory.ID
-			if err := tx.Create(inventoryFile).Error; err != nil {
+		for i := range inventoryFiles {
+			inventoryFiles[i].InventoryID = inventory.ID
+			if err := tx.Create(&inventoryFiles[i]).Error; err != nil {
 				return err
 			}
 			if err := tx.Create(&model.ReplicaFile{
-				FileID:    inventoryFile.ID,
+				FileID:    inventoryFiles[i].ID,
 				ReplicaID: replica.ID,
 				Version:   0,
 				Status:    model.ReplicaFileStatusSynchronized,

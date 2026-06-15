@@ -196,11 +196,11 @@ func (r *Runtime) reportStartupLocalChanges(ctx context.Context) error {
 			return fmt.Errorf("startup scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
 		}
 
-		targetRelativeURI, err := replicaScanTarget(replica, r.replicaFilesSnapshot(replica.ID))
+		targetRelativeURIs, err := replicaScanTargets(replica, r.replicaFilesSnapshot(replica.ID))
 		if err != nil {
 			return fmt.Errorf("startup scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
 		}
-		states, err := scanner.Scan(ctx, replica.URI, r.getReplicaFiles(replica.ID), scannerTargets(targetRelativeURI)...)
+		states, err := scanner.Scan(ctx, replica.URI, r.getReplicaFiles(replica.ID), targetRelativeURIs...)
 		if err != nil {
 			return fmt.Errorf("startup scan replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
 		}
@@ -479,11 +479,11 @@ func (r *Runtime) currentFileState(ctx context.Context, replica apiclient.Replic
 	if err != nil {
 		return FileState{}, false, err
 	}
-	targetRelativeURI, err := replicaScanTarget(replica, r.replicaFilesSnapshot(replica.ID))
+	targetRelativeURIs, err := replicaScanTargets(replica, r.replicaFilesSnapshot(replica.ID))
 	if err != nil {
 		return FileState{}, false, err
 	}
-	states, err := scanner.Scan(ctx, replica.URI, oldStates, scannerTargets(targetRelativeURI)...)
+	states, err := scanner.Scan(ctx, replica.URI, oldStates, targetRelativeURIs...)
 	if err != nil {
 		return FileState{}, false, err
 	}
@@ -923,33 +923,33 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 	if err != nil {
 		return err
 	}
-	if err := r.ensureReplicaWatcher(ctx, replica); err != nil {
-		return fmt.Errorf("ensure watcher replica_id=%d: %w", replica.ID, err)
-	}
 
 	scanner, err := GetScanner(ctx, replica.URI)
 	if err != nil {
 		return err
 	}
-	targetRelativeURI, err := replicaScanTarget(replica, files)
+	targetRelativeURIs, err := replicaScanTargets(replica, files)
 	if err != nil {
 		return err
 	}
-	states, err := scanner.Scan(ctx, replica.URI, r.getReplicaFiles(replica.ID), scannerTargets(targetRelativeURI)...)
+	states, err := scanner.Scan(ctx, replica.URI, r.getReplicaFiles(replica.ID), targetRelativeURIs...)
 	if err != nil {
 		return err
 	}
 
 	reports := replicaFileReports(files, states)
-	if len(reports) == 0 {
+	if len(reports) > 0 {
+		if err := r.client.ReportReplicaFiles(ctx, payload.ReplicaID, reports); err != nil {
+			return err
+		}
+		log.Printf("storage runtime scan_replica reported files replica_id=%d count=%d", payload.ReplicaID, len(reports))
+	} else {
 		log.Printf("storage runtime scan_replica detected no reportable changes replica_id=%d", payload.ReplicaID)
-		return nil
 	}
 
-	if err := r.client.ReportReplicaFiles(ctx, payload.ReplicaID, reports); err != nil {
-		return err
+	if err := r.ensureReplicaWatcher(ctx, replica); err != nil {
+		return fmt.Errorf("ensure watcher replica_id=%d: %w", replica.ID, err)
 	}
-	log.Printf("storage runtime scan_replica reported files replica_id=%d count=%d", payload.ReplicaID, len(reports))
 	return nil
 }
 
@@ -961,32 +961,25 @@ func replicaIsActive(replica apiclient.Replica) bool {
 	return replica.Status == "" || replica.Status == "active"
 }
 
-func replicaScanTarget(replica apiclient.Replica, files []apiclient.ReplicaInventoryFile) (string, error) {
+func replicaScanTargets(replica apiclient.Replica, files []apiclient.ReplicaInventoryFile) ([]string, error) {
 	if replica.InventoryType != "file" {
-		return "", nil
+		return nil, nil
 	}
-	if len(files) != 1 || strings.TrimSpace(files[0].RelativeURI) == "" {
-		return "", fmt.Errorf("file inventory replica must have exactly one inventory file")
+	if len(files) == 0 {
+		return nil, fmt.Errorf("file inventory replica must have at least one inventory file")
 	}
-	return files[0].RelativeURI, nil
+	targets := make([]string, 0, len(files))
+	for _, file := range files {
+		if strings.TrimSpace(file.RelativeURI) == "" {
+			return nil, fmt.Errorf("file inventory replica has empty relative uri")
+		}
+		targets = append(targets, file.RelativeURI)
+	}
+	return targets, nil
 }
 
 func replicaWatcherTargets(replica apiclient.Replica, files []apiclient.ReplicaInventoryFile) ([]string, error) {
-	target, err := replicaScanTarget(replica, files)
-	if err != nil {
-		return nil, err
-	}
-	if target == "" {
-		return nil, nil
-	}
-	return []string{target}, nil
-}
-
-func scannerTargets(target string) []string {
-	if target == "" {
-		return nil
-	}
-	return []string{target}
+	return replicaScanTargets(replica, files)
 }
 
 func replicaHasPendingFiles(files []apiclient.ReplicaInventoryFile) bool {
