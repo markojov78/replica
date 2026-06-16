@@ -46,6 +46,7 @@ type CreateShareInput struct {
 	ReplicaID uint
 	Name      *string
 	Status    *string
+	UserID    uint
 }
 
 type UpdateShareInput struct {
@@ -154,7 +155,14 @@ func (s *ShareService) Create(input CreateShareInput) (*ShareDetails, error) {
 		Status:    status,
 		Replica:   *replica,
 	}
-	if err := s.repo.Create(share); err != nil {
+
+	permissions := []string{
+		string(model.PermissionActionRead),
+		string(model.PermissionActionCreate),
+		string(model.PermissionActionUpdate),
+		string(model.PermissionActionDelete),
+	}
+	if err := s.repo.CreateWithUserPermissions(share, input.UserID, permissions); err != nil {
 		return nil, err
 	}
 	return toShareDetails(share), nil

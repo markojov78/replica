@@ -83,6 +83,36 @@ func (r *ShareRepository) Create(share *model.Share) error {
 	return r.db.Create(share).Error
 }
 
+func (r *ShareRepository) CreateWithUserPermissions(share *model.Share, creatorUserID uint, permissions []string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(share).Error; err != nil {
+			return err
+		}
+
+		shareUser := &model.ShareUser{
+			UserID:  creatorUserID,
+			ShareID: share.ID,
+		}
+		if err := tx.Create(shareUser).Error; err != nil {
+			return err
+		}
+
+		if len(permissions) == 0 {
+			return nil
+		}
+
+		rows := make([]model.SharePermission, 0, len(permissions))
+		for _, permission := range permissions {
+			rows = append(rows, model.SharePermission{
+				ShareUserID: shareUser.ID,
+				Permission:  permission,
+			})
+		}
+
+		return tx.Create(&rows).Error
+	})
+}
+
 func (r *ShareRepository) Update(share *model.Share) error {
 	return r.db.Save(share).Error
 }

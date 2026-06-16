@@ -48,11 +48,35 @@ type nodeList struct {
 type replica struct {
 	ID                uint   `json:"id"`
 	InventoryID       uint   `json:"inventory_id"`
+	InventoryType     string `json:"inventory_type"`
 	NodeID            string `json:"node_id"`
 	URI               string `json:"uri"`
 	Status            string `json:"status"`
 	Type              string `json:"type"`
 	UpstreamReplicaID *uint  `json:"upstream_replica_id"`
+}
+
+type share struct {
+	ID          uint   `json:"id"`
+	InventoryID uint   `json:"inventory_id"`
+	ReplicaID   uint   `json:"replica_id"`
+	Name        string `json:"name"`
+	Status      string `json:"status"`
+}
+
+type shareList struct {
+	Items []share `json:"items"`
+	Total int64   `json:"total"`
+}
+
+type shareView struct {
+	ID            uint
+	InventoryID   uint
+	InventoryName string
+	ReplicaID     uint
+	NodeID        string
+	Name          string
+	Status        string
 }
 
 type inventory struct {
@@ -144,6 +168,8 @@ type pageData struct {
 	Node                node
 	Inventories         []inventory
 	Inventory           inventory
+	Shares              []shareView
+	Share               share
 	Files               filePage
 	Replica             replica
 	Users               []user
@@ -197,6 +223,12 @@ func Register(mux *http.ServeMux, api http.Handler) error {
 	mux.HandleFunc("GET /admin/inventories/{id}/replicas/{replica_id}/edit", handler.protected(handler.editReplicaPage))
 	mux.HandleFunc("POST /admin/inventories/{id}/replicas/{replica_id}", handler.protected(handler.updateReplica))
 	mux.HandleFunc("POST /admin/inventories/{id}/replicas/{replica_id}/delete", handler.protected(handler.deleteReplica))
+	mux.HandleFunc("GET /admin/shares", handler.protected(handler.sharesPage))
+	mux.HandleFunc("GET /admin/shares/new", handler.protected(handler.newSharePage))
+	mux.HandleFunc("POST /admin/shares", handler.protected(handler.createShare))
+	mux.HandleFunc("GET /admin/shares/{id}/edit", handler.protected(handler.editSharePage))
+	mux.HandleFunc("POST /admin/shares/{id}", handler.protected(handler.updateShare))
+	mux.HandleFunc("POST /admin/shares/{id}/delete", handler.protected(handler.deleteShare))
 	mux.HandleFunc("GET /admin/users", handler.protected(handler.usersPage))
 	mux.HandleFunc("GET /admin/users/new", handler.protected(handler.newUserPage))
 	mux.HandleFunc("POST /admin/users", handler.protected(handler.createUser))
@@ -533,6 +565,102 @@ func (h *Handler) deleteReplica(w http.ResponseWriter, r *http.Request, sess aut
 	http.Redirect(w, r, "/admin/inventories/"+r.PathValue("id"), http.StatusSeeOther)
 }
 
+func (h *Handler) sharesPage(w http.ResponseWriter, r *http.Request, sess authContext) {
+	var list shareList
+	if !h.load(w, r, sess, "/api/shares?count=100", &list) {
+		return
+	}
+	inventories, ok := h.loadInventories(w, r, sess)
+	if !ok {
+		return
+	}
+	h.render(w, "shares", pageData{
+		Title: "Shares", Subtitle: "Expose selected replicas through share records.",
+		Active: "shares", Shares: shareViews(list.Items, inventories),
+	})
+}
+
+func (h *Handler) newSharePage(w http.ResponseWriter, r *http.Request, sess authContext) {
+	inventories, ok := h.loadInventories(w, r, sess)
+	if !ok {
+		return
+	}
+	h.render(w, "share_form", pageData{
+		Title: "New share", Subtitle: "Create a share for an existing replica.",
+		Active: "shares", Inventories: inventories,
+	})
+}
+
+func (h *Handler) createShare(w http.ResponseWriter, r *http.Request, sess authContext) {
+	if err := r.ParseForm(); err != nil {
+		h.shareFormError(w, r, sess, false, share{}, "Invalid form submission.")
+		return
+	}
+	replicaID, _ := strconv.ParseUint(r.FormValue("replica_id"), 10, 64)
+	item := share{ReplicaID: uint(replicaID), Name: r.FormValue("name")}
+	input := map[string]any{
+		"replica_id": item.ReplicaID,
+	}
+	if name := strings.TrimSpace(item.Name); name != "" {
+		input["name"] = name
+	}
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/shares", input, nil); err != nil {
+		if errors.Is(err, errUnauthorized) {
+			h.renderError(w, r, sess, err)
+			return
+		}
+		h.shareFormError(w, r, sess, false, item, apiMessage(err))
+		return
+	}
+	http.Redirect(w, r, "/admin/shares", http.StatusSeeOther)
+}
+
+func (h *Handler) editSharePage(w http.ResponseWriter, r *http.Request, sess authContext) {
+	var item share
+	if !h.load(w, r, sess, "/api/shares/"+r.PathValue("id"), &item) {
+		return
+	}
+	h.render(w, "share_form", pageData{
+		Title: "Edit share", Subtitle: fmt.Sprintf("Update share #%d.", item.ID),
+		Active: "shares", Share: item, IsEdit: true,
+	})
+}
+
+func (h *Handler) updateShare(w http.ResponseWriter, r *http.Request, sess authContext) {
+	if err := r.ParseForm(); err != nil {
+		id, _ := strconv.ParseUint(r.PathValue("id"), 10, 64)
+		h.shareFormError(w, r, sess, true, share{ID: uint(id)}, "Invalid form submission.")
+		return
+	}
+	id, _ := strconv.ParseUint(r.PathValue("id"), 10, 64)
+	item := share{ID: uint(id), Name: r.FormValue("name"), Status: r.FormValue("status")}
+	input := map[string]any{
+		"name":   strings.TrimSpace(item.Name),
+		"status": item.Status,
+	}
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/shares/"+r.PathValue("id"), input, nil); err != nil {
+		if errors.Is(err, errUnauthorized) {
+			h.renderError(w, r, sess, err)
+			return
+		}
+		h.shareFormError(w, r, sess, true, item, apiMessage(err))
+		return
+	}
+	http.Redirect(w, r, "/admin/shares", http.StatusSeeOther)
+}
+
+func (h *Handler) deleteShare(w http.ResponseWriter, r *http.Request, sess authContext) {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodDelete, "/api/shares/"+r.PathValue("id"), nil, nil); err != nil {
+		if errors.Is(err, errUnauthorized) {
+			h.renderError(w, r, sess, err)
+			return
+		}
+		h.renderSharesPageError(w, r, sess, apiMessage(err))
+		return
+	}
+	http.Redirect(w, r, "/admin/shares", http.StatusSeeOther)
+}
+
 func (h *Handler) usersPage(w http.ResponseWriter, r *http.Request, sess authContext) {
 	var list userList
 	if !h.load(w, r, sess, "/api/users?count=100", &list) {
@@ -725,6 +853,14 @@ func (h *Handler) loadNodes(w http.ResponseWriter, r *http.Request, sess authCon
 	return list.Items, true
 }
 
+func (h *Handler) loadInventories(w http.ResponseWriter, r *http.Request, sess authContext) ([]inventory, bool) {
+	var list inventoryList
+	if !h.load(w, r, sess, "/api/inventories?count=100", &list) {
+		return nil, false
+	}
+	return list.Items, true
+}
+
 func (h *Handler) loadReplicaFormData(w http.ResponseWriter, r *http.Request, sess authContext) (inventory, []node, bool) {
 	var inv inventory
 	if !h.load(w, r, sess, "/api/inventories/"+r.PathValue("id"), &inv) {
@@ -806,6 +942,40 @@ func (h *Handler) replicaFormError(w http.ResponseWriter, r *http.Request, sess 
 	}
 	h.render(w, "replica_form", pageData{
 		Title: title, Active: "inventories", Inventory: inv, Nodes: nodes, Replica: item, IsEdit: edit, Error: message,
+	})
+}
+
+func (h *Handler) shareFormError(w http.ResponseWriter, r *http.Request, sess authContext, edit bool, item share, message string) {
+	inventories := []inventory{}
+	if !edit {
+		var ok bool
+		inventories, ok = h.loadInventories(w, r, sess)
+		if !ok {
+			return
+		}
+	}
+	title := "New share"
+	if edit {
+		title = "Edit share"
+	}
+	h.render(w, "share_form", pageData{
+		Title: title, Active: "shares", Share: item, Inventories: inventories, IsEdit: edit, Error: message,
+	})
+}
+
+func (h *Handler) renderSharesPageError(w http.ResponseWriter, r *http.Request, sess authContext, message string) {
+	var list shareList
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, "/api/shares?count=100", nil, &list); err != nil {
+		h.renderError(w, r, sess, err)
+		return
+	}
+	inventories, ok := h.loadInventories(w, r, sess)
+	if !ok {
+		return
+	}
+	h.render(w, "shares", pageData{
+		Title: "Shares", Subtitle: "Expose selected replicas through share records.",
+		Active: "shares", Shares: shareViews(list.Items, inventories), Error: message,
 	})
 }
 
@@ -1003,6 +1173,38 @@ func hasPermission(resource, action string, permissions []permission) bool {
 
 func rolePermissionResources() []string {
 	return []string{"users", "shares", "inventories", "nodes"}
+}
+
+func shareViews(shares []share, inventories []inventory) []shareView {
+	replicas := make(map[uint]struct {
+		inventoryName string
+		nodeID        string
+	})
+	for _, inv := range inventories {
+		for _, rep := range inv.Replicas {
+			replicas[rep.ID] = struct {
+				inventoryName string
+				nodeID        string
+			}{inventoryName: inv.Name, nodeID: rep.NodeID}
+		}
+	}
+
+	result := make([]shareView, 0, len(shares))
+	for _, item := range shares {
+		view := shareView{
+			ID:          item.ID,
+			InventoryID: item.InventoryID,
+			ReplicaID:   item.ReplicaID,
+			Name:        item.Name,
+			Status:      item.Status,
+		}
+		if rep, ok := replicas[item.ReplicaID]; ok {
+			view.InventoryName = rep.inventoryName
+			view.NodeID = rep.nodeID
+		}
+		result = append(result, view)
+	}
+	return result
 }
 
 func positiveInt(value string, fallback int) int {

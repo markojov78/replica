@@ -23,7 +23,7 @@
     <nav class="nav">
       <a href="/admin/nodes" class="{{if eq .Active "nodes"}}active{{end}}">Nodes</a>
       <a href="/admin/inventories" class="{{if eq .Active "inventories"}}active{{end}}">Inventories</a>
-      <span>Shares <b>Later</b></span>
+      <a href="/admin/shares" class="{{if eq .Active "shares"}}active{{end}}">Shares</a>
       <a href="/admin/users" class="{{if eq .Active "users"}}active{{end}}">Users</a>
       <a href="/admin/roles" class="{{if eq .Active "roles"}}active{{end}}">Roles</a>
       <span>Replication <b>Later</b></span>
@@ -142,6 +142,33 @@
 {{template "layout_end" .}}
 {{end}}
 
+{{define "shares"}}
+{{template "layout_start" .}}
+<div class="actions">
+  <label class="filter-toggle"><input type="checkbox" data-hide-deleted="shares"> Hide deleted</label>
+  <a class="btn ghost" href="/admin/shares">Refresh</a>
+  <a class="btn primary" href="/admin/shares/new">New share</a>
+</div>
+{{template "alert" .}}
+<section class="inventory-list">
+{{range .Shares}}
+  <article class="inventory-row" data-filter-item="shares" data-status="{{.Status}}">
+    <div>
+      <span class="inventory-title">{{.Name}}</span>
+      <p>Share #{{.ID}} · Inventory #{{.InventoryID}}{{if .InventoryName}} · {{.InventoryName}}{{end}} · Replica #{{.ReplicaID}}</p>
+      <div class="chips"><span>node: {{if .NodeID}}{{.NodeID}}{{else}}unknown{{end}}</span></div>
+    </div>
+    <div class="inventory-actions">
+      <span class="pill {{statusClass .Status}}">{{.Status}}</span>
+      <a class="btn" href="/admin/shares/{{.ID}}/edit">Edit</a>
+      {{if ne .Status "deleted"}}<form action="/admin/shares/{{.ID}}/delete" method="post"><button class="danger" type="submit">Delete</button></form>{{end}}
+    </div>
+  </article>
+{{else}}<section class="card empty">No shares found.</section>{{end}}
+</section>
+{{template "layout_end" .}}
+{{end}}
+
 {{define "users"}}
 {{template "layout_start" .}}
 <div class="actions">
@@ -241,6 +268,35 @@
       </table>
     </div>
     <div class="footer-actions full"><a class="btn" href="/admin/roles">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save role{{else}}Create role{{end}}</button></div>
+  </form>
+</section>
+{{template "layout_end" .}}
+{{end}}
+
+{{define "share_form"}}
+{{template "layout_start" .}}
+<section class="card form-card">
+  {{template "alert" .}}
+  <form action="{{if .IsEdit}}/admin/shares/{{.Share.ID}}{{else}}/admin/shares{{end}}" method="post" class="form-grid">
+    {{if .IsEdit}}
+      <div class="callout full">Share #{{.Share.ID}} · Inventory #{{.Share.InventoryID}} · Replica #{{.Share.ReplicaID}}</div>
+      <label>Name<input name="name" value="{{.Share.Name}}" required></label>
+      <label>Status<select name="status"><option value="active" {{if eq .Share.Status "active"}}selected{{end}}>active</option><option value="deleted" {{if eq .Share.Status "deleted"}}selected{{end}}>deleted</option></select></label>
+    {{else}}
+      <label class="full">Replica
+        <select name="replica_id" required>
+          <option value="">Select replica</option>
+          {{range .Inventories}}
+            {{$inventory := .}}
+            {{range .Replicas}}
+              <option value="{{.ID}}" {{if eq .ID $.Share.ReplicaID}}selected{{end}}>Replica #{{.ID}} · Inventory #{{$inventory.ID}} · {{$inventory.Name}} · Node {{.NodeID}} · {{.Status}}</option>
+            {{end}}
+          {{end}}
+        </select>
+      </label>
+      <label class="full">Name<input name="name" value="{{.Share.Name}}" placeholder="Leave empty to use inventory name"><small>If omitted, the share name is taken from the selected inventory.</small></label>
+    {{end}}
+    <div class="footer-actions full"><a class="btn" href="/admin/shares">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save share{{else}}Create share{{end}}</button></div>
   </form>
 </section>
 {{template "layout_end" .}}

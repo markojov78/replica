@@ -24,7 +24,6 @@ func TestShareRoutesCreateAndListWithGlobalPermissions(t *testing.T) {
 		{Resource: model.PermissionResourceShares, Action: model.PermissionActionCreate},
 		{Resource: model.PermissionResourceShares, Action: model.PermissionActionRead},
 	})
-	_ = user
 	replica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
 	handler := newShareRouteHandler(database)
 
@@ -46,6 +45,42 @@ func TestShareRoutesCreateAndListWithGlobalPermissions(t *testing.T) {
 	if created.InventoryID != replica.InventoryID || created.ReplicaID != replica.ID || created.Name != "Vacation March 2026" || created.Status != string(model.ShareStatusActive) {
 		t.Fatalf("created = %+v, want inventory=%d replica=%d active", created, replica.InventoryID, replica.ID)
 	}
+	var shareUser model.ShareUser
+	if err := database.First(&shareUser, "user_id = ? AND share_id = ?", user.ID, created.ID).Error; err != nil {
+		t.Fatalf("First(share_user) error = %v", err)
+	}
+	var permissions []model.SharePermission
+	if err := database.Where("share_user_id = ?", shareUser.ID).Find(&permissions).Error; err != nil {
+		t.Fatalf("Find(share_permissions) error = %v", err)
+	}
+	required := map[string]bool{
+		string(model.PermissionActionRead):   false,
+		string(model.PermissionActionCreate): false,
+		string(model.PermissionActionUpdate): false,
+		string(model.PermissionActionDelete): false,
+	}
+	for _, permission := range permissions {
+		required[permission.Permission] = true
+	}
+	for permission, found := range required {
+		if !found {
+			t.Fatalf("share permission %q not granted; permissions=%+v", permission, permissions)
+		}
+	}
+
+	if err := database.Model(&model.Role{}).Where("name = ?", "share-role").Update("status", model.RoleStatusDeleted).Error; err != nil {
+		t.Fatalf("Update(role status) error = %v", err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-API-Version", "1")
+	recorder = httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("explicit permission status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/shares?replica_id="+strconv.FormatUint(uint64(replica.ID), 10), nil)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
@@ -54,8 +89,21 @@ func TestShareRoutesCreateAndListWithGlobalPermissions(t *testing.T) {
 
 	handler.ServeHTTP(recorder, req)
 
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("list status = %d, want %d; body=%s", recorder.Code, http.StatusForbidden, recorder.Body.String())
+	}
+	if err := database.Model(&model.Role{}).Where("name = ?", "share-role").Update("status", model.RoleStatusActive).Error; err != nil {
+		t.Fatalf("Reactivate(role) error = %v", err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/shares?replica_id="+strconv.FormatUint(uint64(replica.ID), 10), nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-API-Version", "1")
+	recorder = httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("list status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+		t.Fatalf("reactivated list status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
 	}
 	var list service.ShareList
 	if err := json.Unmarshal(recorder.Body.Bytes(), &list); err != nil {

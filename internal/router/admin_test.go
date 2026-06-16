@@ -64,6 +64,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		nodeService,
 		service.NewInventoryService(inventoryRepo, nodeService),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService, settingService),
+		service.NewShareService(repository.NewShareRepository(database)),
 	)
 
 	response := adminRequest(t, handler, http.MethodGet, "/admin/nodes", nil, "")
@@ -318,6 +319,70 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}
 	if updatedReplica.UpstreamReplicaID != nil {
 		t.Fatalf("updatedReplica.UpstreamReplicaID = %v, want nil", updatedReplica.UpstreamReplicaID)
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/admin/shares", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "Shares") ||
+		!strings.Contains(response.Body.String(), `data-hide-deleted="shares"`) ||
+		!strings.Contains(response.Body.String(), `href="/admin/shares/new"`) {
+		t.Fatalf("shares response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/admin/shares/new", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "New share") ||
+		!strings.Contains(response.Body.String(), `name="replica_id"`) ||
+		!strings.Contains(response.Body.String(), `Inventory #1`) ||
+		!strings.Contains(response.Body.String(), `Documents`) ||
+		!strings.Contains(response.Body.String(), `Node node-a`) {
+		t.Fatalf("new share response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodPost, "/admin/shares", url.Values{
+		"replica_id": {"1"},
+		"name":       {""},
+	}, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/shares" {
+		t.Fatalf("create share response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/admin/shares", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `data-filter-item="shares"`) ||
+		!strings.Contains(response.Body.String(), `Share #1`) ||
+		!strings.Contains(response.Body.String(), `Inventory #1`) ||
+		!strings.Contains(response.Body.String(), `Documents`) ||
+		!strings.Contains(response.Body.String(), `node: node-a`) {
+		t.Fatalf("created share response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/admin/shares/1/edit", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "Edit share") ||
+		!strings.Contains(response.Body.String(), `value="Documents"`) ||
+		!strings.Contains(response.Body.String(), `name="status"`) {
+		t.Fatalf("edit share response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodPost, "/admin/shares/1", url.Values{
+		"name":   {"Documents shared"},
+		"status": {"active"},
+	}, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/shares" {
+		t.Fatalf("update share response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodPost, "/admin/shares/1/delete", nil, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/shares" {
+		t.Fatalf("delete share response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/admin/shares", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "Documents shared") ||
+		!strings.Contains(response.Body.String(), `data-filter-item="shares" data-status="deleted"`) {
+		t.Fatalf("deleted share response = %d body=%q", response.Code, response.Body.String())
 	}
 
 	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/999/delete", nil, accessToken)

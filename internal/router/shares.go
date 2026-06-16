@@ -58,7 +58,8 @@ func registerShareRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceShares, model.PermissionActionCreate); err != nil {
+		user, err := svc.auth.Authorize(accessToken, model.PermissionResourceShares, model.PermissionActionCreate)
+		if err != nil {
 			return nil, mapPermissionError(err)
 		}
 
@@ -66,6 +67,7 @@ func registerShareRoutes(api huma.API, svc services) {
 			ReplicaID: input.Body.ReplicaID,
 			Name:      input.Body.Name,
 			Status:    input.Body.Status,
+			UserID:    user.ID,
 		})
 		if err != nil {
 			return nil, mapShareError(err, svc.shares)
