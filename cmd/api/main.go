@@ -37,6 +37,7 @@ func main() {
 	var nodeService *service.NodeService
 	var inventoryService *service.InventoryService
 	var replicaService *service.ReplicaService
+	var shareService *service.ShareService
 
 	if cfg.App.Coordinator {
 		database, err := db.Open(cfg.Database)
@@ -58,6 +59,7 @@ func main() {
 		roleRepo := repository.NewRoleRepository(database)
 		inventoryRepo := repository.NewInventoryRepository(database)
 		replicaRepo := repository.NewReplicaRepository(database)
+		shareRepo := repository.NewShareRepository(database)
 		settingRepo := repository.NewSettingRepository(database)
 		settingService := service.NewSettingService(settingRepo)
 
@@ -77,6 +79,7 @@ func main() {
 		nodeService.Start(ctx)
 		inventoryService = service.NewInventoryService(inventoryRepo, nodeService)
 		replicaService = service.NewReplicaService(replicaRepo, inventoryRepo, nodeService, settingService)
+		shareService = service.NewShareService(shareRepo)
 	}
 
 	handler := router.New(
@@ -88,6 +91,7 @@ func main() {
 		nodeService,
 		inventoryService,
 		replicaService,
+		shareService,
 		storageRuntime,
 	)
 

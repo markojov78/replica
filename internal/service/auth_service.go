@@ -273,6 +273,22 @@ func (s *AuthService) AuthorizeInventoryUser(userID uint, inventoryID uint, acti
 	return false, ErrForbidden
 }
 
+func (s *AuthService) AuthorizeShareUser(userID uint, shareID uint, action model.PermissionAction) (bool, error) {
+	permissions, err := s.users.GetSharePermissions(userID, shareID)
+
+	if err != nil {
+		return false, err
+	}
+
+	for _, permission := range permissions {
+		if permission.Permission == string(action) {
+			return true, nil
+		}
+	}
+
+	return false, ErrForbidden
+}
+
 func (s *AuthService) Node(accessToken string) (*AuthenticatedNode, error) {
 	claims, err := s.parseNodeAccessToken(accessToken)
 	if err != nil {

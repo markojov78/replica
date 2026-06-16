@@ -82,6 +82,16 @@ func (r *UserRepository) GetInventoryPermissions(userID uint, inventoryID uint) 
 	return permissions, err
 }
 
+func (r *UserRepository) GetSharePermissions(userID uint, shareID uint) ([]model.SharePermission, error) {
+	var permissions []model.SharePermission
+
+	err := r.db.Joins("JOIN share_users su ON su.id = share_permissions.share_user_id").
+		Where("su.user_id = ? AND su.share_id = ?", userID, shareID).
+		Find(&permissions).Error
+
+	return permissions, err
+}
+
 func (r *UserRepository) preloadDetails(db *gorm.DB) *gorm.DB {
 	return db.Preload("Roles", func(tx *gorm.DB) *gorm.DB {
 		return tx.Order("roles.id asc")

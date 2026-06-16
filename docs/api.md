@@ -798,8 +798,125 @@ Possible errors:
 - `404` replica not found
 - `404` replica file not found
 
-## Internal API
+### /shares endpoint
 
+All `/shares` endpoints require the matching `shares` permission for the requested action.
+
+#### GET /shares
+Returns a paginated list of shares.
+
+Query parameters:
+* `page` optional, default `1`
+* `count` optional, default `20`, maximum `100`
+* `status` optional, filter by share status: `active`, `deleted`
+* `replica_id` optional
+* `name` optional
+
+Example response:
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "inventory_id": 1,
+      "replica_id": 3,
+      "name": "Vacation March 2026",
+      "status": "active"
+    }
+  ],
+  "page": 1,
+  "count": 20,
+  "total": 1
+}
+```
+
+#### GET /shares/{id}
+Returns a single share.
+
+Example response:
+```json
+{
+  "id": 1,
+  "inventory_id": 1,
+  "replica_id": 3,
+  "name": "Vacation March 2026",
+  "status": "active"
+}
+```
+
+#### POST /shares
+Creates a share.
+
+Request body:
+* `replica_id` required
+* `name` optional
+* `status` optional, defaults to `active`
+
+  * allowed values are `active`, `deleted`
+
+Example request:
+```json
+{
+  "replica_id": 3,
+  "name": "Vacation March 2026"
+}
+```
+
+Example response:
+```json
+{
+  "id": 1,
+  "inventory_id": 1,
+  "replica_id": 3,
+  "name": "Vacation March 2026",
+  "status": "active"
+}
+```
+
+#### PATCH /shares/{id}
+Updates a share.
+
+Request body fields are optional:
+* `name`
+* `status`
+
+Example request:
+```json
+{
+  "name": "Vacation March 2026 - shared",
+  "status": "active"
+}
+```
+
+Example response:
+```json
+{
+  "id": 1,
+  "inventory_id": 1,
+  "replica_id": 3,
+  "name": "Vacation March 2026 - shared",
+  "status": "active"
+}
+```
+
+#### DELETE /shares/{id}
+Soft-deletes a share by setting its status to `deleted`.
+
+Successful response:
+* `204 No Content`
+
+Possible errors:
+* `401` missing authenticated user
+* `403` missing required permission
+* `404` share not found
+* `400` invalid share status
+* `400` invalid share name
+* `404` replica not found
+* `409` replica is deleted
+* `409` share already exists
+
+
+## Internal API
 Base path for the endpoints in this section is `/internal/`.
 
 ### /auth endpoint

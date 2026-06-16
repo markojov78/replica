@@ -134,11 +134,11 @@ func (ReplicaFile) TableName() string {
 }
 
 type Share struct {
-	ID          uint        `gorm:"primaryKey" json:"id"`
-	InventoryID uint        `gorm:"index;not null" json:"inventory_id"`
-	Name        string      `gorm:"size:255" json:"name"`
-	Status      ShareStatus `gorm:"size:32;not null" json:"status"`
-	Inventory   Inventory   `gorm:"foreignKey:InventoryID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
+	ID        uint        `gorm:"primaryKey" json:"id"`
+	ReplicaID uint        `gorm:"index;not null" json:"replica_id"`
+	Name      string      `gorm:"size:255" json:"name"`
+	Status    ShareStatus `gorm:"size:32;not null" json:"status"`
+	Replica   Replica     `gorm:"foreignKey:ReplicaID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
 }
 
 func (Share) TableName() string {

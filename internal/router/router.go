@@ -27,6 +27,7 @@ type services struct {
 	nodes       *service.NodeService
 	inventories *service.InventoryService
 	replicas    *service.ReplicaService
+	shares      *service.ShareService
 	storage     *storage.Runtime
 }
 
@@ -46,11 +47,14 @@ func New(
 	internalGroup := huma.NewGroup(api, "/internal")
 
 	var replicaService *service.ReplicaService
+	var shareService *service.ShareService
 	var storageRuntime *storage.Runtime
 	for _, optionalService := range optionalServices {
 		switch optional := optionalService.(type) {
 		case *service.ReplicaService:
 			replicaService = optional
+		case *service.ShareService:
+			shareService = optional
 		case *storage.Runtime:
 			storageRuntime = optional
 		}
@@ -63,6 +67,7 @@ func New(
 		nodes:       nodeService,
 		inventories: inventoryService,
 		replicas:    replicaService,
+		shares:      shareService,
 		storage:     storageRuntime,
 	}
 
@@ -82,6 +87,9 @@ func New(
 		registerNodeRoutes(apiGroup, svc)
 		registerInventoryRoutes(apiGroup, svc)
 		registerReplicaRoutes(apiGroup, svc)
+		if shareService != nil {
+			registerShareRoutes(apiGroup, svc)
+		}
 		if err := admin.Register(mux, mux); err != nil {
 			panic(err)
 		}
@@ -308,6 +316,25 @@ func mapInventoryError(err error, inventoryService *service.InventoryService) er
 		return huma.Error404NotFound("replica not found")
 	default:
 		return huma.Error500InternalServerError("inventory request failed", err)
+	}
+}
+
+func mapShareError(err error, shareService *service.ShareService) error {
+	switch {
+	case shareService.IsNotFound(err):
+		return huma.Error404NotFound("share not found")
+	case errors.Is(err, service.ErrInvalidShareStatus):
+		return huma.Error400BadRequest("invalid share status")
+	case errors.Is(err, service.ErrInvalidShareName):
+		return huma.Error400BadRequest("invalid share name")
+	case errors.Is(err, service.ErrReplicaNotFound):
+		return huma.Error404NotFound("replica not found")
+	case errors.Is(err, service.ErrInvalidReplicaStatus):
+		return huma.Error409Conflict("replica is deleted")
+	case errors.Is(err, service.ErrShareAlreadyExists):
+		return huma.Error409Conflict("share already exists")
+	default:
+		return huma.Error500InternalServerError("share request failed", err)
 	}
 }
 

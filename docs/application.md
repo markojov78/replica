@@ -39,15 +39,13 @@ An inventory can have multiple replicas with the following replication rules:
 * One-way replication replicas can form a tree structure where any downstream replica can have only one source.
 
 ### Share
-It's an inventory accessible through the web interface, depending on ownership and permissions and replication rules, 
-end user can use a share to perform CRUD operation on the files accessible through the share.
+It's a replica accessible through the API and web interface with special permissions allowing 
+authenticated or anonymous users to read or update files based on per-share permissions.  
 
-In case of conflicting permissions and rules (i.e. updatable share for read-only inventory) it's up to the service to 
-detect conflicting settings and display an error.
+Share API and web interface are exposed on the same node on which replica exists.  
 
-While share is defined for an inventory it actually uses replicas to work with the actual data and depending on 
-the rules it can result to using multiple replicas for different actions (i.e. downstream read-only replica for 
-fast data read and writeable replica for data update).
+In case of conflicting permissions and rules (i.e. writeable share for read-only replica) it's up to the API to 
+detect conflicting settings and display an error.  
 
 ### Users, ownership and permissions
 Users can be authenticated or anonymous. Inventory and share can have one or more users and each user can have a list 
@@ -113,9 +111,9 @@ status - active, deleted
 type - file, folder
 
 #### inventory_files
-relative_uri - file uri from the inventory root. replica uri + relative_uri make full file pathfile_journal  
-version - version corresponds to the file_journal id for this file, having journal entry for the file with the journal id above the version value means there are changes to the file not yet processed  
-status - active, deleted
+relative_uri - file uri from the replica root. replica uri + relative_uri make full file path  
+version - file version used for synchronization between replicas, if inventory version is above replica versions file in the replica needs to be synchronized  
+status - active, deleted  
 
 #### file_journal
 action - crud action: created, updated, modified, deleted, restored  
@@ -147,8 +145,6 @@ status - active, deleted
 #### users
 name - username or email    
 status - active, deleted  
-
-#### user_roles
 
 #### roles
 status - active, deleted
