@@ -27,7 +27,7 @@ func TestShareRoutesCreateAndListWithGlobalPermissions(t *testing.T) {
 	replica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
 	handler := newShareRouteHandler(database)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"name":"Vacation March 2026"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"name":"Vacation March 2026","user_permissions":[{"user_id":`+strconv.FormatUint(uint64(user.ID), 10)+`,"permissions":["read","create","update","delete"]}]}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -44,6 +44,9 @@ func TestShareRoutesCreateAndListWithGlobalPermissions(t *testing.T) {
 	}
 	if created.InventoryID != replica.InventoryID || created.ReplicaID != replica.ID || created.Name != "Vacation March 2026" || created.Status != string(model.ShareStatusActive) {
 		t.Fatalf("created = %+v, want inventory=%d replica=%d active", created, replica.InventoryID, replica.ID)
+	}
+	if len(created.UserPermissions) != 1 || created.UserPermissions[0].UserID != user.ID || len(created.UserPermissions[0].Permissions) != 4 {
+		t.Fatalf("created.UserPermissions = %+v, want user %d with four permissions", created.UserPermissions, user.ID)
 	}
 	var shareUser model.ShareUser
 	if err := database.First(&shareUser, "user_id = ? AND share_id = ?", user.ID, created.ID).Error; err != nil {
@@ -167,6 +170,151 @@ func TestShareRouteListRequiresGlobalSharePermission(t *testing.T) {
 	}
 }
 
+func TestShareRouteUserPermissionsOmittedAndPatchReplacement(t *testing.T) {
+	database := openRouterTestDB(t)
+	creator, accessToken := createShareRouteUser(t, database, []model.Permission{
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionCreate},
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionUpdate},
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionRead},
+	})
+	other := createShareRoutePlainUser(t, database, "other")
+	replica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
+	handler := newShareRouteHandler(database)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"name":"Vacation March 2026"}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("create status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var created service.ShareDetails
+	if err := json.Unmarshal(recorder.Body.Bytes(), &created); err != nil {
+		t.Fatalf("Unmarshal(created) error = %v", err)
+	}
+	if len(created.UserPermissions) != 0 {
+		t.Fatalf("created.UserPermissions = %+v, want none when omitted", created.UserPermissions)
+	}
+	var shareUserCount int64
+	if err := database.Model(&model.ShareUser{}).Where("share_id = ? AND user_id = ?", created.ID, creator.ID).Count(&shareUserCount).Error; err != nil {
+		t.Fatalf("Count(creator share_user) error = %v", err)
+	}
+	if shareUserCount != 0 {
+		t.Fatalf("creator share_user count = %d, want 0", shareUserCount)
+	}
+
+	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"user_permissions":[{"user_id":`+strconv.FormatUint(uint64(other.ID), 10)+`,"permissions":["read","update"]}]}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder = httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch set status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var patched service.ShareDetails
+	if err := json.Unmarshal(recorder.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("Unmarshal(patched) error = %v", err)
+	}
+	if len(patched.UserPermissions) != 1 || patched.UserPermissions[0].UserID != other.ID || len(patched.UserPermissions[0].Permissions) != 2 {
+		t.Fatalf("patched.UserPermissions = %+v, want other read/update", patched.UserPermissions)
+	}
+
+	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"name":"Vacation renamed"}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder = httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch omitted status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("Unmarshal(patched omitted) error = %v", err)
+	}
+	if len(patched.UserPermissions) != 1 || patched.UserPermissions[0].UserID != other.ID {
+		t.Fatalf("patched omitted UserPermissions = %+v, want unchanged", patched.UserPermissions)
+	}
+
+	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"user_permissions":[]}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder = httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch clear status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("Unmarshal(patched clear) error = %v", err)
+	}
+	if len(patched.UserPermissions) != 0 {
+		t.Fatalf("patched clear UserPermissions = %+v, want none", patched.UserPermissions)
+	}
+}
+
+func TestInventoryRouteUserPermissionsCreateAndPatchReplacement(t *testing.T) {
+	database := openRouterTestDB(t)
+	_, accessToken := createShareRouteUser(t, database, []model.Permission{
+		{Resource: model.PermissionResourceInventories, Action: model.PermissionActionCreate},
+		{Resource: model.PermissionResourceInventories, Action: model.PermissionActionUpdate},
+		{Resource: model.PermissionResourceInventories, Action: model.PermissionActionRead},
+	})
+	other := createShareRoutePlainUser(t, database, "other")
+	if err := database.Create(&model.Node{ID: "node-a", Status: model.NodeStatusOffline, Secret: "ignored"}).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+	handler := newShareRouteHandler(database)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/inventories", strings.NewReader(`{"name":"Photos","node_id":"node-a","folder_uri":"/data/photos","user_permissions":[{"user_id":`+strconv.FormatUint(uint64(other.ID), 10)+`,"permissions":["read"]}]}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("create inventory status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var created service.InventoryDetails
+	if err := json.Unmarshal(recorder.Body.Bytes(), &created); err != nil {
+		t.Fatalf("Unmarshal(created inventory) error = %v", err)
+	}
+	if len(created.UserPermissions) != 1 || created.UserPermissions[0].UserID != other.ID || len(created.UserPermissions[0].Permissions) != 1 {
+		t.Fatalf("created.UserPermissions = %+v, want other read", created.UserPermissions)
+	}
+
+	req = httptest.NewRequest(http.MethodPatch, "/api/inventories/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"user_permissions":[]}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder = httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch inventory clear status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var patched service.InventoryDetails
+	if err := json.Unmarshal(recorder.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("Unmarshal(patched inventory) error = %v", err)
+	}
+	if len(patched.UserPermissions) != 0 {
+		t.Fatalf("patched.UserPermissions = %+v, want none", patched.UserPermissions)
+	}
+}
+
 func newShareRouteHandler(database *gorm.DB) http.Handler {
 	return New(
 		config.Config{},
@@ -219,6 +367,24 @@ func createShareRouteUser(t *testing.T, database *gorm.DB, permissions []model.P
 		t.Fatalf("Login() error = %v", err)
 	}
 	return user, pair.AccessToken
+}
+
+func createShareRoutePlainUser(t *testing.T, database *gorm.DB, name string) *model.User {
+	t.Helper()
+
+	hashedPassword, err := security.HashPassword("secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	user := &model.User{
+		Name:     name,
+		Status:   model.UserStatusActive,
+		Password: hashedPassword,
+	}
+	if err := database.Create(user).Error; err != nil {
+		t.Fatalf("Create(plain user) error = %v", err)
+	}
+	return user
 }
 
 func createShareRouteReplica(t *testing.T, database *gorm.DB, status model.ReplicaStatus) *model.Replica {

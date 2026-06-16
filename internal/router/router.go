@@ -286,6 +286,8 @@ func mapInventoryError(err error, inventoryService *service.InventoryService) er
 		return huma.Error400BadRequest("invalid inventory file status")
 	case errors.Is(err, service.ErrInvalidInventoryType):
 		return huma.Error400BadRequest("invalid inventory type")
+	case errors.Is(err, service.ErrInvalidPermissions):
+		return huma.Error400BadRequest("invalid permissions")
 	case errors.Is(err, service.ErrInvalidInventoryURI):
 		return huma.Error400BadRequest("invalid inventory uri")
 	case errors.Is(err, service.ErrInventoryDeleted):
@@ -327,6 +329,8 @@ func mapShareError(err error, shareService *service.ShareService) error {
 		return huma.Error400BadRequest("invalid share status")
 	case errors.Is(err, service.ErrInvalidShareName):
 		return huma.Error400BadRequest("invalid share name")
+	case errors.Is(err, service.ErrInvalidPermissions):
+		return huma.Error400BadRequest("invalid permissions")
 	case errors.Is(err, service.ErrReplicaNotFound):
 		return huma.Error404NotFound("replica not found")
 	case errors.Is(err, service.ErrInvalidReplicaStatus):

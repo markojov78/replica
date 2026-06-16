@@ -86,17 +86,16 @@ func registerInventoryRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		user, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionCreate)
-		if err != nil {
+		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionCreate); err != nil {
 			return nil, mapPermissionError(err)
 		}
 
 		inventory, err := svc.inventories.Create(service.CreateInventoryInput{
-			Name:      input.Body.Name,
-			NodeID:    input.Body.NodeID,
-			FolderURI: input.Body.FolderURI,
-			FileURIs:  input.Body.FileURIs,
-			UserID:    user.ID,
+			Name:            input.Body.Name,
+			NodeID:          input.Body.NodeID,
+			FolderURI:       input.Body.FolderURI,
+			FileURIs:        input.Body.FileURIs,
+			UserPermissions: input.Body.UserPermissions,
 		})
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
@@ -114,8 +113,9 @@ func registerInventoryRoutes(api huma.API, svc services) {
 		}
 
 		inventory, err := svc.inventories.Update(input.ID, service.UpdateInventoryInput{
-			Name:   input.Body.Name,
-			Status: input.Body.Status,
+			Name:            input.Body.Name,
+			Status:          input.Body.Status,
+			UserPermissions: input.Body.UserPermissions,
 		})
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
@@ -175,10 +175,11 @@ type createInventoryInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
 	Body          struct {
-		Name      string    `json:"name" minLength:"1"`
-		NodeID    string    `json:"node_id" minLength:"1"`
-		FolderURI *string   `json:"folder_uri,omitempty"`
-		FileURIs  *[]string `json:"file_uris,omitempty"`
+		Name            string                         `json:"name" minLength:"1"`
+		NodeID          string                         `json:"node_id" minLength:"1"`
+		FolderURI       *string                        `json:"folder_uri,omitempty"`
+		FileURIs        *[]string                      `json:"file_uris,omitempty"`
+		UserPermissions *[]service.UserPermissionInput `json:"user_permissions,omitempty"`
 	}
 }
 
@@ -203,8 +204,9 @@ type updateInventoryInput struct {
 	Authorization string `header:"Authorization"`
 	ID            uint   `path:"id"`
 	Body          struct {
-		Name   *string `json:"name,omitempty"`
-		Status *string `json:"status,omitempty"`
+		Name            *string                        `json:"name,omitempty"`
+		Status          *string                        `json:"status,omitempty"`
+		UserPermissions *[]service.UserPermissionInput `json:"user_permissions,omitempty"`
 	}
 }
 

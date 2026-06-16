@@ -13,11 +13,16 @@ type InventoryRepository struct {
 	db *gorm.DB
 }
 
+type UserPermissionDetails struct {
+	UserID      uint
+	Permissions []string
+}
+
 func NewInventoryRepository(db *gorm.DB) *InventoryRepository {
 	return &InventoryRepository{db: db}
 }
 
-func (r *InventoryRepository) CreateWithDefaultReplica(inventory *model.Inventory, replica *model.Replica, inventoryFiles []model.InventoryFile, command, refreshCommand *model.Command, creatorUserID uint, permissions []string) error {
+func (r *InventoryRepository) CreateWithDefaultReplica(inventory *model.Inventory, replica *model.Replica, inventoryFiles []model.InventoryFile, command, refreshCommand *model.Command, permissions []UserPermissionDetails) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(inventory).Error; err != nil {
 			return err
@@ -43,27 +48,7 @@ func (r *InventoryRepository) CreateWithDefaultReplica(inventory *model.Inventor
 			}
 		}
 
-		inventoryUser := &model.InventoryUser{
-			UserID:      creatorUserID,
-			InventoryID: inventory.ID,
-		}
-		if err := tx.Create(inventoryUser).Error; err != nil {
-			return err
-		}
-
-		if len(permissions) == 0 {
-			return nil
-		}
-
-		rows := make([]model.InventoryPermission, 0, len(permissions))
-		for _, permission := range permissions {
-			rows = append(rows, model.InventoryPermission{
-				InventoryUserID: inventoryUser.ID,
-				Permission:      permission,
-			})
-		}
-
-		if err := tx.Create(&rows).Error; err != nil {
+		if err := replaceInventoryUserPermissions(tx, inventory.ID, permissions); err != nil {
 			return err
 		}
 
@@ -140,6 +125,45 @@ func (r *InventoryRepository) Update(inventory *model.Inventory) error {
 	return r.db.Save(inventory).Error
 }
 
+func (r *InventoryRepository) UpdateWithUserPermissions(inventory *model.Inventory, permissions []UserPermissionDetails, replacePermissions bool) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(inventory).Error; err != nil {
+			return err
+		}
+		if !replacePermissions {
+			return nil
+		}
+		return replaceInventoryUserPermissions(tx, inventory.ID, permissions)
+	})
+}
+
+func (r *InventoryRepository) UserPermissions(inventoryID uint) ([]UserPermissionDetails, error) {
+	var users []model.InventoryUser
+	if err := r.db.Where("inventory_id = ?", inventoryID).Order("user_id asc").Find(&users).Error; err != nil {
+		return nil, err
+	}
+
+	result := make([]UserPermissionDetails, 0, len(users))
+	for _, user := range users {
+		var permissions []model.InventoryPermission
+		if err := r.db.Where("inventory_user_id = ?", user.ID).Order("permission asc").Find(&permissions).Error; err != nil {
+			return nil, err
+		}
+		if len(permissions) == 0 {
+			continue
+		}
+		detail := UserPermissionDetails{
+			UserID:      user.UserID,
+			Permissions: make([]string, 0, len(permissions)),
+		}
+		for _, permission := range permissions {
+			detail.Permissions = append(detail.Permissions, permission.Permission)
+		}
+		result = append(result, detail)
+	}
+	return result, nil
+}
+
 func (r *InventoryRepository) FindFileByID(inventoryID, fileID uint) (*model.InventoryFile, error) {
 	var file model.InventoryFile
 	if err := r.db.Where("inventory_id = ? AND id = ?", inventoryID, fileID).First(&file).Error; err != nil {
@@ -176,4 +200,46 @@ func (r *InventoryRepository) preloadDetails(db *gorm.DB) *gorm.DB {
 	return db.Preload("Replicas", func(tx *gorm.DB) *gorm.DB {
 		return tx.Order("replicas.id asc")
 	})
+}
+
+func replaceInventoryUserPermissions(tx *gorm.DB, inventoryID uint, permissions []UserPermissionDetails) error {
+	var users []model.InventoryUser
+	if err := tx.Where("inventory_id = ?", inventoryID).Find(&users).Error; err != nil {
+		return err
+	}
+	userIDs := make([]uint, 0, len(users))
+	for _, user := range users {
+		userIDs = append(userIDs, user.ID)
+	}
+	if len(userIDs) > 0 {
+		if err := tx.Where("inventory_user_id IN ?", userIDs).Delete(&model.InventoryPermission{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("id IN ?", userIDs).Delete(&model.InventoryUser{}).Error; err != nil {
+			return err
+		}
+	}
+
+	for _, permission := range permissions {
+		inventoryUser := &model.InventoryUser{
+			UserID:      permission.UserID,
+			InventoryID: inventoryID,
+		}
+		if err := tx.Create(inventoryUser).Error; err != nil {
+			return err
+		}
+		rows := make([]model.InventoryPermission, 0, len(permission.Permissions))
+		for _, action := range permission.Permissions {
+			rows = append(rows, model.InventoryPermission{
+				InventoryUserID: inventoryUser.ID,
+				Permission:      action,
+			})
+		}
+		if len(rows) > 0 {
+			if err := tx.Create(&rows).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

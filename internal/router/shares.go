@@ -58,16 +58,15 @@ func registerShareRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		user, err := svc.auth.Authorize(accessToken, model.PermissionResourceShares, model.PermissionActionCreate)
-		if err != nil {
+		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceShares, model.PermissionActionCreate); err != nil {
 			return nil, mapPermissionError(err)
 		}
 
 		share, err := svc.shares.Create(service.CreateShareInput{
-			ReplicaID: input.Body.ReplicaID,
-			Name:      input.Body.Name,
-			Status:    input.Body.Status,
-			UserID:    user.ID,
+			ReplicaID:       input.Body.ReplicaID,
+			Name:            input.Body.Name,
+			Status:          input.Body.Status,
+			UserPermissions: input.Body.UserPermissions,
 		})
 		if err != nil {
 			return nil, mapShareError(err, svc.shares)
@@ -85,8 +84,9 @@ func registerShareRoutes(api huma.API, svc services) {
 		}
 
 		share, err := svc.shares.Update(input.ID, service.UpdateShareInput{
-			Name:   input.Body.Name,
-			Status: input.Body.Status,
+			Name:            input.Body.Name,
+			Status:          input.Body.Status,
+			UserPermissions: input.Body.UserPermissions,
 		})
 		if err != nil {
 			return nil, mapShareError(err, svc.shares)
@@ -145,9 +145,10 @@ type createShareInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
 	Body          struct {
-		ReplicaID uint    `json:"replica_id"`
-		Name      *string `json:"name,omitempty"`
-		Status    *string `json:"status,omitempty"`
+		ReplicaID       uint                           `json:"replica_id"`
+		Name            *string                        `json:"name,omitempty"`
+		Status          *string                        `json:"status,omitempty"`
+		UserPermissions *[]service.UserPermissionInput `json:"user_permissions,omitempty"`
 	}
 }
 
@@ -156,8 +157,9 @@ type updateShareInput struct {
 	Authorization string `header:"Authorization"`
 	ID            uint   `path:"id"`
 	Body          struct {
-		Name   *string `json:"name,omitempty"`
-		Status *string `json:"status,omitempty"`
+		Name            *string                        `json:"name,omitempty"`
+		Status          *string                        `json:"status,omitempty"`
+		UserPermissions *[]service.UserPermissionInput `json:"user_permissions,omitempty"`
 	}
 }
 

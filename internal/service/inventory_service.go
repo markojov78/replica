@@ -62,11 +62,12 @@ type InventoryReplicaDetails struct {
 }
 
 type InventoryDetails struct {
-	ID       uint                      `json:"id"`
-	Name     string                    `json:"name"`
-	Status   string                    `json:"status"`
-	Type     string                    `json:"type"`
-	Replicas []InventoryReplicaDetails `json:"replicas"`
+	ID              uint                      `json:"id"`
+	Name            string                    `json:"name"`
+	Status          string                    `json:"status"`
+	Type            string                    `json:"type"`
+	Replicas        []InventoryReplicaDetails `json:"replicas"`
+	UserPermissions []UserPermissionDetails   `json:"user_permissions"`
 }
 
 type InventoryFileDetails struct {
@@ -145,12 +146,22 @@ type ReplicaList struct {
 	Total int64                     `json:"total"`
 }
 
+type UserPermissionInput struct {
+	UserID      uint     `json:"user_id"`
+	Permissions []string `json:"permissions"`
+}
+
+type UserPermissionDetails struct {
+	UserID      uint     `json:"user_id"`
+	Permissions []string `json:"permissions"`
+}
+
 type CreateInventoryInput struct {
-	Name      string
-	NodeID    string
-	FolderURI *string
-	FileURIs  *[]string
-	UserID    uint
+	Name            string
+	NodeID          string
+	FolderURI       *string
+	FileURIs        *[]string
+	UserPermissions *[]UserPermissionInput
 }
 
 type CreateReplicaInput struct {
@@ -162,8 +173,9 @@ type CreateReplicaInput struct {
 }
 
 type UpdateInventoryInput struct {
-	Name   *string
-	Status *string
+	Name            *string
+	Status          *string
+	UserPermissions *[]UserPermissionInput
 }
 
 type ReplicaListFilter struct {
@@ -267,13 +279,11 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 		Status: model.NodeCommandStatusPending,
 	}
 
-	permissions := []string{
-		string(model.PermissionActionRead),
-		string(model.PermissionActionCreate),
-		string(model.PermissionActionUpdate),
-		string(model.PermissionActionDelete),
+	permissions, err := validateUserPermissions(input.UserPermissions)
+	if err != nil {
+		return nil, err
 	}
-	if err := s.repo.CreateWithDefaultReplica(inventory, replica, inventoryFiles, command, refreshCommand, input.UserID, permissions); err != nil {
+	if err := s.repo.CreateWithDefaultReplica(inventory, replica, inventoryFiles, command, refreshCommand, permissions); err != nil {
 		return nil, err
 	}
 
@@ -294,7 +304,11 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 		return nil, err
 	}
 
-	return toInventoryDetails(inventory), nil
+	details := toInventoryDetails(inventory)
+	if err := s.loadInventoryUserPermissions(details); err != nil {
+		return nil, err
+	}
+	return details, nil
 }
 
 type normalizedFileURI struct {
@@ -455,7 +469,11 @@ func (s *InventoryService) Get(id uint) (*InventoryDetails, error) {
 	if err != nil {
 		return nil, err
 	}
-	return toInventoryDetails(inventory), nil
+	details := toInventoryDetails(inventory)
+	if err := s.loadInventoryUserPermissions(details); err != nil {
+		return nil, err
+	}
+	return details, nil
 }
 
 func (s *InventoryService) List(page, perPage int, filter InventoryListFilter) (*InventoryList, error) {
@@ -486,7 +504,11 @@ func (s *InventoryService) List(page, perPage int, filter InventoryListFilter) (
 
 	items := make([]InventoryDetails, 0, len(inventories))
 	for _, inventory := range inventories {
-		items = append(items, *toInventoryDetails(&inventory))
+		details := toInventoryDetails(&inventory)
+		if err := s.loadInventoryUserPermissions(details); err != nil {
+			return nil, err
+		}
+		items = append(items, *details)
 	}
 
 	return &InventoryList{
@@ -561,6 +583,10 @@ func (s *InventoryService) Update(id uint, input UpdateInventoryInput) (*Invento
 	if err != nil {
 		return nil, err
 	}
+	permissions, err := validateUserPermissions(input.UserPermissions)
+	if err != nil {
+		return nil, err
+	}
 
 	if input.Name != nil {
 		inventory.Name = strings.TrimSpace(*input.Name)
@@ -580,7 +606,7 @@ func (s *InventoryService) Update(id uint, input UpdateInventoryInput) (*Invento
 		inventory.Status = status
 	}
 
-	if err := s.repo.Update(inventory); err != nil {
+	if err := s.repo.UpdateWithUserPermissions(inventory, permissions, input.UserPermissions != nil); err != nil {
 		return nil, err
 	}
 
@@ -589,7 +615,11 @@ func (s *InventoryService) Update(id uint, input UpdateInventoryInput) (*Invento
 		return nil, err
 	}
 
-	return toInventoryDetails(inventory), nil
+	details := toInventoryDetails(inventory)
+	if err := s.loadInventoryUserPermissions(details); err != nil {
+		return nil, err
+	}
+	return details, nil
 }
 
 func (s *InventoryService) Delete(id uint) (*InventoryDetails, error) {
@@ -611,12 +641,74 @@ func toInventoryDetails(inventory *model.Inventory) *InventoryDetails {
 	}
 
 	return &InventoryDetails{
-		ID:       inventory.ID,
-		Name:     inventory.Name,
-		Status:   string(inventory.Status),
-		Type:     string(inventory.Type),
-		Replicas: replicas,
+		ID:              inventory.ID,
+		Name:            inventory.Name,
+		Status:          string(inventory.Status),
+		Type:            string(inventory.Type),
+		Replicas:        replicas,
+		UserPermissions: []UserPermissionDetails{},
 	}
+}
+
+func (s *InventoryService) loadInventoryUserPermissions(details *InventoryDetails) error {
+	permissions, err := s.repo.UserPermissions(details.ID)
+	if err != nil {
+		return err
+	}
+	details.UserPermissions = mapUserPermissionDetails(permissions)
+	return nil
+}
+
+func validateUserPermissions(input *[]UserPermissionInput) ([]repository.UserPermissionDetails, error) {
+	if input == nil {
+		return nil, nil
+	}
+
+	result := make([]repository.UserPermissionDetails, 0, len(*input))
+	seenUsers := make(map[uint]struct{}, len(*input))
+	for _, item := range *input {
+		if item.UserID == 0 {
+			return nil, ErrInvalidPermissions
+		}
+		if _, exists := seenUsers[item.UserID]; exists {
+			return nil, ErrInvalidPermissions
+		}
+		seenUsers[item.UserID] = struct{}{}
+
+		seenPermissions := make(map[string]struct{}, len(item.Permissions))
+		permissions := make([]string, 0, len(item.Permissions))
+		for _, value := range item.Permissions {
+			action := model.PermissionAction(strings.TrimSpace(value))
+			if !action.Valid() {
+				return nil, ErrInvalidPermissions
+			}
+			key := string(action)
+			if _, exists := seenPermissions[key]; exists {
+				continue
+			}
+			seenPermissions[key] = struct{}{}
+			permissions = append(permissions, key)
+		}
+		if len(permissions) == 0 {
+			continue
+		}
+		result = append(result, repository.UserPermissionDetails{
+			UserID:      item.UserID,
+			Permissions: permissions,
+		})
+	}
+	return result, nil
+}
+
+func mapUserPermissionDetails(input []repository.UserPermissionDetails) []UserPermissionDetails {
+	result := make([]UserPermissionDetails, 0, len(input))
+	for _, item := range input {
+		result = append(result, UserPermissionDetails{
+			UserID:      item.UserID,
+			Permissions: append([]string(nil), item.Permissions...),
+		})
+	}
+	return result
 }
 
 func toInventoryReplicaDetails(replica *model.Replica) *InventoryReplicaDetails {

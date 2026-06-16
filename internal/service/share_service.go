@@ -22,11 +22,12 @@ var (
 )
 
 type ShareDetails struct {
-	ID          uint   `json:"id"`
-	InventoryID uint   `json:"inventory_id"`
-	ReplicaID   uint   `json:"replica_id"`
-	Name        string `json:"name"`
-	Status      string `json:"status"`
+	ID              uint                    `json:"id"`
+	InventoryID     uint                    `json:"inventory_id"`
+	ReplicaID       uint                    `json:"replica_id"`
+	Name            string                  `json:"name"`
+	Status          string                  `json:"status"`
+	UserPermissions []UserPermissionDetails `json:"user_permissions"`
 }
 
 type ShareList struct {
@@ -43,15 +44,16 @@ type ShareListFilter struct {
 }
 
 type CreateShareInput struct {
-	ReplicaID uint
-	Name      *string
-	Status    *string
-	UserID    uint
+	ReplicaID       uint
+	Name            *string
+	Status          *string
+	UserPermissions *[]UserPermissionInput
 }
 
 type UpdateShareInput struct {
-	Name   *string
-	Status *string
+	Name            *string
+	Status          *string
+	UserPermissions *[]UserPermissionInput
 }
 
 func NewShareService(repo *repository.ShareRepository) *ShareService {
@@ -88,7 +90,11 @@ func (s *ShareService) ListPage(page, perPage int, filter ShareListFilter) (*Sha
 
 	items := make([]ShareDetails, 0, len(shares))
 	for _, share := range shares {
-		items = append(items, *toShareDetails(&share))
+		details := toShareDetails(&share)
+		if err := s.loadShareUserPermissions(details); err != nil {
+			return nil, err
+		}
+		items = append(items, *details)
 	}
 
 	return &ShareList{
@@ -107,7 +113,11 @@ func (s *ShareService) Get(id uint) (*ShareDetails, error) {
 		}
 		return nil, err
 	}
-	return toShareDetails(share), nil
+	details := toShareDetails(share)
+	if err := s.loadShareUserPermissions(details); err != nil {
+		return nil, err
+	}
+	return details, nil
 }
 
 func (s *ShareService) Create(input CreateShareInput) (*ShareDetails, error) {
@@ -156,16 +166,18 @@ func (s *ShareService) Create(input CreateShareInput) (*ShareDetails, error) {
 		Replica:   *replica,
 	}
 
-	permissions := []string{
-		string(model.PermissionActionRead),
-		string(model.PermissionActionCreate),
-		string(model.PermissionActionUpdate),
-		string(model.PermissionActionDelete),
-	}
-	if err := s.repo.CreateWithUserPermissions(share, input.UserID, permissions); err != nil {
+	permissions, err := validateUserPermissions(input.UserPermissions)
+	if err != nil {
 		return nil, err
 	}
-	return toShareDetails(share), nil
+	if err := s.repo.CreateWithUserPermissions(share, permissions); err != nil {
+		return nil, err
+	}
+	details := toShareDetails(share)
+	if err := s.loadShareUserPermissions(details); err != nil {
+		return nil, err
+	}
+	return details, nil
 }
 
 func (s *ShareService) Update(id uint, input UpdateShareInput) (*ShareDetails, error) {
@@ -174,6 +186,10 @@ func (s *ShareService) Update(id uint, input UpdateShareInput) (*ShareDetails, e
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrShareNotFound
 		}
+		return nil, err
+	}
+	permissions, err := validateUserPermissions(input.UserPermissions)
+	if err != nil {
 		return nil, err
 	}
 
@@ -201,10 +217,14 @@ func (s *ShareService) Update(id uint, input UpdateShareInput) (*ShareDetails, e
 		share.Status = status
 	}
 
-	if err := s.repo.Update(share); err != nil {
+	if err := s.repo.UpdateWithUserPermissions(share, permissions, input.UserPermissions != nil); err != nil {
 		return nil, err
 	}
-	return toShareDetails(share), nil
+	details := toShareDetails(share)
+	if err := s.loadShareUserPermissions(details); err != nil {
+		return nil, err
+	}
+	return details, nil
 }
 
 func (s *ShareService) Delete(id uint) error {
@@ -253,10 +273,20 @@ func resolveShareName(value *string) (string, error) {
 
 func toShareDetails(share *model.Share) *ShareDetails {
 	return &ShareDetails{
-		ID:          share.ID,
-		InventoryID: share.Replica.InventoryID,
-		ReplicaID:   share.ReplicaID,
-		Name:        share.Name,
-		Status:      string(share.Status),
+		ID:              share.ID,
+		InventoryID:     share.Replica.InventoryID,
+		ReplicaID:       share.ReplicaID,
+		Name:            share.Name,
+		Status:          string(share.Status),
+		UserPermissions: []UserPermissionDetails{},
 	}
+}
+
+func (s *ShareService) loadShareUserPermissions(details *ShareDetails) error {
+	permissions, err := s.repo.UserPermissions(details.ID)
+	if err != nil {
+		return err
+	}
+	details.UserPermissions = mapUserPermissionDetails(permissions)
+	return nil
 }

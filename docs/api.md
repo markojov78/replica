@@ -528,6 +528,12 @@ Example response:
           "status": "active",
           "type": "filesystem"
         }
+      ],
+      "user_permissions": [
+        {
+          "user_id": 15,
+          "permissions": ["read", "update", "delete"]
+        }
       ]
     }
   ],
@@ -547,12 +553,12 @@ Creating the default replica creates durable `scan_replica` and `refresh_state` 
 Request body:
 - `name` required
 - `node_id` required
+- `user_permissions` optional per-user permissions for the inventory
 - exactly one of `folder_uri` or `file_uris` is required
 - `folder_uri` is a non-empty URI for a folder inventory
 - `file_uris` is a non-empty list of unique absolute filesystem paths, local `file://` URIs, or `s3://` object URIs
 
 Behavior:
-- the creating user is inserted into `inventory_users`, and the creating user receives `read`, `create`, `update`, and `delete` inventory permissions in `inventory_permissions`
 - `folder_uri` creates a `folder` inventory, stores the URI unchanged as the default replica prefix, and discovers files during the initial scan
 - `file_uris` creates a `file` inventory representing a file set
 - filesystem paths and local `file://` URIs are normalized to unified `file://` URIs; they may be mixed in one file set
@@ -569,7 +575,13 @@ Example requests:
 {
   "name": "Vacation March 2026",
   "node_id": "node-1",
-  "folder_uri": "/home/username/images/Vacation March 2026"
+  "folder_uri": "/home/username/images/Vacation March 2026",
+  "user_permissions": [
+    {
+      "user_id": 15,
+      "permissions": ["read", "update", "delete"]
+    }
+  ]
 }
 ```
 
@@ -592,6 +604,12 @@ active.
 Request body fields are optional:
 - `name`
 - `status`
+- `user_permissions`
+
+Behavior:   
+user_permissions omitted: leave existing user permissions unchanged  
+user_permissions provided: replace all explicit user permissions for this inventory/share  
+user_permissions: []: remove all per-user permissions  
 
 #### DELETE /inventories/{id}
 Soft-deletes an inventory by setting its status to `deleted`.
@@ -605,6 +623,7 @@ Possible errors:
 - `409` inventory has active replicas
 - `400` invalid inventory status
 - `400` invalid inventory type
+- `400` invalid permissions
 - `400` invalid inventory uri
 
 ### /inventories/{id}/files endpoint
@@ -821,7 +840,17 @@ Example response:
       "inventory_id": 1,
       "replica_id": 3,
       "name": "Vacation March 2026",
-      "status": "active"
+      "status": "active",
+      "user_permissions": [
+        {
+          "user_id": 15,
+          "permissions": ["read", "create", "update", "delete"]
+        },
+        {
+          "user_id": 12,
+          "permissions": ["read"]
+        }
+      ]
     }
   ],
   "page": 1,
@@ -840,7 +869,13 @@ Example response:
   "inventory_id": 1,
   "replica_id": 3,
   "name": "Vacation March 2026",
-  "status": "active"
+  "status": "active",
+  "user_permissions": [
+    {
+      "user_id": 15,
+      "permissions": ["read", "create", "update", "delete"]
+    }
+  ]
 }
 ```
 
@@ -849,16 +884,26 @@ Creates a share.
 
 Request body:
 * `replica_id` required
-* `name` optional
+* `name` optional, defaults to inventory name
 * `status` optional, defaults to `active`
-
   * allowed values are `active`, `deleted`
+* `user_permissions` optional, per-user permissions for the share
 
 Example request:
 ```json
 {
   "replica_id": 3,
-  "name": "Vacation March 2026"
+  "name": "Vacation March 2026",
+  "user_permissions": [
+    {
+      "user_id": 15,
+      "permissions": ["read", "create", "update", "delete"]
+    },
+    {
+      "user_id": 12,
+      "permissions": ["read"]
+    }
+  ]
 }
 ```
 
@@ -869,7 +914,17 @@ Example response:
   "inventory_id": 1,
   "replica_id": 3,
   "name": "Vacation March 2026",
-  "status": "active"
+  "status": "active",
+  "user_permissions": [
+    {
+      "user_id": 15,
+      "permissions": ["read", "create", "update", "delete"]
+    },
+    {
+      "user_id": 12,
+      "permissions": ["read"]
+    }
+  ]
 }
 ```
 
@@ -879,6 +934,12 @@ Updates a share.
 Request body fields are optional:
 * `name`
 * `status`
+* `user_permissions`
+
+Behavior:   
+user_permissions omitted: leave existing user permissions unchanged  
+user_permissions provided: replace all explicit user permissions for this inventory/share  
+user_permissions: []: remove all per-user permissions  
 
 Example request:
 ```json
@@ -895,7 +956,13 @@ Example response:
   "inventory_id": 1,
   "replica_id": 3,
   "name": "Vacation March 2026 - shared",
-  "status": "active"
+  "status": "active",
+  "user_permissions": [
+    {
+      "user_id": 15,
+      "permissions": ["read", "create", "update", "delete"]
+    }
+  ]
 }
 ```
 
@@ -911,6 +978,7 @@ Possible errors:
 * `404` share not found
 * `400` invalid share status
 * `400` invalid share name
+* `400` invalid permissions
 * `404` replica not found
 * `409` replica is deleted
 * `409` share already exists

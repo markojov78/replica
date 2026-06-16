@@ -83,38 +83,56 @@ func (r *ShareRepository) Create(share *model.Share) error {
 	return r.db.Create(share).Error
 }
 
-func (r *ShareRepository) CreateWithUserPermissions(share *model.Share, creatorUserID uint, permissions []string) error {
+func (r *ShareRepository) CreateWithUserPermissions(share *model.Share, permissions []UserPermissionDetails) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(share).Error; err != nil {
 			return err
 		}
-
-		shareUser := &model.ShareUser{
-			UserID:  creatorUserID,
-			ShareID: share.ID,
-		}
-		if err := tx.Create(shareUser).Error; err != nil {
-			return err
-		}
-
-		if len(permissions) == 0 {
-			return nil
-		}
-
-		rows := make([]model.SharePermission, 0, len(permissions))
-		for _, permission := range permissions {
-			rows = append(rows, model.SharePermission{
-				ShareUserID: shareUser.ID,
-				Permission:  permission,
-			})
-		}
-
-		return tx.Create(&rows).Error
+		return replaceShareUserPermissions(tx, share.ID, permissions)
 	})
 }
 
 func (r *ShareRepository) Update(share *model.Share) error {
 	return r.db.Save(share).Error
+}
+
+func (r *ShareRepository) UpdateWithUserPermissions(share *model.Share, permissions []UserPermissionDetails, replacePermissions bool) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(share).Error; err != nil {
+			return err
+		}
+		if !replacePermissions {
+			return nil
+		}
+		return replaceShareUserPermissions(tx, share.ID, permissions)
+	})
+}
+
+func (r *ShareRepository) UserPermissions(shareID uint) ([]UserPermissionDetails, error) {
+	var users []model.ShareUser
+	if err := r.db.Where("share_id = ?", shareID).Order("user_id asc").Find(&users).Error; err != nil {
+		return nil, err
+	}
+
+	result := make([]UserPermissionDetails, 0, len(users))
+	for _, user := range users {
+		var permissions []model.SharePermission
+		if err := r.db.Where("share_user_id = ?", user.ID).Order("permission asc").Find(&permissions).Error; err != nil {
+			return nil, err
+		}
+		if len(permissions) == 0 {
+			continue
+		}
+		detail := UserPermissionDetails{
+			UserID:      user.UserID,
+			Permissions: make([]string, 0, len(permissions)),
+		}
+		for _, permission := range permissions {
+			detail.Permissions = append(detail.Permissions, permission.Permission)
+		}
+		result = append(result, detail)
+	}
+	return result, nil
 }
 
 func applyShareFilters(query *gorm.DB, filter ShareListFilter) *gorm.DB {
@@ -128,4 +146,46 @@ func applyShareFilters(query *gorm.DB, filter ShareListFilter) *gorm.DB {
 		query = query.Where("name = ?", strings.TrimSpace(filter.Name))
 	}
 	return query
+}
+
+func replaceShareUserPermissions(tx *gorm.DB, shareID uint, permissions []UserPermissionDetails) error {
+	var users []model.ShareUser
+	if err := tx.Where("share_id = ?", shareID).Find(&users).Error; err != nil {
+		return err
+	}
+	userIDs := make([]uint, 0, len(users))
+	for _, user := range users {
+		userIDs = append(userIDs, user.ID)
+	}
+	if len(userIDs) > 0 {
+		if err := tx.Where("share_user_id IN ?", userIDs).Delete(&model.SharePermission{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("id IN ?", userIDs).Delete(&model.ShareUser{}).Error; err != nil {
+			return err
+		}
+	}
+
+	for _, permission := range permissions {
+		shareUser := &model.ShareUser{
+			UserID:  permission.UserID,
+			ShareID: shareID,
+		}
+		if err := tx.Create(shareUser).Error; err != nil {
+			return err
+		}
+		rows := make([]model.SharePermission, 0, len(permission.Permissions))
+		for _, action := range permission.Permissions {
+			rows = append(rows, model.SharePermission{
+				ShareUserID: shareUser.ID,
+				Permission:  action,
+			})
+		}
+		if len(rows) > 0 {
+			if err := tx.Create(&rows).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

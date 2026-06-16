@@ -33,7 +33,6 @@ func TestInventoryServiceCreateCreatesPendingScanReplicaCommand(t *testing.T) {
 		Name:      "Photos",
 		NodeID:    "node-a",
 		FolderURI: stringPointer("/data/photos"),
-		UserID:    7,
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -98,7 +97,6 @@ func TestInventoryServiceCreateFileSetInventorySeedsPlaceholders(t *testing.T) {
 			"/home/username/images/album/file1.jpg",
 			"file:///home/username/images/album/subfolder/file2.jpg",
 		}),
-		UserID: 7,
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -164,7 +162,6 @@ func TestInventoryServiceCreateFileSetInventorySeedsPlaceholders(t *testing.T) {
 		Name:     "S3 album",
 		NodeID:   "node-a",
 		FileURIs: &s3Files,
-		UserID:   7,
 	})
 	if err != nil {
 		t.Fatalf("Create(S3 file set) error = %v", err)
