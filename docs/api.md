@@ -841,6 +841,8 @@ Example response:
       "replica_id": 3,
       "name": "Vacation March 2026",
       "status": "active",
+      "link_hash": "ImyZbX8zv0UrsCB7Rthq9R7nQMMKRyhT",
+      "share_expiration": "2026-03-17T10:30:00Z",
       "user_permissions": [
         {
           "user_id": 15,
@@ -870,6 +872,8 @@ Example response:
   "replica_id": 3,
   "name": "Vacation March 2026",
   "status": "active",
+  "link_hash": "ImyZbX8zv0UrsCB7Rthq9R7nQMMKRyhT",
+  "share_expiration": "2026-03-17T10:30:00Z",
   "user_permissions": [
     {
       "user_id": 15,
@@ -887,6 +891,8 @@ Request body:
 * `name` optional, defaults to inventory name
 * `status` optional, defaults to `active`
   * allowed values are `active`, `deleted`
+* `share_expiration` optional RFC3339 timestamp, defaults to `null`
+* `generate_hash` optional boolean to generate new `link_hash`
 * `user_permissions` optional, per-user permissions for the share
 
 Example request:
@@ -894,6 +900,8 @@ Example request:
 {
   "replica_id": 3,
   "name": "Vacation March 2026",
+  "share_expiration": "2026-03-17T10:30:00Z",
+  "generate_hash": true,
   "user_permissions": [
     {
       "user_id": 15,
@@ -915,6 +923,8 @@ Example response:
   "replica_id": 3,
   "name": "Vacation March 2026",
   "status": "active",
+  "link_hash": "ImyZbX8zv0UrsCB7Rthq9R7nQMMKRyhT",
+  "share_expiration": "2026-03-17T10:30:00Z",
   "user_permissions": [
     {
       "user_id": 15,
@@ -934,9 +944,17 @@ Updates a share.
 Request body fields are optional:
 * `name`
 * `status`
+* `share_expiration`
+* `generate_hash`
 * `user_permissions`
 
 Behavior:   
+share_expiration omitted: leave existing share expiration unchanged  
+share_expiration provided as RFC3339 timestamp: replace existing share expiration  
+share_expiration provided as `null` or empty string: remove existing share expiration  
+generate_hash omitted: leave existing `link_hash` value unchanged  
+generate_hash: true: generate a new`link_hash` value  
+generate_hash: false: remove existing `link_hash` value    
 user_permissions omitted: leave existing user permissions unchanged  
 user_permissions provided: replace all explicit user permissions for this inventory/share  
 user_permissions: []: remove all per-user permissions  
@@ -945,7 +963,9 @@ Example request:
 ```json
 {
   "name": "Vacation March 2026 - shared",
-  "status": "active"
+  "status": "active",
+  "share_expiration": null,
+  "generate_hash": true
 }
 ```
 
@@ -957,6 +977,8 @@ Example response:
   "replica_id": 3,
   "name": "Vacation March 2026 - shared",
   "status": "active",
+  "link_hash": "ST7E4WQq-bNF9V26YmjpdJpZPzfdikEI",
+  "share_expiration": null,
   "user_permissions": [
     {
       "user_id": 15,
@@ -978,6 +1000,7 @@ Possible errors:
 * `404` share not found
 * `400` invalid share status
 * `400` invalid share name
+* `400` invalid share expiration
 * `400` invalid permissions
 * `404` replica not found
 * `409` replica is deleted

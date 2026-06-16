@@ -3,9 +3,11 @@ package service
 import (
 	"errors"
 	"strings"
+	"time"
 
 	"replica/internal/model"
 	"replica/internal/repository"
+	"replica/internal/security"
 
 	"gorm.io/gorm"
 )
@@ -15,10 +17,11 @@ type ShareService struct {
 }
 
 var (
-	ErrInvalidShareStatus = errors.New("invalid share status")
-	ErrInvalidShareName   = errors.New("invalid share name")
-	ErrShareNotFound      = errors.New("share not found")
-	ErrShareAlreadyExists = errors.New("share already exists")
+	ErrInvalidShareStatus     = errors.New("invalid share status")
+	ErrInvalidShareName       = errors.New("invalid share name")
+	ErrInvalidShareExpiration = errors.New("invalid share expiration")
+	ErrShareNotFound          = errors.New("share not found")
+	ErrShareAlreadyExists     = errors.New("share already exists")
 )
 
 type ShareDetails struct {
@@ -27,6 +30,8 @@ type ShareDetails struct {
 	ReplicaID       uint                    `json:"replica_id"`
 	Name            string                  `json:"name"`
 	Status          string                  `json:"status"`
+	LinkHash        *string                 `json:"link_hash"`
+	ShareExpiration *time.Time              `json:"share_expiration"`
 	UserPermissions []UserPermissionDetails `json:"user_permissions"`
 }
 
@@ -47,13 +52,18 @@ type CreateShareInput struct {
 	ReplicaID       uint
 	Name            *string
 	Status          *string
+	ShareExpiration *time.Time
+	GenerateHash    bool
 	UserPermissions *[]UserPermissionInput
 }
 
 type UpdateShareInput struct {
-	Name            *string
-	Status          *string
-	UserPermissions *[]UserPermissionInput
+	Name               *string
+	Status             *string
+	ShareExpiration    *time.Time
+	ShareExpirationSet bool
+	GenerateHash       *bool
+	UserPermissions    *[]UserPermissionInput
 }
 
 func NewShareService(repo *repository.ShareRepository) *ShareService {
@@ -160,10 +170,18 @@ func (s *ShareService) Create(input CreateShareInput) (*ShareDetails, error) {
 	}
 
 	share := &model.Share{
-		ReplicaID: replica.ID,
-		Name:      name,
-		Status:    status,
-		Replica:   *replica,
+		ReplicaID:       replica.ID,
+		Name:            name,
+		Status:          status,
+		ShareExpiration: input.ShareExpiration,
+		Replica:         *replica,
+	}
+	if input.GenerateHash {
+		linkHash, err := newShareLinkHash()
+		if err != nil {
+			return nil, err
+		}
+		share.LinkHash = &linkHash
 	}
 
 	permissions, err := validateUserPermissions(input.UserPermissions)
@@ -215,6 +233,20 @@ func (s *ShareService) Update(id uint, input UpdateShareInput) (*ShareDetails, e
 			}
 		}
 		share.Status = status
+	}
+	if input.ShareExpirationSet {
+		share.ShareExpiration = input.ShareExpiration
+	}
+	if input.GenerateHash != nil {
+		if *input.GenerateHash {
+			linkHash, err := newShareLinkHash()
+			if err != nil {
+				return nil, err
+			}
+			share.LinkHash = &linkHash
+		} else {
+			share.LinkHash = nil
+		}
 	}
 
 	if err := s.repo.UpdateWithUserPermissions(share, permissions, input.UserPermissions != nil); err != nil {
@@ -278,6 +310,8 @@ func toShareDetails(share *model.Share) *ShareDetails {
 		ReplicaID:       share.ReplicaID,
 		Name:            share.Name,
 		Status:          string(share.Status),
+		LinkHash:        share.LinkHash,
+		ShareExpiration: share.ShareExpiration,
 		UserPermissions: []UserPermissionDetails{},
 	}
 }
@@ -289,4 +323,8 @@ func (s *ShareService) loadShareUserPermissions(details *ShareDetails) error {
 	}
 	details.UserPermissions = mapUserPermissionDetails(permissions)
 	return nil
+}
+
+func newShareLinkHash() (string, error) {
+	return security.NewOpaqueToken()
 }

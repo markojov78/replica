@@ -1,8 +1,11 @@
 package router
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"time"
 
 	"replica/internal/model"
 	"replica/internal/service"
@@ -62,10 +65,17 @@ func registerShareRoutes(api huma.API, svc services) {
 			return nil, mapPermissionError(err)
 		}
 
+		shareExpiration, _, err := nullableTime(input.Body.ShareExpiration)
+		if err != nil {
+			return nil, mapShareError(service.ErrInvalidShareExpiration, svc.shares)
+		}
+
 		share, err := svc.shares.Create(service.CreateShareInput{
 			ReplicaID:       input.Body.ReplicaID,
 			Name:            input.Body.Name,
 			Status:          input.Body.Status,
+			ShareExpiration: shareExpiration,
+			GenerateHash:    input.Body.GenerateHash,
 			UserPermissions: input.Body.UserPermissions,
 		})
 		if err != nil {
@@ -83,10 +93,18 @@ func registerShareRoutes(api huma.API, svc services) {
 			return nil, mapPermissionError(err)
 		}
 
+		shareExpiration, shareExpirationSet, err := nullableTime(input.Body.ShareExpiration)
+		if err != nil {
+			return nil, mapShareError(service.ErrInvalidShareExpiration, svc.shares)
+		}
+
 		share, err := svc.shares.Update(input.ID, service.UpdateShareInput{
-			Name:            input.Body.Name,
-			Status:          input.Body.Status,
-			UserPermissions: input.Body.UserPermissions,
+			Name:               input.Body.Name,
+			Status:             input.Body.Status,
+			ShareExpiration:    shareExpiration,
+			ShareExpirationSet: shareExpirationSet,
+			GenerateHash:       input.Body.GenerateHash,
+			UserPermissions:    input.Body.UserPermissions,
 		})
 		if err != nil {
 			return nil, mapShareError(err, svc.shares)
@@ -148,6 +166,8 @@ type createShareInput struct {
 		ReplicaID       uint                           `json:"replica_id"`
 		Name            *string                        `json:"name,omitempty"`
 		Status          *string                        `json:"status,omitempty"`
+		ShareExpiration json.RawMessage                `json:"share_expiration,omitempty"`
+		GenerateHash    bool                           `json:"generate_hash,omitempty"`
 		UserPermissions *[]service.UserPermissionInput `json:"user_permissions,omitempty"`
 	}
 }
@@ -159,6 +179,8 @@ type updateShareInput struct {
 	Body          struct {
 		Name            *string                        `json:"name,omitempty"`
 		Status          *string                        `json:"status,omitempty"`
+		ShareExpiration json.RawMessage                `json:"share_expiration,omitempty"`
+		GenerateHash    *bool                          `json:"generate_hash,omitempty"`
 		UserPermissions *[]service.UserPermissionInput `json:"user_permissions,omitempty"`
 	}
 }
@@ -179,4 +201,20 @@ type shareListResponse struct {
 
 type deleteShareResponse struct {
 	Status int `status:"204"`
+}
+
+func nullableTime(raw json.RawMessage) (*time.Time, bool, error) {
+	if len(raw) == 0 {
+		return nil, false, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if bytes.Equal(trimmed, []byte("null")) || bytes.Equal(trimmed, []byte(`""`)) {
+		return nil, true, nil
+	}
+
+	var value time.Time
+	if err := json.Unmarshal(trimmed, &value); err != nil {
+		return nil, true, err
+	}
+	return &value, true, nil
 }

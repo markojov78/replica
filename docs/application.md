@@ -140,7 +140,9 @@ status - changed, pending, synchronized, conflict, error:
 
 #### shares
 name - if not specified, will use inventory name  
-status - active, deleted
+status - active, deleted  
+link_hash - optional link hash  
+share_expiration - optional share expiration  
 
 #### users
 name - username or email    

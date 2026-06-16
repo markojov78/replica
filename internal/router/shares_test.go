@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"replica/internal/buildinfo"
 	"replica/internal/config"
@@ -260,6 +261,126 @@ func TestShareRouteUserPermissionsOmittedAndPatchReplacement(t *testing.T) {
 	}
 	if len(patched.UserPermissions) != 0 {
 		t.Fatalf("patched clear UserPermissions = %+v, want none", patched.UserPermissions)
+	}
+}
+
+func TestShareRouteLinkHashAndExpirationCreatePatchBehavior(t *testing.T) {
+	database := openRouterTestDB(t)
+	_, accessToken := createShareRouteUser(t, database, []model.Permission{
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionCreate},
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionUpdate},
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionRead},
+	})
+	replica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
+	handler := newShareRouteHandler(database)
+	expiresAt := time.Date(2026, 3, 17, 10, 30, 0, 0, time.UTC)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"share_expiration":`+strconv.Quote(expiresAt.Format(time.RFC3339))+`,"generate_hash":true}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("create status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var created service.ShareDetails
+	if err := json.Unmarshal(recorder.Body.Bytes(), &created); err != nil {
+		t.Fatalf("Unmarshal(created) error = %v", err)
+	}
+	if created.LinkHash == nil || *created.LinkHash == "" {
+		t.Fatalf("created.LinkHash = %v, want generated value", created.LinkHash)
+	}
+	if created.ShareExpiration == nil || !created.ShareExpiration.Equal(expiresAt) {
+		t.Fatalf("created.ShareExpiration = %v, want %v", created.ShareExpiration, expiresAt)
+	}
+	firstHash := *created.LinkHash
+
+	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"name":"Vacation renamed"}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder = httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch omitted status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var patched service.ShareDetails
+	if err := json.Unmarshal(recorder.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("Unmarshal(patched omitted) error = %v", err)
+	}
+	if patched.LinkHash == nil || *patched.LinkHash != firstHash {
+		t.Fatalf("patched.LinkHash = %v, want unchanged %q", patched.LinkHash, firstHash)
+	}
+	if patched.ShareExpiration == nil || !patched.ShareExpiration.Equal(expiresAt) {
+		t.Fatalf("patched.ShareExpiration = %v, want unchanged %v", patched.ShareExpiration, expiresAt)
+	}
+
+	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"generate_hash":false,"share_expiration":null}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder = httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch clear status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("Unmarshal(patched clear) error = %v", err)
+	}
+	if patched.LinkHash != nil {
+		t.Fatalf("patched.LinkHash = %v, want nil", *patched.LinkHash)
+	}
+	if patched.ShareExpiration != nil {
+		t.Fatalf("patched.ShareExpiration = %v, want nil", patched.ShareExpiration)
+	}
+
+	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"generate_hash":true,"share_expiration":""}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder = httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch regenerate status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("Unmarshal(patched regenerate) error = %v", err)
+	}
+	if patched.LinkHash == nil || *patched.LinkHash == "" || *patched.LinkHash == firstHash {
+		t.Fatalf("patched.LinkHash = %v, want new generated value", patched.LinkHash)
+	}
+	if patched.ShareExpiration != nil {
+		t.Fatalf("patched.ShareExpiration = %v, want nil", patched.ShareExpiration)
+	}
+}
+
+func TestShareRouteInvalidExpiration(t *testing.T) {
+	database := openRouterTestDB(t)
+	_, accessToken := createShareRouteUser(t, database, []model.Permission{
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionCreate},
+	})
+	replica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
+	handler := newShareRouteHandler(database)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"share_expiration":"not-a-time"}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusBadRequest, recorder.Body.String())
 	}
 }
 
