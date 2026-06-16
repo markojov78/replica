@@ -357,9 +357,9 @@ Before the storage service performs its first scan, the coordinator creates a pl
 
 ```
 inventory_files
-file_id  inventory_id  relative_uri  version  status
-----------------------------------------------------
-10       1             img001.jpg    0        active
+file_id  inventory_id  relative_uri          version  status
+------------------------------------------------------------
+10       1             img001.jpg            0        active
 11       1             subfolder/img002.jpg  0        active
 ```
 
@@ -555,9 +555,9 @@ B   2             node-1   file:///data/photos/album  filesystem  active  null
 
 ```
 inventory_files
-file_id  inventory_id  relative_uri  version  status
-----------------------------------------------------
-20       2             cover.jpg     0        active
+file_id  inventory_id  relative_uri           version  status
+-------------------------------------------------------------
+20       2             cover.jpg              0        active
 21       2             subfolder/feature.jpg  0        active
 ```
 
@@ -586,9 +586,9 @@ and reports its metadata.
 
 ```
 inventory_files
-file_id  inventory_id  relative_uri  version  status  created  modified  size  hash
-------------------------------------------------------------------------------------
-20       2             cover.jpg     1        active  time1    time2     512   hashX
+file_id  inventory_id  relative_uri           version  status  created  modified  size  hash
+---------------------------------------------------------------------------------------------
+20       2             cover.jpg              1        active  time1    time2     512   hashX
 21       2             subfolder/feature.jpg  1        active  time1    time2     256   hashY
 ```
 
