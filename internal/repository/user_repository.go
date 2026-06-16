@@ -72,6 +72,16 @@ func (r *UserRepository) SetRoles(userID uint, roleIDs []uint) error {
 	return r.db.Model(&user).Association("Roles").Replace(roles)
 }
 
+func (r *UserRepository) GetInventoryPermissions(userID uint, inventoryID uint) ([]model.InventoryPermission, error) {
+	var permissions []model.InventoryPermission
+
+	err := r.db.Joins("JOIN inventory_users iu ON iu.id = inventory_permissions.inventory_user_id").
+		Where("iu.user_id = ? AND iu.inventory_id = ?", userID, inventoryID).
+		Find(&permissions).Error
+
+	return permissions, err
+}
+
 func (r *UserRepository) preloadDetails(db *gorm.DB) *gorm.DB {
 	return db.Preload("Roles", func(tx *gorm.DB) *gorm.DB {
 		return tx.Order("roles.id asc")

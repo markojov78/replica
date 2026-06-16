@@ -45,7 +45,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionRead); err != nil {
+		if err := AuthorizeReplicaAction(svc, accessToken, input.ID, model.PermissionResourceInventories, model.PermissionActionRead); err != nil {
 			return nil, mapPermissionError(err)
 		}
 
@@ -61,7 +61,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionRead); err != nil {
+		if err := AuthorizeReplicaAction(svc, accessToken, input.ID, model.PermissionResourceInventories, model.PermissionActionRead); err != nil {
 			return nil, mapPermissionError(err)
 		}
 
@@ -86,7 +86,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionRead); err != nil {
+		if err := AuthorizeReplicaAction(svc, accessToken, input.ID, model.PermissionResourceInventories, model.PermissionActionRead); err != nil {
 			return nil, mapPermissionError(err)
 		}
 
@@ -124,7 +124,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionUpdate); err != nil {
+		if err := AuthorizeReplicaAction(svc, accessToken, input.ID, model.PermissionResourceInventories, model.PermissionActionUpdate); err != nil {
 			return nil, mapPermissionError(err)
 		}
 
@@ -149,7 +149,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionUpdate); err != nil {
+		if err := AuthorizeReplicaAction(svc, accessToken, input.ID, model.PermissionResourceInventories, model.PermissionActionUpdate); err != nil {
 			return nil, mapPermissionError(err)
 		}
 
@@ -216,6 +216,29 @@ type updateReplicaInput struct {
 		Status            *string         `json:"status,omitempty"`
 		UpstreamReplicaID json.RawMessage `json:"upstream_replica_id,omitempty"`
 	}
+}
+
+// wrapper function to authorize based on user's roles with fallback to per-user permissions
+func AuthorizeReplicaAction(svc services, accessToken string, replicaID uint, resource model.PermissionResource, action model.PermissionAction) error {
+	user, err := svc.auth.Authorize(accessToken, resource, action)
+	if err != nil {
+		if errors.Is(err, service.ErrForbidden) {
+			replica, err := svc.replicas.Get(replicaID)
+			if err == nil {
+				_, err = svc.auth.AuthorizeInventoryUser(user.ID, replica.InventoryID, action)
+			}
+
+			if err != nil {
+				return mapPermissionError(err)
+			}
+		}
+
+		if err != nil {
+			return mapPermissionError(err)
+		}
+	}
+
+	return nil
 }
 
 func nullableUint(raw json.RawMessage) (*uint, bool, error) {

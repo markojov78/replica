@@ -254,7 +254,23 @@ func (s *AuthService) Authorize(accessToken string, resource model.PermissionRes
 		}
 	}
 
-	return nil, ErrForbidden
+	return user, ErrForbidden
+}
+
+func (s *AuthService) AuthorizeInventoryUser(userID uint, inventoryID uint, action model.PermissionAction) (bool, error) {
+	permissions, err := s.users.GetInventoryPermissions(userID, inventoryID)
+
+	if err != nil {
+		return false, err
+	}
+
+	for _, permission := range permissions {
+		if permission.Permission == string(action) {
+			return true, nil
+		}
+	}
+
+	return false, ErrForbidden
 }
 
 func (s *AuthService) Node(accessToken string) (*AuthenticatedNode, error) {
