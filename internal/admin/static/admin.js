@@ -52,6 +52,33 @@
     }
   }
 
+  function bindShareForms() {
+    for (const form of document.querySelectorAll("[data-share-form]")) {
+      const expirationToggle = form.querySelector("[data-expiration-toggle]");
+      const expirationInput = form.querySelector("[data-expiration-input]");
+      const anonymousWarning = form.querySelector("[data-anonymous-warning]");
+      const anonymousInputs = [...form.querySelectorAll("[data-anonymous-permission]")];
+
+      const syncExpiration = () => {
+        if (expirationInput) {
+          expirationInput.disabled = expirationToggle ? !expirationToggle.checked : false;
+        }
+      };
+      const syncAnonymous = () => {
+        if (anonymousWarning) {
+          anonymousWarning.hidden = !anonymousInputs.some((input) => input.checked);
+        }
+      };
+
+      expirationToggle?.addEventListener("change", syncExpiration);
+      for (const input of anonymousInputs) {
+        input.addEventListener("change", syncAnonymous);
+      }
+      syncExpiration();
+      syncAnonymous();
+    }
+  }
+
   async function authRequest(path, options = {}) {
     const headers = new Headers(options.headers);
     headers.set("X-API-Version", "1");
@@ -135,6 +162,7 @@
       element.textContent = localStorage.getItem(usernameKey) || "";
     }
     bindDeletedFilters();
+    bindShareForms();
     document.addEventListener("click", (event) => {
       const link = event.target.closest("a[href]");
       if (!link || link.origin !== window.location.origin || !link.pathname.startsWith("/admin")) {

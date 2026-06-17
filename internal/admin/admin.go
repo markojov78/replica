@@ -57,11 +57,20 @@ type replica struct {
 }
 
 type share struct {
-	ID          uint   `json:"id"`
-	InventoryID uint   `json:"inventory_id"`
-	ReplicaID   uint   `json:"replica_id"`
-	Name        string `json:"name"`
-	Status      string `json:"status"`
+	ID                   uint                  `json:"id"`
+	InventoryID          uint                  `json:"inventory_id"`
+	ReplicaID            uint                  `json:"replica_id"`
+	Name                 string                `json:"name"`
+	Status               string                `json:"status"`
+	LinkHash             *string               `json:"link_hash"`
+	ShareExpiration      *string               `json:"share_expiration"`
+	UserPermissions      []shareUserPermission `json:"user_permissions"`
+	AnonymousPermissions []string              `json:"anonymous_permissions"`
+}
+
+type shareUserPermission struct {
+	UserID      uint     `json:"user_id"`
+	Permissions []string `json:"permissions"`
 }
 
 type shareList struct {
@@ -77,6 +86,7 @@ type shareView struct {
 	NodeID        string
 	Name          string
 	Status        string
+	HasAnonymous  bool
 }
 
 type inventory struct {
@@ -184,14 +194,18 @@ type pageData struct {
 
 func Register(mux *http.ServeMux, api http.Handler) error {
 	pages, err := template.New("admin").Funcs(template.FuncMap{
-		"statusClass":   statusClass,
-		"formatTime":    formatTime,
-		"pathEscape":    url.PathEscape,
-		"isUpstream":    isUpstream,
-		"formatBytes":   formatBytes,
-		"formatDate":    formatDate,
-		"hasRole":       hasRole,
-		"hasPermission": hasPermission,
+		"statusClass":            statusClass,
+		"formatTime":             formatTime,
+		"pathEscape":             url.PathEscape,
+		"isUpstream":             isUpstream,
+		"formatBytes":            formatBytes,
+		"formatDate":             formatDate,
+		"hasRole":                hasRole,
+		"hasPermission":          hasPermission,
+		"hasShareUserPermission": hasShareUserPermission,
+		"hasStringPermission":    hasStringPermission,
+		"expirationValue":        expirationValue,
+		"anonymousEnabled":       anonymousEnabled,
 	}).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		return err
@@ -585,9 +599,13 @@ func (h *Handler) newSharePage(w http.ResponseWriter, r *http.Request, sess auth
 	if !ok {
 		return
 	}
+	users, ok := h.loadUsers(w, r, sess)
+	if !ok {
+		return
+	}
 	h.render(w, "share_form", pageData{
 		Title: "New share", Subtitle: "Create a share for an existing replica.",
-		Active: "shares", Inventories: inventories,
+		Active: "shares", Inventories: inventories, Users: users,
 	})
 }
 
@@ -596,13 +614,35 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request, sess authC
 		h.shareFormError(w, r, sess, false, share{}, "Invalid form submission.")
 		return
 	}
+	users, ok := h.loadUsers(w, r, sess)
+	if !ok {
+		return
+	}
 	replicaID, _ := strconv.ParseUint(r.FormValue("replica_id"), 10, 64)
-	item := share{ReplicaID: uint(replicaID), Name: r.FormValue("name")}
+	item := share{
+		ReplicaID:            uint(replicaID),
+		Name:                 r.FormValue("name"),
+		UserPermissions:      shareUserPermissionsFromForm(r.Form, users),
+		AnonymousPermissions: sharePermissionsFromForm(r.Form["anonymous_permissions"], []string{"read", "update"}),
+	}
 	input := map[string]any{
-		"replica_id": item.ReplicaID,
+		"replica_id":            item.ReplicaID,
+		"user_permissions":      item.UserPermissions,
+		"anonymous_permissions": item.AnonymousPermissions,
+		"generate_hash":         len(item.AnonymousPermissions) > 0,
 	}
 	if name := strings.TrimSpace(item.Name); name != "" {
 		input["name"] = name
+	}
+	if r.FormValue("enable_expiration") != "" {
+		expirationInput := strings.TrimSpace(r.FormValue("share_expiration"))
+		item.ShareExpiration = &expirationInput
+		expiration, err := normalizeShareExpiration(expirationInput)
+		if err != nil {
+			h.shareFormError(w, r, sess, false, item, "Expiration is required when expiration is enabled.")
+			return
+		}
+		input["share_expiration"] = expiration
 	}
 	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/shares", input, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
@@ -620,9 +660,13 @@ func (h *Handler) editSharePage(w http.ResponseWriter, r *http.Request, sess aut
 	if !h.load(w, r, sess, "/api/shares/"+r.PathValue("id"), &item) {
 		return
 	}
+	users, ok := h.loadUsers(w, r, sess)
+	if !ok {
+		return
+	}
 	h.render(w, "share_form", pageData{
 		Title: "Edit share", Subtitle: fmt.Sprintf("Update share #%d.", item.ID),
-		Active: "shares", Share: item, IsEdit: true,
+		Active: "shares", Share: item, Users: users, IsEdit: true,
 	})
 }
 
@@ -632,11 +676,49 @@ func (h *Handler) updateShare(w http.ResponseWriter, r *http.Request, sess authC
 		h.shareFormError(w, r, sess, true, share{ID: uint(id)}, "Invalid form submission.")
 		return
 	}
+	users, ok := h.loadUsers(w, r, sess)
+	if !ok {
+		return
+	}
 	id, _ := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	item := share{ID: uint(id), Name: r.FormValue("name"), Status: r.FormValue("status")}
+	var current share
+	if !h.load(w, r, sess, "/api/shares/"+r.PathValue("id"), &current) {
+		return
+	}
+	item := share{
+		ID:                   uint(id),
+		InventoryID:          current.InventoryID,
+		ReplicaID:            current.ReplicaID,
+		Name:                 r.FormValue("name"),
+		Status:               r.FormValue("status"),
+		LinkHash:             current.LinkHash,
+		UserPermissions:      shareUserPermissionsFromForm(r.Form, users),
+		AnonymousPermissions: sharePermissionsFromForm(r.Form["anonymous_permissions"], []string{"read", "update"}),
+	}
 	input := map[string]any{
-		"name":   strings.TrimSpace(item.Name),
-		"status": item.Status,
+		"name":                  strings.TrimSpace(item.Name),
+		"status":                item.Status,
+		"user_permissions":      item.UserPermissions,
+		"anonymous_permissions": item.AnonymousPermissions,
+	}
+	if len(item.AnonymousPermissions) > 0 {
+		if current.LinkHash == nil || *current.LinkHash == "" {
+			input["generate_hash"] = true
+		}
+	} else {
+		input["generate_hash"] = false
+	}
+	if r.FormValue("enable_expiration") != "" {
+		expirationInput := strings.TrimSpace(r.FormValue("share_expiration"))
+		item.ShareExpiration = &expirationInput
+		expiration, err := normalizeShareExpiration(expirationInput)
+		if err != nil {
+			h.shareFormError(w, r, sess, true, item, "Expiration is required when expiration is enabled.")
+			return
+		}
+		input["share_expiration"] = expiration
+	} else {
+		input["share_expiration"] = nil
 	}
 	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/shares/"+r.PathValue("id"), input, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
@@ -878,6 +960,14 @@ func (h *Handler) loadRoles(w http.ResponseWriter, r *http.Request, sess authCon
 	return list.Items, true
 }
 
+func (h *Handler) loadUsers(w http.ResponseWriter, r *http.Request, sess authContext) ([]user, bool) {
+	var list userList
+	if !h.load(w, r, sess, "/api/users?count=100", &list) {
+		return nil, false
+	}
+	return list.Items, true
+}
+
 func (h *Handler) renderError(w http.ResponseWriter, r *http.Request, _ authContext, err error) {
 	if errors.Is(err, errUnauthorized) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -954,12 +1044,16 @@ func (h *Handler) shareFormError(w http.ResponseWriter, r *http.Request, sess au
 			return
 		}
 	}
+	users, ok := h.loadUsers(w, r, sess)
+	if !ok {
+		return
+	}
 	title := "New share"
 	if edit {
 		title = "Edit share"
 	}
 	h.render(w, "share_form", pageData{
-		Title: title, Active: "shares", Share: item, Inventories: inventories, IsEdit: edit, Error: message,
+		Title: title, Active: "shares", Share: item, Inventories: inventories, Users: users, IsEdit: edit, Error: message,
 	})
 }
 
@@ -1171,6 +1265,105 @@ func hasPermission(resource, action string, permissions []permission) bool {
 	return false
 }
 
+func shareUserPermissionsFromForm(values url.Values, users []user) []shareUserPermission {
+	result := make([]shareUserPermission, 0, len(users))
+	for _, item := range users {
+		permissions := sharePermissionsFromForm(values["user_permissions_"+strconv.FormatUint(uint64(item.ID), 10)], []string{"read", "update", "delete"})
+		if len(permissions) == 0 {
+			continue
+		}
+		result = append(result, shareUserPermission{
+			UserID:      item.ID,
+			Permissions: permissions,
+		})
+	}
+	return result
+}
+
+func sharePermissionsFromForm(values []string, allowedActions []string) []string {
+	allowed := make(map[string]struct{}, len(allowedActions))
+	for _, action := range allowedActions {
+		allowed[action] = struct{}{}
+	}
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if _, ok := allowed[value]; !ok {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func hasShareUserPermission(userID uint, action string, permissions []shareUserPermission) bool {
+	for _, item := range permissions {
+		if item.UserID != userID {
+			continue
+		}
+		return hasStringPermission(action, item.Permissions)
+	}
+	return false
+}
+
+func hasStringPermission(action string, permissions []string) bool {
+	for _, item := range permissions {
+		if item == action {
+			return true
+		}
+	}
+	return false
+}
+
+func anonymousEnabled(share share) bool {
+	return len(share.AnonymousPermissions) > 0
+}
+
+func normalizeShareExpiration(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", errors.New("empty share expiration")
+	}
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed.UTC().Format(time.RFC3339), nil
+	}
+
+	for _, layout := range []string{
+		"2006-01-02",
+		"2006 01 02",
+		"2006-01-02T15:04",
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04:05.000",
+	} {
+		parsed, err := time.ParseInLocation(layout, value, time.UTC)
+		if err == nil {
+			return parsed.UTC().Format(time.RFC3339), nil
+		}
+	}
+	return "", errors.New("invalid share expiration")
+}
+
+func expirationValue(share share) string {
+	if share.ShareExpiration == nil {
+		return ""
+	}
+	value := strings.TrimSpace(*share.ShareExpiration)
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed.Format("2006-01-02")
+	}
+	for _, layout := range []string{"2006-01-02", "2006 01 02"} {
+		if parsed, err := time.ParseInLocation(layout, value, time.UTC); err == nil {
+			return parsed.Format("2006-01-02")
+		}
+	}
+	return value
+}
+
 func rolePermissionResources() []string {
 	return []string{"users", "shares", "inventories", "nodes"}
 }
@@ -1192,11 +1385,12 @@ func shareViews(shares []share, inventories []inventory) []shareView {
 	result := make([]shareView, 0, len(shares))
 	for _, item := range shares {
 		view := shareView{
-			ID:          item.ID,
-			InventoryID: item.InventoryID,
-			ReplicaID:   item.ReplicaID,
-			Name:        item.Name,
-			Status:      item.Status,
+			ID:           item.ID,
+			InventoryID:  item.InventoryID,
+			ReplicaID:    item.ReplicaID,
+			Name:         item.Name,
+			Status:       item.Status,
+			HasAnonymous: len(item.AnonymousPermissions) > 0,
 		}
 		if rep, ok := replicas[item.ReplicaID]; ok {
 			view.InventoryName = rep.inventoryName

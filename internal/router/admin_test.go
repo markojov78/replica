@@ -334,18 +334,65 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "New share") ||
 		!strings.Contains(response.Body.String(), `name="replica_id"`) ||
+		!strings.Contains(response.Body.String(), `name="anonymous_permissions"`) ||
+		!strings.Contains(response.Body.String(), `name="enable_expiration"`) ||
 		!strings.Contains(response.Body.String(), `Inventory #1`) ||
 		!strings.Contains(response.Body.String(), `Documents`) ||
 		!strings.Contains(response.Body.String(), `Node node-a`) {
 		t.Fatalf("new share response = %d body=%q", response.Code, response.Body.String())
 	}
 
+	var adminUser model.User
+	if err := database.First(&adminUser, "name = ?", "admin").Error; err != nil {
+		t.Fatalf("First(admin user) error = %v", err)
+	}
+	expiresAt := "2026-03-17"
 	response = adminRequest(t, handler, http.MethodPost, "/admin/shares", url.Values{
 		"replica_id": {"1"},
 		"name":       {""},
+		"user_permissions_" + strconv.FormatUint(uint64(adminUser.ID), 10): {"read", "update", "delete"},
+		"anonymous_permissions": {"read", "update"},
+		"enable_expiration":     {"1"},
+		"share_expiration":      {expiresAt},
 	}, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/shares" {
 		t.Fatalf("create share response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	var createdShare model.Share
+	if err := database.First(&createdShare, 1).Error; err != nil {
+		t.Fatalf("First(created share) error = %v", err)
+	}
+	if createdShare.LinkHash == nil || *createdShare.LinkHash == "" {
+		t.Fatalf("createdShare.LinkHash = %v, want generated value", createdShare.LinkHash)
+	}
+	parsedExpiresAt, err := time.Parse(time.RFC3339, "2026-03-17T00:00:00Z")
+	if err != nil {
+		t.Fatalf("Parse(expiresAt) error = %v", err)
+	}
+	if createdShare.ShareExpiration == nil || !createdShare.ShareExpiration.Equal(parsedExpiresAt) {
+		t.Fatalf("createdShare.ShareExpiration = %v, want %v", createdShare.ShareExpiration, parsedExpiresAt)
+	}
+	var shareUser model.ShareUser
+	if err := database.First(&shareUser, "share_id = ? AND user_id = ?", createdShare.ID, adminUser.ID).Error; err != nil {
+		t.Fatalf("First(share user) error = %v", err)
+	}
+	var userPermissionCount int64
+	if err := database.Model(&model.SharePermission{}).Where("share_user_id = ?", shareUser.ID).Count(&userPermissionCount).Error; err != nil {
+		t.Fatalf("Count(user share permissions) error = %v", err)
+	}
+	if userPermissionCount != 3 {
+		t.Fatalf("userPermissionCount = %d, want 3", userPermissionCount)
+	}
+	var anonymousShareUser model.ShareUser
+	if err := database.First(&anonymousShareUser, "share_id = ? AND anonymous = ?", createdShare.ID, true).Error; err != nil {
+		t.Fatalf("First(anonymous share user) error = %v", err)
+	}
+	var anonymousPermissionCount int64
+	if err := database.Model(&model.SharePermission{}).Where("share_user_id = ?", anonymousShareUser.ID).Count(&anonymousPermissionCount).Error; err != nil {
+		t.Fatalf("Count(anonymous share permissions) error = %v", err)
+	}
+	if anonymousPermissionCount != 2 {
+		t.Fatalf("anonymousPermissionCount = %d, want 2", anonymousPermissionCount)
 	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/admin/shares", nil, accessToken)
@@ -362,7 +409,9 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "Edit share") ||
 		!strings.Contains(response.Body.String(), `value="Documents"`) ||
-		!strings.Contains(response.Body.String(), `name="status"`) {
+		!strings.Contains(response.Body.String(), `name="status"`) ||
+		!strings.Contains(response.Body.String(), `Anonymous access is enabled.`) ||
+		!strings.Contains(response.Body.String(), `value="2026-03-17"`) {
 		t.Fatalf("edit share response = %d body=%q", response.Code, response.Body.String())
 	}
 
@@ -372,6 +421,16 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/shares" {
 		t.Fatalf("update share response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	var updatedShare model.Share
+	if err := database.First(&updatedShare, 1).Error; err != nil {
+		t.Fatalf("First(updated share) error = %v", err)
+	}
+	if updatedShare.LinkHash != nil {
+		t.Fatalf("updatedShare.LinkHash = %v, want nil after disabling anonymous access", *updatedShare.LinkHash)
+	}
+	if updatedShare.ShareExpiration != nil {
+		t.Fatalf("updatedShare.ShareExpiration = %v, want nil after disabling expiration", updatedShare.ShareExpiration)
 	}
 
 	response = adminRequest(t, handler, http.MethodPost, "/admin/shares/1/delete", nil, accessToken)

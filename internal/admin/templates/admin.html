@@ -156,7 +156,7 @@
     <div>
       <span class="inventory-title">{{.Name}}</span>
       <p>Share #{{.ID}} · Inventory #{{.InventoryID}}{{if .InventoryName}} · {{.InventoryName}}{{end}} · Replica #{{.ReplicaID}}</p>
-      <div class="chips"><span>node: {{if .NodeID}}{{.NodeID}}{{else}}unknown{{end}}</span></div>
+      <div class="chips"><span>node: {{if .NodeID}}{{.NodeID}}{{else}}unknown{{end}}</span>{{if .HasAnonymous}}<span class="anon-label">anonymous access enabled</span>{{end}}</div>
     </div>
     <div class="inventory-actions">
       <span class="pill {{statusClass .Status}}">{{.Status}}</span>
@@ -277,12 +277,14 @@
 {{template "layout_start" .}}
 <section class="card form-card">
   {{template "alert" .}}
-  <form action="{{if .IsEdit}}/admin/shares/{{.Share.ID}}{{else}}/admin/shares{{end}}" method="post" class="form-grid">
+  <form action="{{if .IsEdit}}/admin/shares/{{.Share.ID}}{{else}}/admin/shares{{end}}" method="post" class="form-grid" data-share-form>
     {{if .IsEdit}}
       <div class="callout full">Share #{{.Share.ID}} · Inventory #{{.Share.InventoryID}} · Replica #{{.Share.ReplicaID}}</div>
+      <div class="anon-label full" data-anonymous-warning {{if not (anonymousEnabled .Share)}}hidden{{end}}>Anonymous access is enabled.</div>
       <label>Name<input name="name" value="{{.Share.Name}}" required></label>
       <label>Status<select name="status"><option value="active" {{if eq .Share.Status "active"}}selected{{end}}>active</option><option value="deleted" {{if eq .Share.Status "deleted"}}selected{{end}}>deleted</option></select></label>
     {{else}}
+      <div class="anon-label full" data-anonymous-warning {{if not (anonymousEnabled .Share)}}hidden{{end}}>Anonymous access is enabled.</div>
       <label class="full">Replica
         <select name="replica_id" required>
           <option value="">Select replica</option>
@@ -296,6 +298,39 @@
       </label>
       <label class="full">Name<input name="name" value="{{.Share.Name}}" placeholder="Leave empty to use inventory name"><small>If omitted, the share name is taken from the selected inventory.</small></label>
     {{end}}
+    <div class="full permission-panel">
+      <div class="section-head"><div><h2>User permissions</h2><p>Explicit permissions for authenticated users on this share.</p></div></div>
+      <table>
+        <thead><tr><th>User</th><th>Read</th><th>Update</th><th>Delete</th></tr></thead>
+        <tbody>
+          {{$share := .Share}}
+          {{range .Users}}
+          <tr>
+            <td>{{.Name}}</td>
+            <td><label class="filter-toggle"><input type="checkbox" name="user_permissions_{{.ID}}" value="read" {{if hasShareUserPermission .ID "read" $share.UserPermissions}}checked{{end}}> Read</label></td>
+            <td><label class="filter-toggle"><input type="checkbox" name="user_permissions_{{.ID}}" value="update" {{if hasShareUserPermission .ID "update" $share.UserPermissions}}checked{{end}}> Update</label></td>
+            <td><label class="filter-toggle"><input type="checkbox" name="user_permissions_{{.ID}}" value="delete" {{if hasShareUserPermission .ID "delete" $share.UserPermissions}}checked{{end}}> Delete</label></td>
+          </tr>
+          {{else}}
+          <tr><td colspan="4">No users found.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    <div class="full permission-panel">
+      <div class="section-head"><div><h2>Anonymous permissions</h2><p>Anonymous access creates a public link hash; clearing these permissions removes it.</p></div></div>
+      <div class="permission-row">
+        <label class="filter-toggle"><input type="checkbox" name="anonymous_permissions" value="read" data-anonymous-permission {{if hasStringPermission "read" .Share.AnonymousPermissions}}checked{{end}}> Read</label>
+        <label class="filter-toggle"><input type="checkbox" name="anonymous_permissions" value="update" data-anonymous-permission {{if hasStringPermission "update" .Share.AnonymousPermissions}}checked{{end}}> Update</label>
+      </div>
+    </div>
+    <div class="full permission-panel">
+      <label class="filter-toggle"><input type="checkbox" name="enable_expiration" value="1" data-expiration-toggle {{if .Share.ShareExpiration}}checked{{end}}> Enable expiration</label>
+      <label class="full">Expiration
+        <input name="share_expiration" type="date" value="{{expirationValue .Share}}" data-expiration-input {{if not .Share.ShareExpiration}}disabled{{end}}>
+        <small>Choose a date from the calendar or type a date using your browser locale.</small>
+      </label>
+    </div>
     <div class="footer-actions full"><a class="btn" href="/admin/shares">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save share{{else}}Create share{{end}}</button></div>
   </form>
 </section>
