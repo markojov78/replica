@@ -852,7 +852,8 @@ Example response:
           "user_id": 12,
           "permissions": ["read"]
         }
-      ]
+      ],
+      "anonymous_permissions": ["read"]
     }
   ],
   "page": 1,
@@ -879,7 +880,8 @@ Example response:
       "user_id": 15,
       "permissions": ["read", "create", "update", "delete"]
     }
-  ]
+  ],
+  "anonymous_permissions": ["read"]
 }
 ```
 
@@ -894,6 +896,7 @@ Request body:
 * `share_expiration` optional RFC3339 timestamp, defaults to `null`
 * `generate_hash` optional boolean to generate new `link_hash`
 * `user_permissions` optional, per-user permissions for the share
+* `anonymous_permissions` optional permissions for anonymous users
 
 Example request:
 ```json
@@ -911,9 +914,14 @@ Example request:
       "user_id": 12,
       "permissions": ["read"]
     }
-  ]
+  ],
+  "anonymous_permissions": ["read"]
 }
 ```
+
+Behavior:
+anonymous_permissions omitted or `[]`: do not set anonymous permissions
+anonymous_permissions provided with permissions: create share with those anonymous permissions
 
 Example response:
 ```json
@@ -934,7 +942,8 @@ Example response:
       "user_id": 12,
       "permissions": ["read"]
     }
-  ]
+  ],
+  "anonymous_permissions": ["read"]
 }
 ```
 
@@ -947,6 +956,7 @@ Request body fields are optional:
 * `share_expiration`
 * `generate_hash`
 * `user_permissions`
+* `anonymous_permissions`
 
 Behavior:   
 share_expiration omitted: leave existing share expiration unchanged  
@@ -958,6 +968,9 @@ generate_hash: false: remove existing `link_hash` value
 user_permissions omitted: leave existing user permissions unchanged  
 user_permissions provided: replace all explicit user permissions for this inventory/share  
 user_permissions: []: remove all per-user permissions  
+anonymous_permissions omitted: leave existing anonymous permissions unchanged
+anonymous_permissions provided: replace anonymous permissions with provided permissions
+anonymous_permissions: []: remove all anonymous permissions
 
 Example request:
 ```json
@@ -965,7 +978,8 @@ Example request:
   "name": "Vacation March 2026 - shared",
   "status": "active",
   "share_expiration": null,
-  "generate_hash": true
+  "generate_hash": true,
+  "anonymous_permissions": []
 }
 ```
 
@@ -984,7 +998,8 @@ Example response:
       "user_id": 15,
       "permissions": ["read", "create", "update", "delete"]
     }
-  ]
+  ],
+  "anonymous_permissions": []
 }
 ```
 

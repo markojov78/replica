@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"errors"
 	"strings"
 
 	"replica/internal/model"
@@ -92,6 +93,18 @@ func (r *ShareRepository) CreateWithUserPermissions(share *model.Share, permissi
 	})
 }
 
+func (r *ShareRepository) CreateWithPermissions(share *model.Share, userPermissions []UserPermissionDetails, anonymousPermissions []string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(share).Error; err != nil {
+			return err
+		}
+		if err := replaceShareUserPermissions(tx, share.ID, userPermissions); err != nil {
+			return err
+		}
+		return replaceShareAnonymousPermissions(tx, share.ID, anonymousPermissions)
+	})
+}
+
 func (r *ShareRepository) Update(share *model.Share) error {
 	return r.db.Save(share).Error
 }
@@ -108,9 +121,28 @@ func (r *ShareRepository) UpdateWithUserPermissions(share *model.Share, permissi
 	})
 }
 
+func (r *ShareRepository) UpdateWithPermissions(share *model.Share, userPermissions []UserPermissionDetails, replaceUserPermissions bool, anonymousPermissions []string, replaceAnonymousPermissions bool) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(share).Error; err != nil {
+			return err
+		}
+		if replaceUserPermissions {
+			if err := replaceShareUserPermissions(tx, share.ID, userPermissions); err != nil {
+				return err
+			}
+		}
+		if replaceAnonymousPermissions {
+			if err := replaceShareAnonymousPermissions(tx, share.ID, anonymousPermissions); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func (r *ShareRepository) UserPermissions(shareID uint) ([]UserPermissionDetails, error) {
 	var users []model.ShareUser
-	if err := r.db.Where("share_id = ?", shareID).Order("user_id asc").Find(&users).Error; err != nil {
+	if err := r.db.Where("share_id = ? AND anonymous = ?", shareID, false).Order("user_id asc").Find(&users).Error; err != nil {
 		return nil, err
 	}
 
@@ -123,14 +155,37 @@ func (r *ShareRepository) UserPermissions(shareID uint) ([]UserPermissionDetails
 		if len(permissions) == 0 {
 			continue
 		}
+		if user.UserID == nil {
+			continue
+		}
 		detail := UserPermissionDetails{
-			UserID:      user.UserID,
+			UserID:      *user.UserID,
 			Permissions: make([]string, 0, len(permissions)),
 		}
 		for _, permission := range permissions {
 			detail.Permissions = append(detail.Permissions, permission.Permission)
 		}
 		result = append(result, detail)
+	}
+	return result, nil
+}
+
+func (r *ShareRepository) AnonymousPermissions(shareID uint) ([]string, error) {
+	var user model.ShareUser
+	if err := r.db.Where("share_id = ? AND anonymous = ?", shareID, true).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+
+	var permissions []model.SharePermission
+	if err := r.db.Where("share_user_id = ?", user.ID).Order("permission asc").Find(&permissions).Error; err != nil {
+		return nil, err
+	}
+	result := make([]string, 0, len(permissions))
+	for _, permission := range permissions {
+		result = append(result, permission.Permission)
 	}
 	return result, nil
 }
@@ -150,7 +205,7 @@ func applyShareFilters(query *gorm.DB, filter ShareListFilter) *gorm.DB {
 
 func replaceShareUserPermissions(tx *gorm.DB, shareID uint, permissions []UserPermissionDetails) error {
 	var users []model.ShareUser
-	if err := tx.Where("share_id = ?", shareID).Find(&users).Error; err != nil {
+	if err := tx.Where("share_id = ? AND anonymous = ?", shareID, false).Find(&users).Error; err != nil {
 		return err
 	}
 	userIDs := make([]uint, 0, len(users))
@@ -167,9 +222,11 @@ func replaceShareUserPermissions(tx *gorm.DB, shareID uint, permissions []UserPe
 	}
 
 	for _, permission := range permissions {
+		userID := permission.UserID
 		shareUser := &model.ShareUser{
-			UserID:  permission.UserID,
-			ShareID: shareID,
+			UserID:    &userID,
+			ShareID:   shareID,
+			Anonymous: false,
 		}
 		if err := tx.Create(shareUser).Error; err != nil {
 			return err
@@ -188,4 +245,42 @@ func replaceShareUserPermissions(tx *gorm.DB, shareID uint, permissions []UserPe
 		}
 	}
 	return nil
+}
+
+func replaceShareAnonymousPermissions(tx *gorm.DB, shareID uint, permissions []string) error {
+	var users []model.ShareUser
+	if err := tx.Where("share_id = ? AND anonymous = ?", shareID, true).Find(&users).Error; err != nil {
+		return err
+	}
+	userIDs := make([]uint, 0, len(users))
+	for _, user := range users {
+		userIDs = append(userIDs, user.ID)
+	}
+	if len(userIDs) > 0 {
+		if err := tx.Where("share_user_id IN ?", userIDs).Delete(&model.SharePermission{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("id IN ?", userIDs).Delete(&model.ShareUser{}).Error; err != nil {
+			return err
+		}
+	}
+	if len(permissions) == 0 {
+		return nil
+	}
+
+	shareUser := &model.ShareUser{
+		ShareID:   shareID,
+		Anonymous: true,
+	}
+	if err := tx.Create(shareUser).Error; err != nil {
+		return err
+	}
+	rows := make([]model.SharePermission, 0, len(permissions))
+	for _, action := range permissions {
+		rows = append(rows, model.SharePermission{
+			ShareUserID: shareUser.ID,
+			Permission:  action,
+		})
+	}
+	return tx.Create(&rows).Error
 }

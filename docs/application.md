@@ -144,6 +144,10 @@ status - active, deleted
 link_hash - optional link hash  
 share_expiration - optional share expiration  
 
+#### share_users
+user_id - nullable only when anonymous is true
+anonymous - true for anonymous share permissions, false for authenticated user permissions
+
 #### users
 name - username or email    
 status - active, deleted  
@@ -537,8 +541,8 @@ file uris: /data/photos/album/cover.jpg, /data/photos/album/subfolder/feature.jp
 
 ```
 inventories
-id  name         type  status
------------------------------
+id  name              type  status
+----------------------------------
 2   Album highlights  file  active
 ```
 
@@ -546,8 +550,8 @@ id  name         type  status
 
 ```
 replicas
-id  inventory_id  node_id  uri                 type        status  upstream_replica_id
---------------------------------------------------------------------------------------
+id  inventory_id  node_id  uri                        type        status  upstream_replica_id
+---------------------------------------------------------------------------------------------
 B   2             node-1   file:///data/photos/album  filesystem  active  null
 ```
 
@@ -651,7 +655,7 @@ file_id  replica_id  version  status
 ```
 replicas
 id  inventory_id  node_id  uri                 type     status  upstream_replica_id
-----------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------
 B   1             node-2   s3://bucket/photos  storage  active  null
 ```
 #### 3) Coordinator populates `replica_files` for the new replica

@@ -25,14 +25,15 @@ var (
 )
 
 type ShareDetails struct {
-	ID              uint                    `json:"id"`
-	InventoryID     uint                    `json:"inventory_id"`
-	ReplicaID       uint                    `json:"replica_id"`
-	Name            string                  `json:"name"`
-	Status          string                  `json:"status"`
-	LinkHash        *string                 `json:"link_hash"`
-	ShareExpiration *time.Time              `json:"share_expiration"`
-	UserPermissions []UserPermissionDetails `json:"user_permissions"`
+	ID                   uint                    `json:"id"`
+	InventoryID          uint                    `json:"inventory_id"`
+	ReplicaID            uint                    `json:"replica_id"`
+	Name                 string                  `json:"name"`
+	Status               string                  `json:"status"`
+	LinkHash             *string                 `json:"link_hash"`
+	ShareExpiration      *time.Time              `json:"share_expiration"`
+	UserPermissions      []UserPermissionDetails `json:"user_permissions"`
+	AnonymousPermissions []string                `json:"anonymous_permissions"`
 }
 
 type ShareList struct {
@@ -49,21 +50,23 @@ type ShareListFilter struct {
 }
 
 type CreateShareInput struct {
-	ReplicaID       uint
-	Name            *string
-	Status          *string
-	ShareExpiration *time.Time
-	GenerateHash    bool
-	UserPermissions *[]UserPermissionInput
+	ReplicaID            uint
+	Name                 *string
+	Status               *string
+	ShareExpiration      *time.Time
+	GenerateHash         bool
+	UserPermissions      *[]UserPermissionInput
+	AnonymousPermissions *[]string
 }
 
 type UpdateShareInput struct {
-	Name               *string
-	Status             *string
-	ShareExpiration    *time.Time
-	ShareExpirationSet bool
-	GenerateHash       *bool
-	UserPermissions    *[]UserPermissionInput
+	Name                 *string
+	Status               *string
+	ShareExpiration      *time.Time
+	ShareExpirationSet   bool
+	GenerateHash         *bool
+	UserPermissions      *[]UserPermissionInput
+	AnonymousPermissions *[]string
 }
 
 func NewShareService(repo *repository.ShareRepository) *ShareService {
@@ -188,7 +191,11 @@ func (s *ShareService) Create(input CreateShareInput) (*ShareDetails, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := s.repo.CreateWithUserPermissions(share, permissions); err != nil {
+	anonymousPermissions, err := validatePermissionActions(input.AnonymousPermissions)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.CreateWithPermissions(share, permissions, anonymousPermissions); err != nil {
 		return nil, err
 	}
 	details := toShareDetails(share)
@@ -207,6 +214,10 @@ func (s *ShareService) Update(id uint, input UpdateShareInput) (*ShareDetails, e
 		return nil, err
 	}
 	permissions, err := validateUserPermissions(input.UserPermissions)
+	if err != nil {
+		return nil, err
+	}
+	anonymousPermissions, err := validatePermissionActions(input.AnonymousPermissions)
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +260,7 @@ func (s *ShareService) Update(id uint, input UpdateShareInput) (*ShareDetails, e
 		}
 	}
 
-	if err := s.repo.UpdateWithUserPermissions(share, permissions, input.UserPermissions != nil); err != nil {
+	if err := s.repo.UpdateWithPermissions(share, permissions, input.UserPermissions != nil, anonymousPermissions, input.AnonymousPermissions != nil); err != nil {
 		return nil, err
 	}
 	details := toShareDetails(share)
@@ -305,14 +316,15 @@ func resolveShareName(value *string) (string, error) {
 
 func toShareDetails(share *model.Share) *ShareDetails {
 	return &ShareDetails{
-		ID:              share.ID,
-		InventoryID:     share.Replica.InventoryID,
-		ReplicaID:       share.ReplicaID,
-		Name:            share.Name,
-		Status:          string(share.Status),
-		LinkHash:        share.LinkHash,
-		ShareExpiration: share.ShareExpiration,
-		UserPermissions: []UserPermissionDetails{},
+		ID:                   share.ID,
+		InventoryID:          share.Replica.InventoryID,
+		ReplicaID:            share.ReplicaID,
+		Name:                 share.Name,
+		Status:               string(share.Status),
+		LinkHash:             share.LinkHash,
+		ShareExpiration:      share.ShareExpiration,
+		UserPermissions:      []UserPermissionDetails{},
+		AnonymousPermissions: []string{},
 	}
 }
 
@@ -322,6 +334,11 @@ func (s *ShareService) loadShareUserPermissions(details *ShareDetails) error {
 		return err
 	}
 	details.UserPermissions = mapUserPermissionDetails(permissions)
+	anonymousPermissions, err := s.repo.AnonymousPermissions(details.ID)
+	if err != nil {
+		return err
+	}
+	details.AnonymousPermissions = anonymousPermissions
 	return nil
 }
 

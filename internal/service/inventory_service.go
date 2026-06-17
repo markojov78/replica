@@ -700,6 +700,28 @@ func validateUserPermissions(input *[]UserPermissionInput) ([]repository.UserPer
 	return result, nil
 }
 
+func validatePermissionActions(input *[]string) ([]string, error) {
+	if input == nil {
+		return nil, nil
+	}
+
+	seenPermissions := make(map[string]struct{}, len(*input))
+	permissions := make([]string, 0, len(*input))
+	for _, value := range *input {
+		action := model.PermissionAction(strings.TrimSpace(value))
+		if !action.Valid() {
+			return nil, ErrInvalidPermissions
+		}
+		key := string(action)
+		if _, exists := seenPermissions[key]; exists {
+			continue
+		}
+		seenPermissions[key] = struct{}{}
+		permissions = append(permissions, key)
+	}
+	return permissions, nil
+}
+
 func mapUserPermissionDetails(input []repository.UserPermissionDetails) []UserPermissionDetails {
 	result := make([]UserPermissionDetails, 0, len(input))
 	for _, item := range input {

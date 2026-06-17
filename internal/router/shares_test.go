@@ -28,7 +28,7 @@ func TestShareRoutesCreateAndListWithGlobalPermissions(t *testing.T) {
 	replica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
 	handler := newShareRouteHandler(database)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"name":"Vacation March 2026","user_permissions":[{"user_id":`+strconv.FormatUint(uint64(user.ID), 10)+`,"permissions":["read","create","update","delete"]}]}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"name":"Vacation March 2026","user_permissions":[{"user_id":`+strconv.FormatUint(uint64(user.ID), 10)+`,"permissions":["read","create","update","delete"]}],"anonymous_permissions":["read"]}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -48,6 +48,9 @@ func TestShareRoutesCreateAndListWithGlobalPermissions(t *testing.T) {
 	}
 	if len(created.UserPermissions) != 1 || created.UserPermissions[0].UserID != user.ID || len(created.UserPermissions[0].Permissions) != 4 {
 		t.Fatalf("created.UserPermissions = %+v, want user %d with four permissions", created.UserPermissions, user.ID)
+	}
+	if len(created.AnonymousPermissions) != 1 || created.AnonymousPermissions[0] != string(model.PermissionActionRead) {
+		t.Fatalf("created.AnonymousPermissions = %+v, want read", created.AnonymousPermissions)
 	}
 	var shareUser model.ShareUser
 	if err := database.First(&shareUser, "user_id = ? AND share_id = ?", user.ID, created.ID).Error; err != nil {
@@ -70,6 +73,13 @@ func TestShareRoutesCreateAndListWithGlobalPermissions(t *testing.T) {
 		if !found {
 			t.Fatalf("share permission %q not granted; permissions=%+v", permission, permissions)
 		}
+	}
+	var anonymousShareUser model.ShareUser
+	if err := database.First(&anonymousShareUser, "share_id = ? AND anonymous = ?", created.ID, true).Error; err != nil {
+		t.Fatalf("First(anonymous share_user) error = %v", err)
+	}
+	if anonymousShareUser.UserID != nil {
+		t.Fatalf("anonymous share_user UserID = %v, want nil", *anonymousShareUser.UserID)
 	}
 
 	if err := database.Model(&model.Role{}).Where("name = ?", "share-role").Update("status", model.RoleStatusDeleted).Error; err != nil {
@@ -126,7 +136,8 @@ func TestShareRouteGetAllowsExplicitSharePermission(t *testing.T) {
 	if err := database.Create(&share).Error; err != nil {
 		t.Fatalf("Create(share) error = %v", err)
 	}
-	shareUser := model.ShareUser{UserID: user.ID, ShareID: share.ID}
+	userID := user.ID
+	shareUser := model.ShareUser{UserID: &userID, ShareID: share.ID}
 	if err := database.Create(&shareUser).Error; err != nil {
 		t.Fatalf("Create(share_user) error = %v", err)
 	}
@@ -261,6 +272,98 @@ func TestShareRouteUserPermissionsOmittedAndPatchReplacement(t *testing.T) {
 	}
 	if len(patched.UserPermissions) != 0 {
 		t.Fatalf("patched clear UserPermissions = %+v, want none", patched.UserPermissions)
+	}
+}
+
+func TestShareRouteAnonymousPermissionsCreateAndPatchReplacement(t *testing.T) {
+	database := openRouterTestDB(t)
+	_, accessToken := createShareRouteUser(t, database, []model.Permission{
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionCreate},
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionUpdate},
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionRead},
+	})
+	replica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
+	handler := newShareRouteHandler(database)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"anonymous_permissions":["read","read","update"]}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("create status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var created service.ShareDetails
+	if err := json.Unmarshal(recorder.Body.Bytes(), &created); err != nil {
+		t.Fatalf("Unmarshal(created) error = %v", err)
+	}
+	if len(created.AnonymousPermissions) != 2 || created.AnonymousPermissions[0] != string(model.PermissionActionRead) || created.AnonymousPermissions[1] != string(model.PermissionActionUpdate) {
+		t.Fatalf("created.AnonymousPermissions = %+v, want read/update", created.AnonymousPermissions)
+	}
+
+	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"name":"Vacation renamed"}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder = httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch omitted status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var patched service.ShareDetails
+	if err := json.Unmarshal(recorder.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("Unmarshal(patched omitted) error = %v", err)
+	}
+	if len(patched.AnonymousPermissions) != 2 {
+		t.Fatalf("patched omitted AnonymousPermissions = %+v, want unchanged", patched.AnonymousPermissions)
+	}
+
+	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"anonymous_permissions":["delete"]}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder = httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch replace status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("Unmarshal(patched replace) error = %v", err)
+	}
+	if len(patched.AnonymousPermissions) != 1 || patched.AnonymousPermissions[0] != string(model.PermissionActionDelete) {
+		t.Fatalf("patched replace AnonymousPermissions = %+v, want delete", patched.AnonymousPermissions)
+	}
+
+	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"anonymous_permissions":[]}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder = httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch clear status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("Unmarshal(patched clear) error = %v", err)
+	}
+	if len(patched.AnonymousPermissions) != 0 {
+		t.Fatalf("patched clear AnonymousPermissions = %+v, want none", patched.AnonymousPermissions)
+	}
+	var anonymousCount int64
+	if err := database.Model(&model.ShareUser{}).Where("share_id = ? AND anonymous = ?", created.ID, true).Count(&anonymousCount).Error; err != nil {
+		t.Fatalf("Count(anonymous share_users) error = %v", err)
+	}
+	if anonymousCount != 0 {
+		t.Fatalf("anonymous share_user count = %d, want 0", anonymousCount)
 	}
 }
 

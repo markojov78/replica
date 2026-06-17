@@ -71,12 +71,13 @@ func registerShareRoutes(api huma.API, svc services) {
 		}
 
 		share, err := svc.shares.Create(service.CreateShareInput{
-			ReplicaID:       input.Body.ReplicaID,
-			Name:            input.Body.Name,
-			Status:          input.Body.Status,
-			ShareExpiration: shareExpiration,
-			GenerateHash:    input.Body.GenerateHash,
-			UserPermissions: input.Body.UserPermissions,
+			ReplicaID:            input.Body.ReplicaID,
+			Name:                 input.Body.Name,
+			Status:               input.Body.Status,
+			ShareExpiration:      shareExpiration,
+			GenerateHash:         input.Body.GenerateHash,
+			UserPermissions:      input.Body.UserPermissions,
+			AnonymousPermissions: input.Body.AnonymousPermissions,
 		})
 		if err != nil {
 			return nil, mapShareError(err, svc.shares)
@@ -99,12 +100,13 @@ func registerShareRoutes(api huma.API, svc services) {
 		}
 
 		share, err := svc.shares.Update(input.ID, service.UpdateShareInput{
-			Name:               input.Body.Name,
-			Status:             input.Body.Status,
-			ShareExpiration:    shareExpiration,
-			ShareExpirationSet: shareExpirationSet,
-			GenerateHash:       input.Body.GenerateHash,
-			UserPermissions:    input.Body.UserPermissions,
+			Name:                 input.Body.Name,
+			Status:               input.Body.Status,
+			ShareExpiration:      shareExpiration,
+			ShareExpirationSet:   shareExpirationSet,
+			GenerateHash:         input.Body.GenerateHash,
+			UserPermissions:      input.Body.UserPermissions,
+			AnonymousPermissions: input.Body.AnonymousPermissions,
 		})
 		if err != nil {
 			return nil, mapShareError(err, svc.shares)
@@ -163,12 +165,13 @@ type createShareInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
 	Body          struct {
-		ReplicaID       uint                           `json:"replica_id"`
-		Name            *string                        `json:"name,omitempty"`
-		Status          *string                        `json:"status,omitempty"`
-		ShareExpiration json.RawMessage                `json:"share_expiration,omitempty"`
-		GenerateHash    bool                           `json:"generate_hash,omitempty"`
-		UserPermissions *[]service.UserPermissionInput `json:"user_permissions,omitempty"`
+		ReplicaID            uint                           `json:"replica_id"`
+		Name                 *string                        `json:"name,omitempty"`
+		Status               *string                        `json:"status,omitempty"`
+		ShareExpiration      json.RawMessage                `json:"share_expiration,omitempty"`
+		GenerateHash         bool                           `json:"generate_hash,omitempty"`
+		UserPermissions      *[]service.UserPermissionInput `json:"user_permissions,omitempty"`
+		AnonymousPermissions *[]string                      `json:"anonymous_permissions,omitempty"`
 	}
 }
 
@@ -177,11 +180,12 @@ type updateShareInput struct {
 	Authorization string `header:"Authorization"`
 	ID            uint   `path:"id"`
 	Body          struct {
-		Name            *string                        `json:"name,omitempty"`
-		Status          *string                        `json:"status,omitempty"`
-		ShareExpiration json.RawMessage                `json:"share_expiration,omitempty"`
-		GenerateHash    *bool                          `json:"generate_hash,omitempty"`
-		UserPermissions *[]service.UserPermissionInput `json:"user_permissions,omitempty"`
+		Name                 *string                        `json:"name,omitempty"`
+		Status               *string                        `json:"status,omitempty"`
+		ShareExpiration      json.RawMessage                `json:"share_expiration,omitempty"`
+		GenerateHash         *bool                          `json:"generate_hash,omitempty"`
+		UserPermissions      *[]service.UserPermissionInput `json:"user_permissions,omitempty"`
+		AnonymousPermissions *[]string                      `json:"anonymous_permissions,omitempty"`
 	}
 }
 

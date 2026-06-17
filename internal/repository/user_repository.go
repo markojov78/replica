@@ -86,7 +86,7 @@ func (r *UserRepository) GetSharePermissions(userID uint, shareID uint) ([]model
 	var permissions []model.SharePermission
 
 	err := r.db.Joins("JOIN share_users su ON su.id = share_permissions.share_user_id").
-		Where("su.user_id = ? AND su.share_id = ?", userID, shareID).
+		Where("su.user_id = ? AND su.share_id = ? AND su.anonymous = ?", userID, shareID, false).
 		Find(&permissions).Error
 
 	return permissions, err
