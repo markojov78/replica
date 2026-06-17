@@ -306,7 +306,15 @@ func (c *Client) ReportAvailability(ctx context.Context) (*AvailabilityReport, e
 }
 
 func (c *Client) ProxyUserLogin(ctx context.Context, body []byte, contentType string) (int, http.Header, []byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.coordinatorURL+"/api/admin/auth/login", bytes.NewReader(body))
+	return c.proxyAdminAuth(ctx, "/api/admin/auth/login", body, contentType)
+}
+
+func (c *Client) ProxyUserRefresh(ctx context.Context, body []byte, contentType string) (int, http.Header, []byte, error) {
+	return c.proxyAdminAuth(ctx, "/api/admin/auth/refresh", body, contentType)
+}
+
+func (c *Client) proxyAdminAuth(ctx context.Context, path string, body []byte, contentType string) (int, http.Header, []byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.coordinatorURL+path, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, nil, err
 	}

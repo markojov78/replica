@@ -55,6 +55,11 @@ unseen user access token by calling the coordinator node-control user-token intr
 access token, then caches only the positive result in memory until the earlier of the token expiration or the
 configured sharing token cache duration.
 
+The storage-node sharing API exposes `/api/share/auth/login`, `/api/share/auth/refresh` and `/api/share/auth/me` so a
+sharing UI can authenticate through the storage node. In storage-only mode, login and refresh are proxied to the
+coordinator Admin API, and `me` is resolved through coordinator node-control token introspection. In coordinator +
+storage mode, the same endpoints use the local coordinator auth service directly.
+
 Anonymous sharing uses the share `link_hash` as the public non-guessable identifier. Anonymous access is available
 only when the share has a `link_hash`, the share and replica are active, the share is not expired, and anonymous
 permissions include `read`.
@@ -321,9 +326,11 @@ This keeps storage-node behavior consistent between:
 - storage-only deployments
 - coordinator + storage deployments
 
-In storage-only mode, `/api/share/auth/login` is proxied to coordinator `/api/admin/auth/login` so clients can obtain
-normal user tokens without the storage node validating passwords or minting tokens. In coordinator + storage mode,
-both `/api/admin/auth/login` and `/api/share/auth/login` can coexist because they are in separate namespaces.
+In storage-only mode, `/api/share/auth/login` and `/api/share/auth/refresh` are proxied to coordinator
+`/api/admin/auth/login` and `/api/admin/auth/refresh` so clients can obtain and refresh normal user tokens without the
+storage node validating passwords, storing tokens or minting tokens. `/api/share/auth/me` is resolved through
+coordinator node-control token introspection. In coordinator + storage mode, `/api/admin/auth/*` and
+`/api/share/auth/*` coexist because they are in separate namespaces.
 
 Deleted replicas may still be returned to storage nodes as runtime assignments. Storage nodes use deleted replica records to stop or avoid runtime work, but they do not scan, watch, reconcile, report files for, or fetch replica file lists for deleted replicas. Physical files for deleted replicas are not removed by storage nodes.
 

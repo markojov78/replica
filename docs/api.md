@@ -1031,9 +1031,13 @@ Anonymous browser-friendly public endpoints are exposed under `/s`.
 They are read-only in v1: users can list shares, inspect one share, list available files and download synchronized local file content.
 Upload, create, update and delete through the sharing API are not implemented in v1.
 
-Storage nodes expose `POST /api/share/auth/login` as a login proxy to coordinator `POST /api/admin/auth/login`.
-It accepts and returns the same request and response body as coordinator admin login. Storage nodes do not validate
-passwords locally, store user tokens server-side, mint user tokens, or receive `AUTH_JWT_SECRET`.
+Storage nodes expose sharing authentication endpoints so a sharing UI can authenticate through the storage node without
+knowing whether it is connected to a storage-only deployment or coordinator + storage deployment. In storage-only
+mode, login and refresh are proxied to the coordinator admin auth endpoints. In coordinator + storage mode, the local
+coordinator auth service is used directly.
+
+Storage nodes do not validate passwords locally, store user tokens server-side, mint user tokens, or receive
+`AUTH_JWT_SECRET`.
 
 Storage nodes do not persist share, user or permission state. They hydrate assigned shares from the coordinator `/node/shares` endpoint during startup and whenever a `refresh_state` command is processed. The coordinator database remains the only source of truth.
 
@@ -1042,6 +1046,58 @@ Storage nodes do not receive `AUTH_JWT_SECRET` and do not validate normal user J
 - `auth.share_api_token_cache_duration`, default `5m`
 
 When the cache entry expires, the storage node revalidates the token through the coordinator. If the coordinator is unavailable and the token is not already positively cached, the storage node returns `503`.
+
+### /auth endpoint
+
+#### POST /auth/login
+Authenticates a user for storage sharing.
+
+Storage-only behavior:
+- proxies the request to coordinator `POST /api/admin/auth/login`
+- returns the coordinator response unchanged
+
+Coordinator + storage behavior:
+- uses the local coordinator auth service directly
+
+Request and response bodies match coordinator `POST /api/admin/auth/login`.
+
+#### POST /auth/refresh
+Refreshes a user token pair for storage sharing.
+
+Storage-only behavior:
+- proxies the request to coordinator `POST /api/admin/auth/refresh`
+- returns the coordinator response unchanged
+
+Coordinator + storage behavior:
+- uses the local coordinator auth service directly
+
+Request and response bodies match coordinator `POST /api/admin/auth/refresh`.
+
+#### GET /auth/me
+Returns the authenticated sharing user.
+
+Authorization:
+- `Authorization: Bearer <normal-user-access-token>` required
+
+Storage-only behavior:
+- validates the user access token through coordinator `POST /node/auth/validate-user-token`
+- uses the in-memory positive validation cache when available
+
+Coordinator + storage behavior:
+- validates the user access token through the local coordinator auth service
+
+Example response:
+```json
+{
+  "user_id": 15,
+  "status": "active"
+}
+```
+
+Possible errors:
+- `401` missing, invalid or expired user access token
+- `403` inactive user
+- `503` coordinator unavailable for uncached token validation in storage-only mode
 
 ### /shares endpoint
 #### GET /shares

@@ -57,6 +57,7 @@ type runningReplicaWatcher struct {
 
 type shareTokenCacheEntry struct {
 	userID      uint
+	status      string
 	tokenExpiry time.Time
 	validatedAt time.Time
 	expiresAt   time.Time
@@ -277,21 +278,25 @@ func (r *Runtime) sharesSnapshot() []apiclient.Share {
 	return append([]apiclient.Share(nil), r.shares...)
 }
 
-func (r *Runtime) validateShareAPIToken(ctx context.Context, token string) (uint, error) {
+func (r *Runtime) validateShareAPIToken(ctx context.Context, token string) (*apiclient.ValidatedUserToken, error) {
 	hash := shareTokenHash(token)
 	now := time.Now().UTC()
 
 	r.shareAuthMu.Lock()
 	if entry, ok := r.shareTokenCache[hash]; ok && now.Before(entry.expiresAt) {
-		userID := entry.userID
+		result := &apiclient.ValidatedUserToken{
+			UserID:               entry.userID,
+			Status:               entry.status,
+			AccessTokenExpiresAt: entry.tokenExpiry,
+		}
 		r.shareAuthMu.Unlock()
-		return userID, nil
+		return result, nil
 	}
 	r.shareAuthMu.Unlock()
 
 	validated, err := r.client.ValidateUserToken(ctx, token)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	cacheDuration := r.shareAPITokenCacheDuration
@@ -303,7 +308,7 @@ func (r *Runtime) validateShareAPIToken(ctx context.Context, token string) (uint
 		cacheExpires = validated.AccessTokenExpiresAt
 	}
 	if !cacheExpires.After(now) {
-		return 0, errShareTokenInvalid
+		return nil, errShareTokenInvalid
 	}
 
 	r.shareAuthMu.Lock()
@@ -312,13 +317,14 @@ func (r *Runtime) validateShareAPIToken(ctx context.Context, token string) (uint
 	}
 	r.shareTokenCache[hash] = shareTokenCacheEntry{
 		userID:      validated.UserID,
+		status:      validated.Status,
 		tokenExpiry: validated.AccessTokenExpiresAt,
 		validatedAt: now,
 		expiresAt:   cacheExpires,
 	}
 	r.shareAuthMu.Unlock()
 
-	return validated.UserID, nil
+	return validated, nil
 }
 
 func shareTokenHash(token string) string {

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,7 +44,20 @@ type shareListFilter struct {
 	name      string
 }
 
+type shareAuthMeBody struct {
+	UserID uint   `json:"user_id"`
+	Status string `json:"status"`
+}
+
 func (r *Runtime) ServeUserLoginProxy(w http.ResponseWriter, req *http.Request) {
+	r.serveUserAuthProxy(w, req, r.client.ProxyUserLogin)
+}
+
+func (r *Runtime) ServeUserRefreshProxy(w http.ResponseWriter, req *http.Request) {
+	r.serveUserAuthProxy(w, req, r.client.ProxyUserRefresh)
+}
+
+func (r *Runtime) serveUserAuthProxy(w http.ResponseWriter, req *http.Request, proxy func(context.Context, []byte, string) (int, http.Header, []byte, error)) {
 	if req.Method != http.MethodPost {
 		writeStorageShareError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -55,7 +69,7 @@ func (r *Runtime) ServeUserLoginProxy(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	status, headers, responseBody, err := r.client.ProxyUserLogin(req.Context(), body, req.Header.Get("Content-Type"))
+	status, headers, responseBody, err := proxy(req.Context(), body, req.Header.Get("Content-Type"))
 	if err != nil {
 		writeStorageShareError(w, http.StatusServiceUnavailable, errShareCoordinatorOffline.Error())
 		return
@@ -64,6 +78,28 @@ func (r *Runtime) ServeUserLoginProxy(w http.ResponseWriter, req *http.Request) 
 	copyProxyHeaders(w.Header(), headers)
 	w.WriteHeader(status)
 	_, _ = w.Write(responseBody)
+}
+
+func (r *Runtime) ServeUserMe(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		writeStorageShareError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	token, err := bearerShareToken(req.Header.Get("Authorization"))
+	if err != nil {
+		writeStorageShareError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	user, err := r.validateShareAPIToken(req.Context(), token)
+	if err != nil {
+		writeStorageShareError(w, storageShareAuthStatus(err), err.Error())
+		return
+	}
+	writeStorageShareJSON(w, http.StatusOK, shareAuthMeBody{
+		UserID: user.UserID,
+		Status: user.Status,
+	})
 }
 
 func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Request) {
@@ -166,7 +202,11 @@ func (r *Runtime) authenticateShareUser(req *http.Request) (uint, error) {
 	if err != nil {
 		return 0, err
 	}
-	return r.validateShareAPIToken(req.Context(), token)
+	user, err := r.validateShareAPIToken(req.Context(), token)
+	if err != nil {
+		return 0, err
+	}
+	return user.UserID, nil
 }
 
 func (r *Runtime) readableShareListForUser(req *http.Request, userID uint) (shareListBody, error) {
