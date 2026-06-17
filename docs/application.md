@@ -44,8 +44,20 @@ authenticated or anonymous users to read or update files based on per-share perm
 
 Share API and web interface are exposed on the same node on which replica exists.  
 
-In case of conflicting permissions and rules (i.e. writeable share for read-only replica) it's up to the API to 
-detect conflicting settings and display an error.  
+In case of conflicting permissions and rules (i.e. writeable share for read-only replica) it's up to the API to
+detect conflicting settings and display an error.
+
+#### Share user auth
+
+Authenticated sharing uses normal coordinator-issued user access tokens. Storage nodes do not receive
+`AUTH_JWT_SECRET`, do not validate normal user JWTs locally and do not mint user tokens. A storage node validates an
+unseen user access token by calling the coordinator internal user-token introspection endpoint with its node access
+token, then caches only the positive result in memory until the earlier of the token expiration or the configured
+sharing token cache duration.
+
+Anonymous sharing uses the share `link_hash` as the public non-guessable identifier. Anonymous access is available
+only when the share has a `link_hash`, the share and replica are active, the share is not expired, and anonymous
+permissions include `read`.
 
 ### Users, ownership and permissions
 Users can be authenticated or anonymous. Inventory and share can have one or more users and each user can have a list 
@@ -85,6 +97,9 @@ coordinator, and then retrieve the state from the coordinator.
 IT will periodically scan replicas and report changes to the coordinator, and ask for instructions on how to proceed. 
 In case of the unavailable coordinator, it should halt all replication until the coordinator becomes available again.  
 Storage service also exposes file transfer API for direct node-to-node file replication.  
+Every storage service that exposes the file transfer API also exposes the storage-node sharing API. Whether the
+sharing API has data to serve depends on currently assigned active shares and can change when runtime state is
+refreshed from the coordinator.
   
 ### Sharing service + sharing UI
 Sharing service is both a web app with UI with data presentation (previews for images, links for documents etc) and 
@@ -176,7 +191,7 @@ Storage nodes initiate all coordinator communication themselves, which allows no
 When a storage service starts, it:
 1. Reads coordinator URL, node ID and node secret from configuration
 2. Authenticates against the coordinator internal API
-3. Retrieves assigned replicas and required runtime state from the coordinator
+3. Retrieves assigned replicas, assigned shares and required runtime state from the coordinator
 4. Starts monitoring local replicas
 5. Establishes a WebSocket connection to the coordinator
 6. Starts sending periodic heartbeat requests
@@ -189,6 +204,9 @@ the replica watcher when one is not already running, allowing newly-created repl
 without restarting the storage service. Every replica creation or update creates a durable `refresh_state` command
 for the responsible storage node. After refreshing its assignments, the storage service stops watchers for replicas
 whose current status is `deleted`.
+
+The same `refresh_state` command refreshes assigned share state from `/internal/shares`. Shares not returned by the
+coordinator are removed from storage-node memory. No local database or durable cache is used for sharing state.
 
 #### Heartbeat
 Storage services periodically report heartbeat information to the coordinator using 
@@ -301,6 +319,10 @@ This keeps storage-node behavior consistent between:
 
 - storage-only deployments
 - coordinator + storage deployments
+
+In storage-only mode, `/api/auth/login` is proxied to the coordinator so clients can obtain normal user tokens without
+the storage node validating passwords or minting tokens. In coordinator + storage mode, the coordinator handler can
+serve the login endpoint directly, avoiding duplicate route registration.
 
 Deleted replicas may still be returned to storage nodes as runtime assignments. Storage nodes use deleted replica records to stop or avoid runtime work, but they do not scan, watch, reconcile, report files for, or fetch replica file lists for deleted replicas. Physical files for deleted replicas are not removed by storage nodes.
 

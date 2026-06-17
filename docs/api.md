@@ -65,6 +65,8 @@ Behavior:
 - returns a signed JWT access token
 - returns a new opaque refresh token
 - creates a refresh-token session on the server
+- on a storage-only node, this endpoint proxies the request to the coordinator `/api/auth/login` and returns the coordinator response unchanged
+- storage-only nodes do not validate passwords locally, store user tokens server-side, mint user tokens, or receive `AUTH_JWT_SECRET`
 
 Request body:
 - `username` required
@@ -95,6 +97,7 @@ Possible errors:
 - `400` invalid JSON payload
 - `401` invalid username or password
 - `403` inactive user
+- `503` coordinator unavailable when called on a storage-only node
 
 #### POST /auth/refresh
 Exchanges a refresh token for a new token pair.
@@ -821,6 +824,10 @@ Possible errors:
 
 All `/shares` endpoints require the matching `shares` permission for the requested action.
 
+On the coordinator, `/api/shares` is the administrative share-management API documented in this section.
+On a storage-only node, the same paths expose the read-only storage-node sharing API documented above.
+In coordinator + storage mode, the coordinator handlers own these paths to avoid route conflicts.
+
 #### GET /shares
 Returns a paginated list of shares.
 
@@ -1021,6 +1028,143 @@ Possible errors:
 * `409` replica is deleted
 * `409` share already exists
 
+## Sharing API
+
+These endpoints are exposed by storage-only nodes under `/api`.
+They are read-only in v1: users can list shares, inspect one share, list available files and download synchronized local file content.
+Upload, create, update and delete through the sharing API are not implemented in v1.
+
+Storage nodes do not persist share, user or permission state. They hydrate assigned shares from the coordinator `/internal/shares` endpoint during startup and whenever a `refresh_state` command is processed. The coordinator database remains the only source of truth.
+
+Storage nodes do not receive `AUTH_JWT_SECRET` and do not validate normal user JWTs locally. For authenticated share access, a previously unseen bearer user access token is validated once through coordinator `POST /internal/auth/validate-user-token`, then cached in volatile memory by token hash until the earlier of:
+- the JWT expiration returned by the coordinator
+- `auth.share_api_token_cache_duration`, default `5m`
+
+When the cache entry expires, the storage node revalidates the token through the coordinator. If the coordinator is unavailable and the token is not already positively cached, the storage node returns `503`.
+
+### /shares endpoint
+#### GET /shares
+Returns a paginated list of active shares on the current storage node where the authenticated user has share permission `read`.
+
+Authorization:
+- `Authorization: Bearer <normal-user-access-token>` required
+
+Query parameters:
+* `page` optional, default `1`
+* `count` optional, default `20`, maximum `100`
+* `status` optional, filter by share status: `active`, `deleted`
+* `replica_id` optional
+* `name` optional
+
+Availability rules:
+- share status must be `active`
+- share expiration must be unset or in the future
+- replica status must be `active`
+- replica must belong to the authenticated storage node
+- authenticated user must have share permission `read`
+
+The response shape intentionally matches coordinator `GET /api/shares`. Storage nodes still only return shares currently available from their local runtime state, so filters such as `status=deleted` return an empty page.
+
+Example response:
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "inventory_id": 1,
+      "replica_id": 3,
+      "name": "Vacation March 2026",
+      "status": "active",
+      "link_hash": "ImyZbX8zv0UrsCB7Rthq9R7nQMMKRyhT",
+      "share_expiration": "2026-03-17T10:30:00Z",
+      "user_permissions": [
+        {
+          "user_id": 15,
+          "permissions": ["read"]
+        }
+      ],
+      "anonymous_permissions": ["read"]
+    }
+  ],
+  "page": 1,
+  "count": 20,
+  "total": 1
+}
+```
+
+#### GET /shares/{id}
+Returns one readable share from the current storage node.
+
+Errors:
+- `401` missing, invalid or expired user access token
+- `403` authenticated user does not have share permission `read`
+- `404` share does not exist, is inactive, is expired, or is not available on this storage node
+- `503` coordinator unavailable for uncached token validation
+
+### /shares/{id}/files endpoint
+#### GET /shares/{id}/files
+Returns files available for read through the share.
+
+Only files matching all of the following are returned:
+- `inventory_files.status = active`
+- local `replica_files` row exists for the share replica
+- `replica_files.status = synchronized`
+
+Example response:
+```json
+{
+  "files": [
+    {
+      "file_id": 10,
+      "replica_id": 3,
+      "inventory_id": 1,
+      "relative_uri": "album/photo.jpg",
+      "size": 12345,
+      "hash": "blake3-hash",
+      "inventory_status": "active",
+      "inventory_version": 4,
+      "replica_status": "synchronized",
+      "replica_version": 4,
+      "created": "2026-03-17T10:30:00Z",
+      "modified": "2026-03-17T10:30:00Z"
+    }
+  ]
+}
+```
+
+#### GET /shares/{id}/files/{file_id}/content
+Streams file content from the local replica storage. Content is not proxied through the coordinator and is not fetched from other storage nodes in v1.
+
+The request identifies files by numeric `file_id`; raw filesystem paths are not accepted.
+If a known active inventory file is not synchronized locally, direct content access returns `409`.
+
+### Anonymous access
+
+These endpoints are exposed by storage-only nodes under `/api/public`.
+They require no `Authorization` header.
+
+The public identifier is the share `link_hash`. It must be non-guessable and must not be the numeric share ID or share name. In v1, `public_id` is represented by `link_hash`; there is no separate `public_id` response field. Public access is enabled when `link_hash` is present and anonymous permissions include `read`; there is no separate `public_enabled` response field.
+
+####  /public/shares/{link_hash} endpoint
+##### GET /public/shares/{link_hash}
+Returns the public share when:
+- `link_hash` matches the share
+- share status is `active`
+- share expiration is unset or in the future
+- replica status is `active`
+- anonymous permissions include `read`
+
+Errors:
+- `404` unknown `link_hash`, missing `link_hash`, inactive share, expired share, inactive replica, or share not available on this storage node
+- `403` matching public share exists but anonymous read is not allowed
+
+#### /public/shares/{link_hash}/files endpoint
+##### GET /public/shares/{link_hash}/files
+Returns the same synchronized active file list as authenticated share file listing.
+
+##### GET /public/shares/{link_hash}/files/{file_id}/content
+Streams synchronized local file content for public anonymous read access.
+
 
 ## Internal API
 Base path for the endpoints in this section is `/internal/`.
@@ -1094,6 +1238,45 @@ Possible errors:
 - `401` invalid node credentials
 - `403` disabled node
 - `403` revoked node
+
+#### POST /auth/validate-user-token
+Coordinator-only internal endpoint used by storage nodes to introspect a normal user access token for the storage-node sharing API.
+
+Authorization:
+- requires `Authorization: Bearer <node-access-token>`
+- any valid node access token identifies the caller as a storage node for internal API purposes
+
+Behavior:
+- validates the caller's node access token
+- parses and validates the provided normal user access token using coordinator auth logic
+- verifies JWT signature and expiration
+- rejects node tokens
+- rejects invalid or expired tokens with `401`
+- rejects deleted or inactive users with `403`
+- does not require refresh-token/session lookup in v1 beyond existing access-token validation
+- does not expose password, roles or global permissions
+
+Request body:
+```json
+{
+  "access_token": "normal-user-access-token"
+}
+```
+
+Example response:
+```json
+{
+  "user_id": 15,
+  "status": "active",
+  "access_token_expires_at": "2026-04-07T12:30:00Z"
+}
+```
+
+Possible errors:
+- `401` missing authenticated node
+- `401` invalid, expired or non-user access token
+- `403` disabled or revoked node
+- `403` deleted or inactive user
 
 #### POST /auth/refresh
 Exchanges a node refresh token for a new node token pair.

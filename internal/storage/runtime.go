@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,9 +33,14 @@ type Runtime struct {
 
 	stateMu        sync.RWMutex
 	replicas       []apiclient.Replica
+	shares         []apiclient.Share
 	replicaFiles   map[uint][]apiclient.ReplicaInventoryFile
 	transferKey    string
 	transferTokens map[uint]string
+
+	shareAuthMu                sync.Mutex
+	shareTokenCache            map[string]shareTokenCacheEntry
+	shareAPITokenCacheDuration time.Duration
 
 	watcherMu sync.Mutex
 	watchers  map[uint]*runningReplicaWatcher
@@ -48,6 +55,13 @@ type runningReplicaWatcher struct {
 	cancel             context.CancelFunc
 }
 
+type shareTokenCacheEntry struct {
+	userID      uint
+	tokenExpiry time.Time
+	validatedAt time.Time
+	expiresAt   time.Time
+}
+
 func NewRuntime(cfg config.Config) (*Runtime, error) {
 	client, err := apiclient.New(cfg)
 	if err != nil {
@@ -55,13 +69,15 @@ func NewRuntime(cfg config.Config) (*Runtime, error) {
 	}
 
 	return &Runtime{
-		client:            client,
-		heartbeatInterval: cfg.App.HeartbeatInterval,
-		wsDialer:          websocket.DefaultDialer,
-		replicaFiles:      make(map[uint][]apiclient.ReplicaInventoryFile),
-		transferTokens:    make(map[uint]string),
-		watchers:          make(map[uint]*runningReplicaWatcher),
-		commandCh:         make(chan apiclient.Command, 128),
+		client:                     client,
+		heartbeatInterval:          cfg.App.HeartbeatInterval,
+		wsDialer:                   websocket.DefaultDialer,
+		replicaFiles:               make(map[uint][]apiclient.ReplicaInventoryFile),
+		transferTokens:             make(map[uint]string),
+		shareTokenCache:            make(map[string]shareTokenCacheEntry),
+		shareAPITokenCacheDuration: cfg.Auth.ShareAPITokenCacheDuration,
+		watchers:                   make(map[uint]*runningReplicaWatcher),
+		commandCh:                  make(chan apiclient.Command, 128),
 	}, nil
 }
 
@@ -132,6 +148,10 @@ func (r *Runtime) refreshLocalState(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	shares, err := r.client.ListOwnShares(ctx)
+	if err != nil {
+		return err
+	}
 
 	replicaFiles := make(map[uint][]apiclient.ReplicaInventoryFile, len(replicas))
 	for _, replica := range replicas {
@@ -144,8 +164,8 @@ func (r *Runtime) refreshLocalState(ctx context.Context) error {
 		}
 	}
 
-	r.setLocalState(replicas, replicaFiles)
-	log.Printf("storage runtime refreshed local state replicas=%d", len(replicas))
+	r.setLocalState(replicas, shares, replicaFiles)
+	log.Printf("storage runtime refreshed local state replicas=%d shares=%d", len(replicas), len(shares))
 	return nil
 }
 
@@ -222,15 +242,88 @@ func (r *Runtime) reportStartupLocalChanges(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runtime) setLocalState(replicas []apiclient.Replica, replicaFiles map[uint][]apiclient.ReplicaInventoryFile) {
+func (r *Runtime) setLocalState(replicas []apiclient.Replica, shareOrFiles any, optionalFiles ...map[uint][]apiclient.ReplicaInventoryFile) {
+	var shares []apiclient.Share
+	var replicaFiles map[uint][]apiclient.ReplicaInventoryFile
+	switch value := shareOrFiles.(type) {
+	case []apiclient.Share:
+		shares = value
+		if len(optionalFiles) > 0 {
+			replicaFiles = optionalFiles[0]
+		}
+	case map[uint][]apiclient.ReplicaInventoryFile:
+		replicaFiles = value
+	default:
+		replicaFiles = make(map[uint][]apiclient.ReplicaInventoryFile)
+	}
+	if replicaFiles == nil {
+		replicaFiles = make(map[uint][]apiclient.ReplicaInventoryFile)
+	}
+
 	r.stateMu.Lock()
 	defer r.stateMu.Unlock()
 
 	r.replicas = append([]apiclient.Replica(nil), replicas...)
+	r.shares = append([]apiclient.Share(nil), shares...)
 	r.replicaFiles = make(map[uint][]apiclient.ReplicaInventoryFile, len(replicaFiles))
 	for replicaID, files := range replicaFiles {
 		r.replicaFiles[replicaID] = append([]apiclient.ReplicaInventoryFile(nil), files...)
 	}
+}
+
+func (r *Runtime) sharesSnapshot() []apiclient.Share {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+	return append([]apiclient.Share(nil), r.shares...)
+}
+
+func (r *Runtime) validateShareAPIToken(ctx context.Context, token string) (uint, error) {
+	hash := shareTokenHash(token)
+	now := time.Now().UTC()
+
+	r.shareAuthMu.Lock()
+	if entry, ok := r.shareTokenCache[hash]; ok && now.Before(entry.expiresAt) {
+		userID := entry.userID
+		r.shareAuthMu.Unlock()
+		return userID, nil
+	}
+	r.shareAuthMu.Unlock()
+
+	validated, err := r.client.ValidateUserToken(ctx, token)
+	if err != nil {
+		return 0, err
+	}
+
+	cacheDuration := r.shareAPITokenCacheDuration
+	if cacheDuration <= 0 {
+		cacheDuration = 5 * time.Minute
+	}
+	cacheExpires := now.Add(cacheDuration)
+	if validated.AccessTokenExpiresAt.Before(cacheExpires) {
+		cacheExpires = validated.AccessTokenExpiresAt
+	}
+	if !cacheExpires.After(now) {
+		return 0, errShareTokenInvalid
+	}
+
+	r.shareAuthMu.Lock()
+	if r.shareTokenCache == nil {
+		r.shareTokenCache = make(map[string]shareTokenCacheEntry)
+	}
+	r.shareTokenCache[hash] = shareTokenCacheEntry{
+		userID:      validated.UserID,
+		tokenExpiry: validated.AccessTokenExpiresAt,
+		validatedAt: now,
+		expiresAt:   cacheExpires,
+	}
+	r.shareAuthMu.Unlock()
+
+	return validated.UserID, nil
+}
+
+func shareTokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 func (r *Runtime) setReplicaFiles(replicaID uint, files []apiclient.ReplicaInventoryFile) {

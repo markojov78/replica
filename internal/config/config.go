@@ -34,10 +34,11 @@ type AppConfig struct {
 }
 
 type AuthConfig struct {
-	JWTSecret            string
-	NodeSecret           string
-	AccessTokenDuration  time.Duration
-	RefreshTokenDuration time.Duration
+	JWTSecret                  string
+	NodeSecret                 string
+	AccessTokenDuration        time.Duration
+	RefreshTokenDuration       time.Duration
+	ShareAPITokenCacheDuration time.Duration
 }
 
 type HTTPConfig struct {
@@ -75,10 +76,11 @@ type rawAppConfig struct {
 }
 
 type rawAuthConfig struct {
-	JWTSecret            *string `json:"jwt_secret" yaml:"jwt_secret" toml:"jwt_secret"`
-	NodeSecret           *string `json:"node_secret" yaml:"node_secret" toml:"node_secret"`
-	AccessTokenDuration  *string `json:"access_token_duration" yaml:"access_token_duration" toml:"access_token_duration"`
-	RefreshTokenDuration *string `json:"refresh_token_duration" yaml:"refresh_token_duration" toml:"refresh_token_duration"`
+	JWTSecret                  *string `json:"jwt_secret" yaml:"jwt_secret" toml:"jwt_secret"`
+	NodeSecret                 *string `json:"node_secret" yaml:"node_secret" toml:"node_secret"`
+	AccessTokenDuration        *string `json:"access_token_duration" yaml:"access_token_duration" toml:"access_token_duration"`
+	RefreshTokenDuration       *string `json:"refresh_token_duration" yaml:"refresh_token_duration" toml:"refresh_token_duration"`
+	ShareAPITokenCacheDuration *string `json:"share_api_token_cache_duration" yaml:"share_api_token_cache_duration" toml:"share_api_token_cache_duration"`
 }
 
 type rawHTTPConfig struct {
@@ -123,10 +125,11 @@ func Load() (Config, error) {
 			FileTransferTimeout: resolveDuration("APP_FILE_TRANSFER_TIMEOUT", fileCfg.App.FileTransferTimeout, 30*time.Minute),
 		},
 		Auth: AuthConfig{
-			JWTSecret:            resolveString("AUTH_JWT_SECRET", fileCfg.Auth.JWTSecret, "change-me"),
-			NodeSecret:           resolveString("AUTH_NODE_SECRET", fileCfg.Auth.NodeSecret, ""),
-			AccessTokenDuration:  resolveDuration("AUTH_ACCESS_TOKEN_DURATION", fileCfg.Auth.AccessTokenDuration, 30*time.Minute),
-			RefreshTokenDuration: resolveDuration("AUTH_REFRESH_TOKEN_DURATION", fileCfg.Auth.RefreshTokenDuration, 8*time.Hour),
+			JWTSecret:                  resolveString("AUTH_JWT_SECRET", fileCfg.Auth.JWTSecret, "change-me"),
+			NodeSecret:                 resolveString("AUTH_NODE_SECRET", fileCfg.Auth.NodeSecret, ""),
+			AccessTokenDuration:        resolveDuration("AUTH_ACCESS_TOKEN_DURATION", fileCfg.Auth.AccessTokenDuration, 30*time.Minute),
+			RefreshTokenDuration:       resolveDuration("AUTH_REFRESH_TOKEN_DURATION", fileCfg.Auth.RefreshTokenDuration, 8*time.Hour),
+			ShareAPITokenCacheDuration: resolveDuration("AUTH_SHARE_API_TOKEN_CACHE_DURATION", fileCfg.Auth.ShareAPITokenCacheDuration, 5*time.Minute),
 		},
 		HTTP: HTTPConfig{
 			Address: resolveString("HTTP_ADDR", fileCfg.HTTP.Address, ":8080"),

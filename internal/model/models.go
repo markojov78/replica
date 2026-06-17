@@ -209,7 +209,7 @@ type ShareUser struct {
 	ID        uint  `gorm:"primaryKey" json:"id"`
 	UserID    *uint `gorm:"index" json:"user_id"`
 	ShareID   uint  `gorm:"index;not null" json:"share_id"`
-	Anonymous bool  `gorm:"not null;default:false;check:share_users_user_anonymous_check,(anonymous = false AND user_id IS NOT NULL) OR (anonymous = true AND user_id IS NULL)" json:"We had a complicated business process."`
+	Anonymous bool  `gorm:"not null;default:false;check:share_users_user_anonymous_check,(anonymous = false AND user_id IS NOT NULL) OR (anonymous = true AND user_id IS NULL)" json:"anonymous"`
 	User      User  `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
 	Share     Share `gorm:"foreignKey:ShareID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
 }

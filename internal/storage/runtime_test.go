@@ -66,6 +66,8 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 				"last_seen": time.Now().UTC().Format(time.RFC3339),
 				"commands":  []any{},
 			})
+		case "/internal/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/internal/replicas":
 			replicaCalls++
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
@@ -187,6 +189,8 @@ func TestRuntimeProcessesFallbackCommandsWhenWebSocketUnavailable(t *testing.T) 
 					},
 				},
 			})
+		case "/internal/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/internal/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		default:
@@ -252,6 +256,8 @@ func TestRuntimeDeduplicatesCompletedRefreshStateCommand(t *testing.T) {
 				"last_seen": time.Now().UTC().Format(time.RFC3339),
 				"commands":  []any{},
 			})
+		case "/internal/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/internal/replicas":
 			mu.Lock()
 			replicaCalls++
@@ -446,6 +452,8 @@ func TestRuntimeScanReplicaReportsCreatedAndChangedFiles(t *testing.T) {
 					},
 				},
 			})
+		case "/internal/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/internal/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
@@ -638,6 +646,8 @@ func TestRuntimeScanReplicaRefreshesLocalStateBeforeScan(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
+		case "/internal/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/internal/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
@@ -827,6 +837,8 @@ func TestRuntimeRefreshLocalStateSkipsDeletedReplicaFiles(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
+		case "/internal/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/internal/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
@@ -1058,6 +1070,8 @@ func TestRuntimeReconcileReplicaTransfersPendingFiles(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
+		case "/internal/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/internal/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
@@ -1219,6 +1233,8 @@ func TestRuntimeReconcileReplicaDeletesPendingDeletedFiles(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
+		case "/internal/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/internal/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": 4, "inventory_id": 2, "node_id": "node-a", "uri": destinationRoot, "status": "active", "type": "filesystem"},
@@ -1318,6 +1334,8 @@ func TestRuntimeReconcileReplicaDeletesUnknownDownstreamFiles(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
+		case "/internal/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/internal/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": 4, "inventory_id": 2, "node_id": "node-a", "uri": destinationRoot, "status": "active", "type": "filesystem", "upstream_replica_id": 3},
@@ -1382,6 +1400,8 @@ func TestRuntimeReconcileReplicaMarksTerminalFileErrorAndContinues(t *testing.T)
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
+		case "/internal/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/internal/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": 4, "inventory_id": 2, "node_id": "node-a", "uri": destinationRoot, "status": "active", "type": "filesystem"},
@@ -1478,6 +1498,8 @@ func TestRuntimeReconcileReplicaAuthErrorStopsWithoutFileStatusUpdates(t *testin
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
+		case "/internal/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/internal/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": 4, "inventory_id": 2, "node_id": "node-a", "uri": destinationRoot, "status": "active", "type": "filesystem"},
@@ -1717,6 +1739,8 @@ func TestRuntimeStartsReplicaWatcherAndLogsChanges(t *testing.T) {
 				"last_seen": time.Now().UTC().Format(time.RFC3339),
 				"commands":  []any{},
 			})
+		case "/internal/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/internal/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{

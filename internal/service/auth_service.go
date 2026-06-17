@@ -54,6 +54,12 @@ type AuthenticatedNode struct {
 	Status string
 }
 
+type ValidatedUserToken struct {
+	UserID        uint
+	Status        string
+	AccessExpires time.Time
+}
+
 type RoleDetails struct {
 	ID          uint               `json:"id"`
 	Name        string             `json:"name"`
@@ -233,6 +239,41 @@ func (s *AuthService) Me(accessToken string) (*AuthenticatedUser, error) {
 		Username: user.Name,
 		Status:   string(user.Status),
 		Roles:    mapRoles(user.Roles),
+	}, nil
+}
+
+func (s *AuthService) ValidateUserAccessToken(accessToken string) (*ValidatedUserToken, error) {
+	claims, err := s.parseAccessToken(accessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	userID, err := parseUintClaim(claims.Subject)
+	if err != nil {
+		return nil, ErrInvalidToken
+	}
+	if _, err := parseUintClaim(claims.ID); err != nil {
+		return nil, ErrInvalidToken
+	}
+	if claims.ExpiresAt == nil {
+		return nil, ErrInvalidToken
+	}
+
+	user, err := s.users.FindByID(userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrInvalidToken
+		}
+		return nil, err
+	}
+	if user.Status != model.UserStatusActive {
+		return nil, ErrInactiveUser
+	}
+
+	return &ValidatedUserToken{
+		UserID:        user.ID,
+		Status:        string(user.Status),
+		AccessExpires: claims.ExpiresAt.Time,
 	}, nil
 }
 

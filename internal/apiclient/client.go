@@ -140,6 +140,29 @@ type AvailabilityReport struct {
 	Commands []Command `json:"commands"`
 }
 
+type UserPermission struct {
+	UserID      uint     `json:"user_id"`
+	Permissions []string `json:"permissions"`
+}
+
+type Share struct {
+	ID                   uint             `json:"id"`
+	InventoryID          uint             `json:"inventory_id"`
+	ReplicaID            uint             `json:"replica_id"`
+	Name                 string           `json:"name"`
+	Status               string           `json:"status"`
+	LinkHash             *string          `json:"link_hash"`
+	ShareExpiration      *time.Time       `json:"share_expiration"`
+	UserPermissions      []UserPermission `json:"user_permissions"`
+	AnonymousPermissions []string         `json:"anonymous_permissions"`
+}
+
+type ValidatedUserToken struct {
+	UserID               uint      `json:"user_id"`
+	Status               string    `json:"status"`
+	AccessTokenExpiresAt time.Time `json:"access_token_expires_at"`
+}
+
 func New(cfg config.Config) (*Client, error) {
 	if strings.TrimSpace(cfg.App.NodeID) == "" {
 		return nil, ErrMissingNodeID
@@ -282,6 +305,29 @@ func (c *Client) ReportAvailability(ctx context.Context) (*AvailabilityReport, e
 	return &report, nil
 }
 
+func (c *Client) ProxyUserLogin(ctx context.Context, body []byte, contentType string) (int, http.Header, []byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.coordinatorURL+"/api/auth/login", bytes.NewReader(body))
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	req.Header.Set("X-API-Version", apiVersion)
+	if strings.TrimSpace(contentType) != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	return resp.StatusCode, resp.Header.Clone(), data, nil
+}
+
 func (c *Client) ListOwnReplicas(ctx context.Context) ([]Replica, error) {
 	accessToken, err := c.ensureAccessToken(ctx)
 	if err != nil {
@@ -304,6 +350,55 @@ func (c *Client) ListOwnReplicas(ctx context.Context) ([]Replica, error) {
 	}
 
 	return replicas, nil
+}
+
+func (c *Client) ListOwnShares(ctx context.Context) ([]Share, error) {
+	accessToken, err := c.ensureAccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var shares []Share
+	if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/internal/shares", nil, accessToken, &shares); err != nil {
+		if apiErr, ok := err.(*APIError); ok && apiErr.StatusCode == http.StatusUnauthorized {
+			accessToken, err = c.refreshOrAuthenticate(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/internal/shares", nil, accessToken, &shares); err != nil {
+				return nil, err
+			}
+			return shares, nil
+		}
+		return nil, err
+	}
+
+	return shares, nil
+}
+
+func (c *Client) ValidateUserToken(ctx context.Context, accessToken string) (*ValidatedUserToken, error) {
+	nodeAccessToken, err := c.ensureAccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	reqBody := map[string]string{"access_token": accessToken}
+	var token ValidatedUserToken
+	if err := c.doAuthenticatedJSON(ctx, http.MethodPost, "/internal/auth/validate-user-token", reqBody, nodeAccessToken, &token); err != nil {
+		if apiErr, ok := err.(*APIError); ok && apiErr.StatusCode == http.StatusUnauthorized {
+			nodeAccessToken, err = c.refreshOrAuthenticate(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.doAuthenticatedJSON(ctx, http.MethodPost, "/internal/auth/validate-user-token", reqBody, nodeAccessToken, &token); err != nil {
+				return nil, err
+			}
+			return &token, nil
+		}
+		return nil, err
+	}
+
+	return &token, nil
 }
 
 func (c *Client) ListReplicaFiles(ctx context.Context, replicaID uint, page, count int) (*ReplicaFileList, error) {

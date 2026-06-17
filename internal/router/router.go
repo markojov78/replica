@@ -62,6 +62,9 @@ func New(
 	registerServiceInfoRoute(mux, cfg, info, svc)
 	if cfg.App.Storage && storageRuntime != nil {
 		registerInternalStorageTransferRoutes(mux, svc)
+		if !cfg.App.Coordinator {
+			registerStorageShareRoutes(mux, svc)
+		}
 	}
 	if cfg.App.Coordinator || authService != nil {
 		registerPublicAuthRoutes(apiGroup, svc)

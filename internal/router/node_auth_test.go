@@ -108,6 +108,92 @@ func TestRequireAuthenticatedNodeRejectsUserJWT(t *testing.T) {
 	}
 }
 
+func TestInternalValidateUserTokenAcceptsActiveUserToken(t *testing.T) {
+	database := openRouterTestDB(t)
+	handler := newInternalAuthTestHandler(t, database)
+	userToken, nodeToken := createValidateUserTokenCredentials(t, database, model.UserStatusActive)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/auth/validate-user-token", strings.NewReader(`{"access_token":`+strconv.Quote(userToken)+`}`))
+	req.Header.Set("Authorization", "Bearer "+nodeToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want %d", recorder.Code, recorder.Body.String(), http.StatusOK)
+	}
+	var body struct {
+		UserID uint   `json:"user_id"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("Unmarshal(response) error = %v", err)
+	}
+	if body.UserID == 0 || body.Status != "active" {
+		t.Fatalf("body = %+v, want active user", body)
+	}
+}
+
+func TestInternalValidateUserTokenRejectsNodeToken(t *testing.T) {
+	database := openRouterTestDB(t)
+	handler := newInternalAuthTestHandler(t, database)
+	_, nodeToken := createValidateUserTokenCredentials(t, database, model.UserStatusActive)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/auth/validate-user-token", strings.NewReader(`{"access_token":`+strconv.Quote(nodeToken)+`}`))
+	req.Header.Set("Authorization", "Bearer "+nodeToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d body=%s, want %d", recorder.Code, recorder.Body.String(), http.StatusUnauthorized)
+	}
+}
+
+func TestInternalValidateUserTokenRejectsExpiredToken(t *testing.T) {
+	database := openRouterTestDB(t)
+	handler := newInternalAuthTestHandler(t, database)
+	_, nodeToken := createValidateUserTokenCredentials(t, database, model.UserStatusActive)
+	expiredToken, err := security.GenerateUserAccessToken([]byte("test-secret"), 1, 1, time.Now().UTC().Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("GenerateUserAccessToken() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/auth/validate-user-token", strings.NewReader(`{"access_token":`+strconv.Quote(expiredToken)+`}`))
+	req.Header.Set("Authorization", "Bearer "+nodeToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d body=%s, want %d", recorder.Code, recorder.Body.String(), http.StatusUnauthorized)
+	}
+}
+
+func TestInternalValidateUserTokenRejectsInactiveUser(t *testing.T) {
+	database := openRouterTestDB(t)
+	handler := newInternalAuthTestHandler(t, database)
+	userToken, nodeToken := createValidateUserTokenCredentials(t, database, model.UserStatusDeleted)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/auth/validate-user-token", strings.NewReader(`{"access_token":`+strconv.Quote(userToken)+`}`))
+	req.Header.Set("Authorization", "Bearer "+nodeToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body=%s, want %d", recorder.Code, recorder.Body.String(), http.StatusForbidden)
+	}
+}
+
 func TestRequireAuthenticatedNodeRejectsDisabledNode(t *testing.T) {
 	database := openRouterTestDB(t)
 
@@ -1921,6 +2007,73 @@ func waitForStoredNodeStatus(t *testing.T, database *gorm.DB, nodeID string, wan
 		t.Fatalf("First(node) error = %v", err)
 	}
 	t.Fatalf("node.Status = %q, want %q", node.Status, want)
+}
+
+func newInternalAuthTestHandler(t *testing.T, database *gorm.DB) http.Handler {
+	t.Helper()
+	authService := newRouterTestAuthService(database)
+	return New(
+		config.Config{},
+		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
+		authService,
+		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
+		service.NewRoleService(repository.NewRoleRepository(database)),
+		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
+		service.NewInventoryService(repository.NewInventoryRepository(database)),
+		nil,
+		nil,
+		nil,
+	)
+}
+
+func createValidateUserTokenCredentials(t *testing.T, database *gorm.DB, userStatus model.UserStatus) (string, string) {
+	t.Helper()
+
+	hashedPassword, err := security.HashPassword("secret")
+	if err != nil {
+		t.Fatalf("HashPassword(user) error = %v", err)
+	}
+	user := &model.User{
+		Name:     "token-user",
+		Status:   userStatus,
+		Password: hashedPassword,
+	}
+	if err := database.Create(user).Error; err != nil {
+		t.Fatalf("Create(user) error = %v", err)
+	}
+
+	hashedSecret, err := security.HashPassword("node-secret")
+	if err != nil {
+		t.Fatalf("HashPassword(node) error = %v", err)
+	}
+	node := &model.Node{
+		ID:     "node-a",
+		Status: model.NodeStatusOffline,
+		Secret: hashedSecret,
+	}
+	if err := database.Create(node).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+
+	authService := newRouterTestAuthService(database)
+	var userToken string
+	if userStatus == model.UserStatusActive {
+		pair, err := authService.Login("token-user", "secret")
+		if err != nil {
+			t.Fatalf("Login(user) error = %v", err)
+		}
+		userToken = pair.AccessToken
+	} else {
+		userToken, err = security.GenerateUserAccessToken([]byte("test-secret"), user.ID, 1, time.Now().UTC().Add(time.Hour))
+		if err != nil {
+			t.Fatalf("GenerateUserAccessToken() error = %v", err)
+		}
+	}
+	nodePair, err := authService.NodeLogin("node-a", "node-secret")
+	if err != nil {
+		t.Fatalf("NodeLogin() error = %v", err)
+	}
+	return userToken, nodePair.AccessToken
 }
 
 func newRouterTestAuthService(database *gorm.DB) *service.AuthService {

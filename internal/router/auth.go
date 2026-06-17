@@ -97,6 +97,30 @@ func registerInternalAuthRoutes(api huma.API, svc services) {
 			},
 		}, nil
 	})
+
+	huma.Post(api, "/auth/validate-user-token", func(ctx context.Context, input *validateUserTokenInput) (*validateUserTokenResponse, error) {
+		nodeAccessToken, err := bearerToken(input.Authorization)
+		if err != nil {
+			return nil, huma.Error401Unauthorized("missing authenticated node")
+		}
+
+		if _, err := svc.auth.Node(nodeAccessToken); err != nil {
+			return nil, mapNodeMeError(err)
+		}
+
+		token, err := svc.auth.ValidateUserAccessToken(input.Body.AccessToken)
+		if err != nil {
+			return nil, mapAuthError(err)
+		}
+
+		return &validateUserTokenResponse{
+			Body: validateUserTokenBody{
+				UserID:               token.UserID,
+				Status:               token.Status,
+				AccessTokenExpiresAt: token.AccessExpires,
+			},
+		}, nil
+	})
 }
 
 type loginInput struct {
@@ -135,6 +159,14 @@ type meInput struct {
 type nodeMeInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
+}
+
+type validateUserTokenInput struct {
+	versionHeader
+	Authorization string `header:"Authorization"`
+	Body          struct {
+		AccessToken string `json:"access_token" minLength:"1"`
+	}
 }
 
 type tokenPairBody struct {
@@ -180,6 +212,16 @@ type nodeMeBody struct {
 
 type nodeMeResponse struct {
 	Body nodeMeBody
+}
+
+type validateUserTokenBody struct {
+	UserID               uint      `json:"user_id"`
+	Status               string    `json:"status"`
+	AccessTokenExpiresAt time.Time `json:"access_token_expires_at"`
+}
+
+type validateUserTokenResponse struct {
+	Body validateUserTokenBody
 }
 
 type logoutResponse struct {
