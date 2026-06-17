@@ -73,6 +73,8 @@ func TestPublicReplicaMutationsRejectDeletedInventory(t *testing.T) {
 		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(inventoryRepo),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo),
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 
 	createBody := `{"inventory_id":` + strconv.FormatUint(uint64(inventory.ID), 10) + `,"node_id":"node-a","uri":"/data/new","type":"filesystem"}`

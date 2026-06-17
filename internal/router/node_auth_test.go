@@ -174,6 +174,8 @@ func TestInternalAuthMeReturnsAuthenticatedNode(t *testing.T) {
 		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
 		newRouterTestReplicaService(database, nil),
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/internal/auth/me", nil)
@@ -235,6 +237,8 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
 		newRouterTestReplicaService(database, nil),
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
@@ -331,6 +335,8 @@ func TestInternalNodesReportAvailabilityReturnsPendingCommands(t *testing.T) {
 		nodeService,
 		service.NewInventoryService(inventoryRepo),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService),
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
@@ -435,6 +441,8 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 		nodeService,
 		inventoryService,
 		replicaService,
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/internal/replicas", nil)
@@ -467,6 +475,240 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 	}
 	if body[0].InventoryType != string(model.InventoryTypeFolder) {
 		t.Fatalf("body[0].InventoryType = %q, want %q", body[0].InventoryType, model.InventoryTypeFolder)
+	}
+}
+
+func TestInternalSharesReturnsOnlyAuthenticatedNodeShares(t *testing.T) {
+	database := openRouterTestDB(t)
+
+	hashedSecret, err := security.HashPassword("node-secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+
+	if err := database.Create(&model.Node{
+		ID:     "node-a",
+		Status: model.NodeStatusOffline,
+		Secret: hashedSecret,
+	}).Error; err != nil {
+		t.Fatalf("Create(node-a) error = %v", err)
+	}
+	if err := database.Create(&model.Node{
+		ID:     "node-b",
+		Status: model.NodeStatusOffline,
+		Secret: "ignored",
+	}).Error; err != nil {
+		t.Fatalf("Create(node-b) error = %v", err)
+	}
+
+	inventory := &model.Inventory{
+		Name:   "photos",
+		Status: model.InventoryStatusActive,
+		Type:   model.InventoryTypeFolder,
+	}
+	if err := database.Create(inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	replicaA := &model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-a",
+		URI:         "/data/a",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(replicaA).Error; err != nil {
+		t.Fatalf("Create(replicaA) error = %v", err)
+	}
+	replicaB := &model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-b",
+		URI:         "/data/b",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(replicaB).Error; err != nil {
+		t.Fatalf("Create(replicaB) error = %v", err)
+	}
+
+	user := &model.User{Name: "share-user", Status: model.UserStatusActive}
+	if err := database.Create(user).Error; err != nil {
+		t.Fatalf("Create(user) error = %v", err)
+	}
+	linkHash := "ImyZbX8zv0UrsCB7Rthq9R7nQMMKRyhT"
+	expiresAt := time.Date(2026, 3, 17, 10, 30, 0, 0, time.UTC)
+	shareA := &model.Share{
+		ReplicaID:       replicaA.ID,
+		Name:            "Vacation March 2026",
+		Status:          model.ShareStatusActive,
+		LinkHash:        &linkHash,
+		ShareExpiration: &expiresAt,
+	}
+	if err := database.Create(shareA).Error; err != nil {
+		t.Fatalf("Create(shareA) error = %v", err)
+	}
+	shareB := &model.Share{
+		ReplicaID: replicaB.ID,
+		Name:      "Other node share",
+		Status:    model.ShareStatusActive,
+	}
+	if err := database.Create(shareB).Error; err != nil {
+		t.Fatalf("Create(shareB) error = %v", err)
+	}
+	userID := user.ID
+	shareUser := &model.ShareUser{UserID: &userID, ShareID: shareA.ID}
+	if err := database.Create(shareUser).Error; err != nil {
+		t.Fatalf("Create(share_user) error = %v", err)
+	}
+	if err := database.Create(&model.SharePermission{ShareUserID: shareUser.ID, Permission: string(model.PermissionActionRead)}).Error; err != nil {
+		t.Fatalf("Create(share_permission) error = %v", err)
+	}
+	anonymousShareUser := &model.ShareUser{ShareID: shareA.ID, Anonymous: true}
+	if err := database.Create(anonymousShareUser).Error; err != nil {
+		t.Fatalf("Create(anonymous share_user) error = %v", err)
+	}
+	if err := database.Create(&model.SharePermission{ShareUserID: anonymousShareUser.ID, Permission: string(model.PermissionActionRead)}).Error; err != nil {
+		t.Fatalf("Create(anonymous share_permission) error = %v", err)
+	}
+
+	authService := newRouterTestAuthService(database)
+	pair, err := authService.NodeLogin("node-a", "node-secret")
+	if err != nil {
+		t.Fatalf("NodeLogin() error = %v", err)
+	}
+
+	nodeService := service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	inventoryService := service.NewInventoryService(repository.NewInventoryRepository(database), nodeService)
+	replicaService := newRouterTestReplicaService(database, nodeService)
+	shareService := service.NewShareService(repository.NewShareRepository(database))
+
+	handler := New(
+		config.Config{},
+		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
+		authService,
+		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
+		service.NewRoleService(repository.NewRoleRepository(database)),
+		nodeService,
+		inventoryService,
+		replicaService,
+		shareService,
+		nil,
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/internal/shares", nil)
+	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+
+	var body []service.ShareDetails
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(body) != 1 {
+		t.Fatalf("len(body) = %d, want 1; body=%+v", len(body), body)
+	}
+	if body[0].ID != shareA.ID || body[0].InventoryID != inventory.ID || body[0].ReplicaID != replicaA.ID {
+		t.Fatalf("body[0] = %+v, want share=%d inventory=%d replica=%d", body[0], shareA.ID, inventory.ID, replicaA.ID)
+	}
+	if body[0].Name != "Vacation March 2026" || body[0].Status != string(model.ShareStatusActive) {
+		t.Fatalf("body[0] = %+v, want active Vacation March 2026", body[0])
+	}
+	if body[0].LinkHash == nil || *body[0].LinkHash != linkHash {
+		t.Fatalf("body[0].LinkHash = %v, want %q", body[0].LinkHash, linkHash)
+	}
+	if body[0].ShareExpiration == nil || !body[0].ShareExpiration.Equal(expiresAt) {
+		t.Fatalf("body[0].ShareExpiration = %v, want %v", body[0].ShareExpiration, expiresAt)
+	}
+	if len(body[0].UserPermissions) != 1 || body[0].UserPermissions[0].UserID != user.ID || len(body[0].UserPermissions[0].Permissions) != 1 {
+		t.Fatalf("body[0].UserPermissions = %+v, want user read", body[0].UserPermissions)
+	}
+	if len(body[0].AnonymousPermissions) != 1 || body[0].AnonymousPermissions[0] != string(model.PermissionActionRead) {
+		t.Fatalf("body[0].AnonymousPermissions = %+v, want read", body[0].AnonymousPermissions)
+	}
+}
+
+func TestInternalSharesReturnsEmptyListWhenNodeHasNoShares(t *testing.T) {
+	database := openRouterTestDB(t)
+
+	hashedSecret, err := security.HashPassword("node-secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	if err := database.Create(&model.Node{
+		ID:     "node-a",
+		Status: model.NodeStatusOffline,
+		Secret: hashedSecret,
+	}).Error; err != nil {
+		t.Fatalf("Create(node-a) error = %v", err)
+	}
+
+	authService := newRouterTestAuthService(database)
+	pair, err := authService.NodeLogin("node-a", "node-secret")
+	if err != nil {
+		t.Fatalf("NodeLogin() error = %v", err)
+	}
+
+	nodeService := service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	handler := New(
+		config.Config{},
+		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
+		authService,
+		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
+		service.NewRoleService(repository.NewRoleRepository(database)),
+		nodeService,
+		service.NewInventoryService(repository.NewInventoryRepository(database), nodeService),
+		newRouterTestReplicaService(database, nodeService),
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/internal/shares", nil)
+	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var body []service.ShareDetails
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(body) != 0 {
+		t.Fatalf("len(body) = %d, want 0; body=%+v", len(body), body)
+	}
+}
+
+func TestInternalSharesRequiresNodeToken(t *testing.T) {
+	database := openRouterTestDB(t)
+	handler := New(
+		config.Config{},
+		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
+		newRouterTestAuthService(database),
+		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
+		service.NewRoleService(repository.NewRoleRepository(database)),
+		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
+		service.NewInventoryService(repository.NewInventoryRepository(database)),
+		nil,
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/internal/shares", nil)
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusUnauthorized, recorder.Body.String())
 	}
 }
 
@@ -551,6 +793,8 @@ func TestInternalReplicaFilesReturnsInventoryAndReplicaMetadata(t *testing.T) {
 		nodeService,
 		inventoryService,
 		replicaService,
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files", nil)
@@ -715,6 +959,8 @@ func TestPublicReplicasListIsPaginated(t *testing.T) {
 		nodeService,
 		inventoryService,
 		replicaService,
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/replicas?page=1&count=1", nil)
@@ -778,6 +1024,9 @@ func TestInternalNodesWebSocketAcceptsAuthenticatedNode(t *testing.T) {
 		service.NewRoleService(repository.NewRoleRepository(database)),
 		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
+		nil,
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 
 	server := httptest.NewServer(handler)
@@ -877,6 +1126,9 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 		service.NewRoleService(repository.NewRoleRepository(database)),
 		nodeService,
 		inventoryService,
+		nil,
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 
 	server := httptest.NewServer(handler)
@@ -1091,6 +1343,8 @@ func TestPublicReplicaCreatePopulatesPendingFilesAndReconcileCommand(t *testing.
 		nodeService,
 		service.NewInventoryService(inventoryRepo, nodeService),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService, settingService),
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/replicas", strings.NewReader(`{"inventory_id":`+strconv.FormatUint(uint64(inventory.ID), 10)+`,"node_id":"node-b","uri":"s3://bucket/photos","type":"storage"}`))
@@ -1182,6 +1436,8 @@ func TestInternalCommandsPatchUpdatesOwnedCommandStatus(t *testing.T) {
 		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
 		newRouterTestReplicaService(database, nil),
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodPatch, "/internal/commands/"+strconv.FormatUint(uint64(command.ID), 10), strings.NewReader(`{"status":"failed","error":"refresh failed"}`))
@@ -1318,6 +1574,8 @@ func TestInternalReplicaFilesReportUpdatesCoordinatorState(t *testing.T) {
 		nodeService,
 		service.NewInventoryService(inventoryRepo),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService, settingService),
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/replica/"+strconv.FormatUint(uint64(replicaA.ID), 10)+"/files", strings.NewReader(`{"files":[{"file_id":`+strconv.FormatUint(uint64(file.ID), 10)+`,"relative_uri":"album/img.jpg","file_size":200,"file_hash":"new-hash","created_time":"2026-05-21T11:00:00Z","modified_time":"2026-05-21T12:00:00Z"}]}`))
@@ -1536,6 +1794,8 @@ func newInternalReplicaFileStatusTestHandler(t *testing.T, database *gorm.DB) (h
 		nodeService,
 		service.NewInventoryService(inventoryRepo),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService),
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 
 	return handler, pair.AccessToken, replica, file
@@ -1617,6 +1877,8 @@ func newInternalReplicaFilesFilterTestHandler(t *testing.T, database *gorm.DB) (
 		nodeService,
 		service.NewInventoryService(inventoryRepo),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService),
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 
 	return handler, pair.AccessToken, replica, pendingFile

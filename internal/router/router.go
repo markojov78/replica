@@ -39,26 +39,14 @@ func New(
 	roleService *service.RoleService,
 	nodeService *service.NodeService,
 	inventoryService *service.InventoryService,
-	optionalServices ...any,
+	replicaService *service.ReplicaService,
+	shareService *service.ShareService,
+	storageRuntime *storage.Runtime,
 ) http.Handler {
 	mux := http.NewServeMux()
 	api := humago.New(mux, huma.DefaultConfig(ServiceName, info.Version))
 	apiGroup := huma.NewGroup(api, "/api")
 	internalGroup := huma.NewGroup(api, "/internal")
-
-	var replicaService *service.ReplicaService
-	var shareService *service.ShareService
-	var storageRuntime *storage.Runtime
-	for _, optionalService := range optionalServices {
-		switch optional := optionalService.(type) {
-		case *service.ReplicaService:
-			replicaService = optional
-		case *service.ShareService:
-			shareService = optional
-		case *storage.Runtime:
-			storageRuntime = optional
-		}
-	}
 
 	svc := services{
 		auth:        authService,
@@ -82,14 +70,13 @@ func New(
 		registerInternalNodeRoutes(internalGroup, svc)
 		registerInternalCommandRoutes(internalGroup, svc)
 		registerInternalReplicaRoutes(internalGroup, svc)
+		registerInternalShareRoutes(internalGroup, svc)
 		registerUserRoutes(apiGroup, svc)
 		registerRoleRoutes(apiGroup, svc)
 		registerNodeRoutes(apiGroup, svc)
 		registerInventoryRoutes(apiGroup, svc)
 		registerReplicaRoutes(apiGroup, svc)
-		if shareService != nil {
-			registerShareRoutes(apiGroup, svc)
-		}
+		registerShareRoutes(apiGroup, svc)
 		if err := admin.Register(mux, mux); err != nil {
 			panic(err)
 		}

@@ -548,7 +548,9 @@ func newShareRouteHandler(database *gorm.DB) http.Handler {
 		service.NewRoleService(repository.NewRoleRepository(database)),
 		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
+		nil,
 		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 }
 

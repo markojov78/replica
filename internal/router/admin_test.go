@@ -65,6 +65,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		service.NewInventoryService(inventoryRepo, nodeService),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService, settingService),
 		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 
 	response := adminRequest(t, handler, http.MethodGet, "/admin/nodes", nil, "")

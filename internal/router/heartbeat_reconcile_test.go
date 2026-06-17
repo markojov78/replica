@@ -71,6 +71,8 @@ func TestHeartbeatCreatesMissingReconcileCommand(t *testing.T) {
 		nodeService,
 		service.NewInventoryService(inventoryRepo, nodeService),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService, settings),
+		service.NewShareService(repository.NewShareRepository(database)),
+		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://destination-current.example","interval":60}`))

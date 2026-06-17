@@ -118,6 +118,23 @@ func (s *ShareService) ListPage(page, perPage int, filter ShareListFilter) (*Sha
 	}, nil
 }
 
+func (s *ShareService) ListForNode(nodeID string) ([]ShareDetails, error) {
+	shares, err := s.repo.ListForNode(strings.TrimSpace(nodeID))
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]ShareDetails, 0, len(shares))
+	for _, share := range shares {
+		details := toShareDetails(&share)
+		if err := s.loadShareUserPermissions(details); err != nil {
+			return nil, err
+		}
+		items = append(items, *details)
+	}
+	return items, nil
+}
+
 func (s *ShareService) Get(id uint) (*ShareDetails, error) {
 	share, err := s.repo.FindByID(id)
 	if err != nil {

@@ -1366,6 +1366,56 @@ Possible errors:
 - `403` disabled node
 - `403` revoked node
 
+### /shares endpoint
+
+This endpoint is node-authenticated and returns shares assigned to replicas on the authenticated node only.
+
+#### GET /shares
+Returns the current share assignments for the authenticated node.
+
+Behavior:
+- validates the bearer node JWT
+- resolves the current node from the auth token
+- returns only shares whose replica `node_id` matches the authenticated node
+- includes per-user and anonymous share permissions
+- does not support user-style filtering or pagination
+
+Example request:
+
+```http
+GET /internal/shares
+Authorization: Bearer node-access-token-value
+X-API-Version: 1
+```
+
+Example response:
+
+```json
+[
+  {
+    "id": 1,
+    "inventory_id": 1,
+    "replica_id": 3,
+    "name": "Vacation March 2026",
+    "status": "active",
+    "link_hash": "ImyZbX8zv0UrsCB7Rthq9R7nQMMKRyhT",
+    "share_expiration": "2026-03-17T10:30:00Z",
+    "user_permissions": [
+      {
+        "user_id": 15,
+        "permissions": ["read", "create", "update", "delete"]
+      }
+    ],
+    "anonymous_permissions": ["read"]
+  }
+]
+```
+
+Possible errors:
+- `401` missing authenticated node
+- `403` disabled node
+- `403` revoked node
+
 ### /replicas/{id}/files endpoint
 
 This endpoint is node-authenticated and does not require any explicit permission beyond a valid node access token.

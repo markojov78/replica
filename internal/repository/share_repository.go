@@ -50,6 +50,18 @@ func (r *ShareRepository) ListPage(page, perPage int, filter ShareListFilter) ([
 	return shares, total, nil
 }
 
+func (r *ShareRepository) ListForNode(nodeID string) ([]model.Share, error) {
+	var shares []model.Share
+	err := r.db.
+		Joins("JOIN replicas ON replicas.id = shares.replica_id").
+		Preload("Replica").
+		Preload("Replica.Inventory").
+		Where("replicas.node_id = ?", nodeID).
+		Order("shares.id asc").
+		Find(&shares).Error
+	return shares, err
+}
+
 func (r *ShareRepository) FindByID(id uint) (*model.Share, error) {
 	var share model.Share
 	if err := r.db.Preload("Replica").Preload("Replica.Inventory").First(&share, id).Error; err != nil {
