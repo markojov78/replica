@@ -24,7 +24,7 @@ func TestClientAuthenticateAndReportAvailability(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			if r.Method != http.MethodPost {
 				t.Fatalf("method = %s, want POST", r.Method)
 			}
@@ -38,7 +38,7 @@ func TestClientAuthenticateAndReportAvailability(t *testing.T) {
 				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
 				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
 			})
-		case "/internal/nodes":
+		case "/node/nodes":
 			if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
 				t.Fatalf("Authorization = %q, want %q", got, "Bearer access-token")
 			}
@@ -97,7 +97,7 @@ func TestClientAuthenticateAndReportAvailability(t *testing.T) {
 func TestClientListReplicaInventoryFilesSupportsStatusFilter(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(NodeTokenPair{
 				NodeID:                "node-a",
 				AccessToken:           "access-token",
@@ -105,7 +105,7 @@ func TestClientListReplicaInventoryFilesSupportsStatusFilter(t *testing.T) {
 				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
 				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
 			})
-		case "/internal/replica/7/files":
+		case "/node/replica/7/files":
 			if got := r.URL.Query().Get("status"); got != "pending" {
 				t.Fatalf("status query = %q, want pending", got)
 			}
@@ -136,7 +136,7 @@ func TestClientUpdateReplicaFileStatusUsesInternalEndpoint(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(NodeTokenPair{
 				NodeID:                "node-a",
 				AccessToken:           "access-token",
@@ -144,7 +144,7 @@ func TestClientUpdateReplicaFileStatusUsesInternalEndpoint(t *testing.T) {
 				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
 				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
 			})
-		case "/internal/replica/7/files/10":
+		case "/node/replica/7/files/10":
 			if r.Method != http.MethodPatch {
 				t.Fatalf("method = %s, want PATCH", r.Method)
 			}
@@ -173,7 +173,7 @@ func TestClientUpdateReplicaFileStatusUsesInternalEndpoint(t *testing.T) {
 
 func TestClientTransferReplicaFileContentUsesSourceNodeEndpoint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/internal/replicas/3/files/10/content" {
+		if r.URL.Path != "/transfer/replicas/3/files/10/content" {
 			t.Fatalf("path = %q, want transfer endpoint", r.URL.Path)
 		}
 		if got := r.URL.Query().Get("version"); got != "5" {
@@ -260,7 +260,7 @@ func TestClientUpdateCommandUsesInternalEndpoint(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(NodeTokenPair{
 				NodeID:                "node-a",
 				AccessToken:           "access-token",
@@ -268,7 +268,7 @@ func TestClientUpdateCommandUsesInternalEndpoint(t *testing.T) {
 				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
 				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
 			})
-		case "/internal/commands/7":
+		case "/node/commands/7":
 			if r.Method != http.MethodPatch {
 				t.Fatalf("method = %s, want PATCH", r.Method)
 			}
@@ -334,7 +334,7 @@ func TestClientUpdateCommandUsesInternalEndpoint(t *testing.T) {
 func TestClientListOwnReplicasUsesInternalReplicaEndpoint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(NodeTokenPair{
 				NodeID:                "node-a",
 				AccessToken:           "access-token",
@@ -342,7 +342,7 @@ func TestClientListOwnReplicasUsesInternalReplicaEndpoint(t *testing.T) {
 				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
 				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
 			})
-		case "/internal/replicas":
+		case "/node/replicas":
 			if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
 				t.Fatalf("Authorization = %q, want %q", got, "Bearer access-token")
 			}
@@ -393,7 +393,7 @@ func TestClientListReplicaFilesRefreshesExpiredToken(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/refresh":
+		case "/node/auth/refresh":
 			refreshCalled = true
 			_ = json.NewEncoder(w).Encode(NodeTokenPair{
 				NodeID:                "node-a",
@@ -402,7 +402,7 @@ func TestClientListReplicaFilesRefreshesExpiredToken(t *testing.T) {
 				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
 				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
 			})
-		case "/api/replicas/7/files":
+		case "/api/admin/replicas/7/files":
 			if got := r.Header.Get("Authorization"); got != "Bearer new-access-token" {
 				t.Fatalf("Authorization = %q, want %q", got, "Bearer new-access-token")
 			}
@@ -471,7 +471,7 @@ func TestClientListReplicaFilesRefreshesExpiredToken(t *testing.T) {
 func TestClientListReplicaInventoryFilesUsesInternalEndpoint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(NodeTokenPair{
 				NodeID:                "node-a",
 				AccessToken:           "access-token",
@@ -479,7 +479,7 @@ func TestClientListReplicaInventoryFilesUsesInternalEndpoint(t *testing.T) {
 				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
 				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
 			})
-		case "/internal/replica/7/files":
+		case "/node/replica/7/files":
 			if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
 				t.Fatalf("Authorization = %q, want %q", got, "Bearer access-token")
 			}
@@ -550,7 +550,7 @@ func TestClientReportReplicaFilesUsesInternalEndpoint(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(NodeTokenPair{
 				NodeID:                "node-a",
 				AccessToken:           "access-token",
@@ -558,7 +558,7 @@ func TestClientReportReplicaFilesUsesInternalEndpoint(t *testing.T) {
 				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
 				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
 			})
-		case "/internal/replica/7/files":
+		case "/node/replica/7/files":
 			if r.Method != http.MethodPost {
 				t.Fatalf("method = %s, want POST", r.Method)
 			}
@@ -643,7 +643,7 @@ func TestClientReportReplicaFilesRefreshesExpiredToken(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/refresh":
+		case "/node/auth/refresh":
 			refreshCalled = true
 			_ = json.NewEncoder(w).Encode(NodeTokenPair{
 				NodeID:                "node-a",
@@ -652,7 +652,7 @@ func TestClientReportReplicaFilesRefreshesExpiredToken(t *testing.T) {
 				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
 				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
 			})
-		case "/internal/replica/7/files":
+		case "/node/replica/7/files":
 			if r.Method != http.MethodPost {
 				t.Fatalf("method = %s, want POST", r.Method)
 			}

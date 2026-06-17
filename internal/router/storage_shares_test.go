@@ -16,8 +16,8 @@ import (
 func TestStorageOnlyAuthLoginProxiesToCoordinator(t *testing.T) {
 	loginCalls := 0
 	coordinator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/auth/login" {
-			t.Fatalf("path = %q, want /api/auth/login", r.URL.Path)
+		if r.URL.Path != "/api/admin/auth/login" {
+			t.Fatalf("path = %q, want /api/admin/auth/login", r.URL.Path)
 		}
 		loginCalls++
 		w.Header().Set("Content-Type", "application/json")
@@ -49,7 +49,7 @@ func TestStorageOnlyAuthLoginProxiesToCoordinator(t *testing.T) {
 	}
 	handler := New(cfg, buildinfo.Info{Version: "test"}, nil, nil, nil, nil, nil, nil, nil, runtime)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"username":"alice","password":"secret"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/share/auth/login", strings.NewReader(`{"username":"alice","password":"secret"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
 	recorder := httptest.NewRecorder()

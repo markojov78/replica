@@ -10,7 +10,7 @@ import (
 const ServiceName = "Replica"
 
 func registerServiceInfoRoute(mux *http.ServeMux, cfg config.Config, info buildinfo.Info, svc services) {
-	mux.HandleFunc("GET /api/{$}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/admin/{$}", func(w http.ResponseWriter, r *http.Request) {
 		if cfg.App.Coordinator || svc.auth != nil {
 			accessToken, err := bearerToken(r.Header.Get("Authorization"))
 			if err != nil {

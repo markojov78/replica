@@ -29,7 +29,7 @@ func TestServeReplicaFileContentStreamsValidRequest(t *testing.T) {
 	}
 
 	runtime, token := newTransferTestRuntime(t, root)
-	req := httptest.NewRequest(http.MethodGet, "/internal/replicas/1/files/10/content?version=7", nil)
+	req := httptest.NewRequest(http.MethodGet, "/transfer/replicas/1/files/10/content?version=7", nil)
 	req.SetPathValue("replica_id", "1")
 	req.SetPathValue("file_id", "10")
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -55,7 +55,7 @@ func TestServeReplicaFileContentRejectsVersionMismatch(t *testing.T) {
 	}
 
 	runtime, token := newTransferTestRuntime(t, root)
-	req := httptest.NewRequest(http.MethodGet, "/internal/replicas/1/files/10/content?version=8", nil)
+	req := httptest.NewRequest(http.MethodGet, "/transfer/replicas/1/files/10/content?version=8", nil)
 	req.SetPathValue("replica_id", "1")
 	req.SetPathValue("file_id", "10")
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -99,7 +99,7 @@ func TestServeReplicaFileContentStreamsS3ReplicaThroughReader(t *testing.T) {
 		}, nil
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/internal/replicas/1/files/10/content?version=7", nil)
+	req := httptest.NewRequest(http.MethodGet, "/transfer/replicas/1/files/10/content?version=7", nil)
 	req.SetPathValue("replica_id", "1")
 	req.SetPathValue("file_id", "10")
 	req.Header.Set("Authorization", "Bearer "+token)

@@ -68,20 +68,20 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		nil,
 	)
 
-	response := adminRequest(t, handler, http.MethodGet, "/admin/nodes", nil, "")
+	response := adminRequest(t, handler, http.MethodGet, "/dashboard/nodes", nil, "")
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "data-login-form") {
 		t.Fatalf("protected response = %d body=%q, want login page", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/static/admin.js", nil, "")
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/static/admin.js", nil, "")
 	for _, required := range []string{
 		"localStorage",
 		"access_token_expires_at",
 		"refresh_token_expires_at",
-		"/api/auth/login",
-		"/api/auth/refresh",
-		"/api/auth/logout",
-		"/api/auth/me",
+		"/api/admin/auth/login",
+		"/api/admin/auth/refresh",
+		"/api/admin/auth/logout",
+		"/api/admin/auth/me",
 		"data-hide-deleted",
 		"replica_admin_user_",
 		"replica_admin_username",
@@ -95,7 +95,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal(login) error = %v", err)
 	}
-	loginRequest := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/admin/auth/login", bytes.NewReader(loginBody))
 	loginRequest.Header.Set("Content-Type", "application/json")
 	loginRequest.Header.Set("X-API-Version", "1")
 	response = httptest.NewRecorder()
@@ -111,16 +111,16 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}
 	accessToken := pair.AccessToken
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/users", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/users", nil, accessToken)
 	if response.Code != http.StatusOK ||
-		!strings.Contains(response.Body.String(), `href="/admin/users"`) ||
+		!strings.Contains(response.Body.String(), `href="/dashboard/users"`) ||
 		!strings.Contains(response.Body.String(), `data-current-username`) ||
 		!strings.Contains(response.Body.String(), `data-hide-deleted="users"`) ||
 		!strings.Contains(response.Body.String(), "admin") {
 		t.Fatalf("users response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/users/new", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/users/new", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "New user") ||
 		!strings.Contains(response.Body.String(), `name="role_ids"`) ||
@@ -128,16 +128,16 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("new user response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/users", url.Values{
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/users", url.Values{
 		"name":     {"operator"},
 		"password": {"operator-secret"},
 		"role_ids": {"1"},
 	}, accessToken)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/users" {
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/users" {
 		t.Fatalf("create user response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/users/2/edit", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/users/2/edit", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "Edit user") ||
 		!strings.Contains(response.Body.String(), `value="operator"`) ||
@@ -145,33 +145,33 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("edit user response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/users/2", url.Values{
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/users/2", url.Values{
 		"name":     {"operator-updated"},
 		"password": {""},
 		"status":   {"deleted"},
 		"role_ids": {"1"},
 	}, accessToken)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/users" {
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/users" {
 		t.Fatalf("update user response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/users", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/users", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "operator-updated") ||
 		!strings.Contains(response.Body.String(), `data-filter-item="users" data-status="deleted"`) {
 		t.Fatalf("updated users response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/roles", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/roles", nil, accessToken)
 	if response.Code != http.StatusOK ||
-		!strings.Contains(response.Body.String(), `href="/admin/roles"`) ||
+		!strings.Contains(response.Body.String(), `href="/dashboard/roles"`) ||
 		!strings.Contains(response.Body.String(), "Admin") ||
 		!strings.Contains(response.Body.String(), `data-hide-deleted="roles"`) ||
 		!strings.Contains(response.Body.String(), `data-filter-item="roles"`) {
 		t.Fatalf("roles response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/roles/new", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/roles/new", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "New role") ||
 		!strings.Contains(response.Body.String(), `value="users:read"`) ||
@@ -182,16 +182,16 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("new role response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/roles", url.Values{
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/roles", url.Values{
 		"name":        {"operators"},
 		"description": {"Operations team"},
 		"permissions": {"users:read", "inventories:read", "nodes:update"},
 	}, accessToken)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/roles" {
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/roles" {
 		t.Fatalf("create role response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/roles/2/edit", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/roles/2/edit", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "Edit role") ||
 		!strings.Contains(response.Body.String(), `value="operators"`) ||
@@ -201,17 +201,17 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("edit role response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/roles/2", url.Values{
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/roles/2", url.Values{
 		"name":        {"operators-updated"},
 		"description": {"Updated operations team"},
 		"status":      {"deleted"},
 		"permissions": {"shares:read", "nodes:delete"},
 	}, accessToken)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/roles" {
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/roles" {
 		t.Fatalf("update role response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/roles", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/roles", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "operators-updated") ||
 		!strings.Contains(response.Body.String(), "shares: read") ||
@@ -220,30 +220,30 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("updated roles response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "Inventories") ||
 		!strings.Contains(response.Body.String(), `data-hide-deleted="inventories"`) {
 		t.Fatalf("inventories response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories/new", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/new", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), `name="folder_uri"`) ||
 		!strings.Contains(response.Body.String(), `name="file_uris"`) {
 		t.Fatalf("new inventory form response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories", url.Values{
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/inventories", url.Values{
 		"name":       {"Documents"},
 		"node_id":    {"node-a"},
 		"folder_uri": {"/srv/documents"},
 	}, accessToken)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/inventories/1" {
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/inventories/1" {
 		t.Fatalf("create inventory response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories", nil, accessToken)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `data-filter-item="inventories"`) {
 		t.Fatalf("inventories filtering markup response = %d body=%q", response.Code, response.Body.String())
 	}
@@ -266,7 +266,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("Create(files) error = %v", err)
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories/1", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "Documents") ||
 		!strings.Contains(response.Body.String(), "Replicas") ||
@@ -275,43 +275,43 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), "Inventory files") ||
 		!strings.Contains(response.Body.String(), "file-1.txt") ||
 		!strings.Contains(response.Body.String(), "20 of 21 files, page 1 of 2") ||
-		!strings.Contains(response.Body.String(), "/admin/inventories/1?page=2&count=20") ||
+		!strings.Contains(response.Body.String(), "/dashboard/inventories/1?page=2&count=20") ||
 		!strings.Contains(response.Body.String(), "Files per page") {
 		t.Fatalf("inventory detail response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories/1?page=2&count=20", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1?page=2&count=20", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "file-21.txt") ||
 		!strings.Contains(response.Body.String(), "1 of 21 files, page 2 of 2") ||
-		!strings.Contains(response.Body.String(), "/admin/inventories/1?page=1&count=20") {
+		!strings.Contains(response.Body.String(), "/dashboard/inventories/1?page=1&count=20") {
 		t.Fatalf("inventory files page 2 response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/inventories/1?page=2&count=10", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1?page=2&count=10", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "10 of 21 files, page 2 of 3") ||
-		!strings.Contains(response.Body.String(), "/admin/inventories/1?page=1&count=10") ||
-		!strings.Contains(response.Body.String(), "/admin/inventories/1?page=3&count=10") {
+		!strings.Contains(response.Body.String(), "/dashboard/inventories/1?page=1&count=10") ||
+		!strings.Contains(response.Body.String(), "/dashboard/inventories/1?page=3&count=10") {
 		t.Fatalf("inventory files custom page size response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/1/replicas", url.Values{
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/inventories/1/replicas", url.Values{
 		"node_id":             {"node-b"},
 		"uri":                 {"/backup/documents"},
 		"type":                {"filesystem"},
 		"upstream_replica_id": {"1"},
 	}, accessToken)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/inventories/1" {
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/inventories/1" {
 		t.Fatalf("create replica response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/1/replicas/2", url.Values{
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/inventories/1/replicas/2", url.Values{
 		"type":                {"filesystem"},
 		"status":              {"active"},
 		"upstream_replica_id": {""},
 	}, accessToken)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/inventories/1" {
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/inventories/1" {
 		t.Fatalf("update replica response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
 	var updatedReplica model.Replica
@@ -322,15 +322,15 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("updatedReplica.UpstreamReplicaID = %v, want nil", updatedReplica.UpstreamReplicaID)
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/shares", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/shares", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "Shares") ||
 		!strings.Contains(response.Body.String(), `data-hide-deleted="shares"`) ||
-		!strings.Contains(response.Body.String(), `href="/admin/shares/new"`) {
+		!strings.Contains(response.Body.String(), `href="/dashboard/shares/new"`) {
 		t.Fatalf("shares response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/shares/new", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/shares/new", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "New share") ||
 		!strings.Contains(response.Body.String(), `name="replica_id"`) ||
@@ -347,7 +347,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("First(admin user) error = %v", err)
 	}
 	expiresAt := "2026-03-17"
-	response = adminRequest(t, handler, http.MethodPost, "/admin/shares", url.Values{
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/shares", url.Values{
 		"replica_id": {"1"},
 		"name":       {""},
 		"user_permissions_" + strconv.FormatUint(uint64(adminUser.ID), 10): {"read", "update", "delete"},
@@ -355,7 +355,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		"enable_expiration":     {"1"},
 		"share_expiration":      {expiresAt},
 	}, accessToken)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/shares" {
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/shares" {
 		t.Fatalf("create share response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
 	var createdShare model.Share
@@ -395,7 +395,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("anonymousPermissionCount = %d, want 2", anonymousPermissionCount)
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/shares", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/shares", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), `data-filter-item="shares"`) ||
 		!strings.Contains(response.Body.String(), `Share #1`) ||
@@ -405,7 +405,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("created share response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/shares/1/edit", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/shares/1/edit", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "Edit share") ||
 		!strings.Contains(response.Body.String(), `value="Documents"`) ||
@@ -415,11 +415,11 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("edit share response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/shares/1", url.Values{
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/shares/1", url.Values{
 		"name":   {"Documents shared"},
 		"status": {"active"},
 	}, accessToken)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/shares" {
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/shares" {
 		t.Fatalf("update share response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
 	var updatedShare model.Share
@@ -433,37 +433,37 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("updatedShare.ShareExpiration = %v, want nil after disabling expiration", updatedShare.ShareExpiration)
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/shares/1/delete", nil, accessToken)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/shares" {
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/shares/1/delete", nil, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/shares" {
 		t.Fatalf("delete share response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/shares", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/shares", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "Documents shared") ||
 		!strings.Contains(response.Body.String(), `data-filter-item="shares" data-status="deleted"`) {
 		t.Fatalf("deleted share response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/999/delete", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/inventories/999/delete", nil, accessToken)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "inventory not found") {
 		t.Fatalf("delete missing inventory response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/1/delete", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/inventories/1/delete", nil, accessToken)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "inventory has active replicas") {
 		t.Fatalf("delete active inventory response = %d body=%q", response.Code, response.Body.String())
 	}
 
 	for _, replicaID := range []string{"2", "1"} {
-		response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/1/replicas/"+replicaID+"/delete", nil, accessToken)
-		if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/inventories/1" {
+		response = adminRequest(t, handler, http.MethodPost, "/dashboard/inventories/1/replicas/"+replicaID+"/delete", nil, accessToken)
+		if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/inventories/1" {
 			t.Fatalf("delete replica %s response = %d location=%q body=%q", replicaID, response.Code, response.Header().Get("Location"), response.Body.String())
 		}
 	}
 
-	response = adminRequest(t, handler, http.MethodPost, "/admin/inventories/1/delete", nil, accessToken)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/inventories" {
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/inventories/1/delete", nil, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/inventories" {
 		t.Fatalf("delete inventory response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
 	var deletedInventory model.Inventory
@@ -474,12 +474,12 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("deletedInventory.Status = %q, want %q", deletedInventory.Status, model.InventoryStatusDeleted)
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/nodes", nil, accessToken)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/nodes", nil, accessToken)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "node-a") {
 		t.Fatalf("nodes response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	response = adminRequest(t, handler, http.MethodGet, "/admin/nodes", nil, "invalid")
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/nodes", nil, "invalid")
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("invalid token response = %d body=%q, want 401", response.Code, response.Body.String())
 	}

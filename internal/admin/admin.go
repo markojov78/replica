@@ -216,43 +216,43 @@ func Register(mux *http.ServeMux, api http.Handler) error {
 		pages: pages,
 	}
 
-	mux.Handle("GET /admin/static/", http.StripPrefix("/admin/static/", http.FileServer(http.FS(mustSub(assets, "static")))))
-	mux.HandleFunc("GET /admin/login", handler.loginPage)
-	mux.HandleFunc("GET /admin", handler.protected(handler.dashboard))
-	mux.HandleFunc("GET /admin/nodes", handler.protected(handler.nodesPage))
-	mux.HandleFunc("GET /admin/nodes/new", handler.protected(handler.newNodePage))
-	mux.HandleFunc("POST /admin/nodes", handler.protected(handler.createNode))
-	mux.HandleFunc("GET /admin/nodes/{id}/edit", handler.protected(handler.editNodePage))
-	mux.HandleFunc("POST /admin/nodes/{id}", handler.protected(handler.updateNode))
-	mux.HandleFunc("POST /admin/nodes/{id}/revoke", handler.protected(handler.revokeNode))
-	mux.HandleFunc("GET /admin/inventories", handler.protected(handler.inventoriesPage))
-	mux.HandleFunc("GET /admin/inventories/new", handler.protected(handler.newInventoryPage))
-	mux.HandleFunc("POST /admin/inventories", handler.protected(handler.createInventory))
-	mux.HandleFunc("GET /admin/inventories/{id}", handler.protected(handler.inventoryPage))
-	mux.HandleFunc("GET /admin/inventories/{id}/edit", handler.protected(handler.editInventoryPage))
-	mux.HandleFunc("POST /admin/inventories/{id}", handler.protected(handler.updateInventory))
-	mux.HandleFunc("POST /admin/inventories/{id}/delete", handler.protected(handler.deleteInventory))
-	mux.HandleFunc("GET /admin/inventories/{id}/replicas/new", handler.protected(handler.newReplicaPage))
-	mux.HandleFunc("POST /admin/inventories/{id}/replicas", handler.protected(handler.createReplica))
-	mux.HandleFunc("GET /admin/inventories/{id}/replicas/{replica_id}/edit", handler.protected(handler.editReplicaPage))
-	mux.HandleFunc("POST /admin/inventories/{id}/replicas/{replica_id}", handler.protected(handler.updateReplica))
-	mux.HandleFunc("POST /admin/inventories/{id}/replicas/{replica_id}/delete", handler.protected(handler.deleteReplica))
-	mux.HandleFunc("GET /admin/shares", handler.protected(handler.sharesPage))
-	mux.HandleFunc("GET /admin/shares/new", handler.protected(handler.newSharePage))
-	mux.HandleFunc("POST /admin/shares", handler.protected(handler.createShare))
-	mux.HandleFunc("GET /admin/shares/{id}/edit", handler.protected(handler.editSharePage))
-	mux.HandleFunc("POST /admin/shares/{id}", handler.protected(handler.updateShare))
-	mux.HandleFunc("POST /admin/shares/{id}/delete", handler.protected(handler.deleteShare))
-	mux.HandleFunc("GET /admin/users", handler.protected(handler.usersPage))
-	mux.HandleFunc("GET /admin/users/new", handler.protected(handler.newUserPage))
-	mux.HandleFunc("POST /admin/users", handler.protected(handler.createUser))
-	mux.HandleFunc("GET /admin/users/{id}/edit", handler.protected(handler.editUserPage))
-	mux.HandleFunc("POST /admin/users/{id}", handler.protected(handler.updateUser))
-	mux.HandleFunc("GET /admin/roles", handler.protected(handler.rolesPage))
-	mux.HandleFunc("GET /admin/roles/new", handler.protected(handler.newRolePage))
-	mux.HandleFunc("POST /admin/roles", handler.protected(handler.createRole))
-	mux.HandleFunc("GET /admin/roles/{id}/edit", handler.protected(handler.editRolePage))
-	mux.HandleFunc("POST /admin/roles/{id}", handler.protected(handler.updateRole))
+	mux.Handle("GET /dashboard/static/", http.StripPrefix("/dashboard/static/", http.FileServer(http.FS(mustSub(assets, "static")))))
+	mux.HandleFunc("GET /dashboard/login", handler.loginPage)
+	mux.HandleFunc("GET /dashboard", handler.protected(handler.dashboard))
+	mux.HandleFunc("GET /dashboard/nodes", handler.protected(handler.nodesPage))
+	mux.HandleFunc("GET /dashboard/nodes/new", handler.protected(handler.newNodePage))
+	mux.HandleFunc("POST /dashboard/nodes", handler.protected(handler.createNode))
+	mux.HandleFunc("GET /dashboard/nodes/{id}/edit", handler.protected(handler.editNodePage))
+	mux.HandleFunc("POST /dashboard/nodes/{id}", handler.protected(handler.updateNode))
+	mux.HandleFunc("POST /dashboard/nodes/{id}/revoke", handler.protected(handler.revokeNode))
+	mux.HandleFunc("GET /dashboard/inventories", handler.protected(handler.inventoriesPage))
+	mux.HandleFunc("GET /dashboard/inventories/new", handler.protected(handler.newInventoryPage))
+	mux.HandleFunc("POST /dashboard/inventories", handler.protected(handler.createInventory))
+	mux.HandleFunc("GET /dashboard/inventories/{id}", handler.protected(handler.inventoryPage))
+	mux.HandleFunc("GET /dashboard/inventories/{id}/edit", handler.protected(handler.editInventoryPage))
+	mux.HandleFunc("POST /dashboard/inventories/{id}", handler.protected(handler.updateInventory))
+	mux.HandleFunc("POST /dashboard/inventories/{id}/delete", handler.protected(handler.deleteInventory))
+	mux.HandleFunc("GET /dashboard/inventories/{id}/replicas/new", handler.protected(handler.newReplicaPage))
+	mux.HandleFunc("POST /dashboard/inventories/{id}/replicas", handler.protected(handler.createReplica))
+	mux.HandleFunc("GET /dashboard/inventories/{id}/replicas/{replica_id}/edit", handler.protected(handler.editReplicaPage))
+	mux.HandleFunc("POST /dashboard/inventories/{id}/replicas/{replica_id}", handler.protected(handler.updateReplica))
+	mux.HandleFunc("POST /dashboard/inventories/{id}/replicas/{replica_id}/delete", handler.protected(handler.deleteReplica))
+	mux.HandleFunc("GET /dashboard/shares", handler.protected(handler.sharesPage))
+	mux.HandleFunc("GET /dashboard/shares/new", handler.protected(handler.newSharePage))
+	mux.HandleFunc("POST /dashboard/shares", handler.protected(handler.createShare))
+	mux.HandleFunc("GET /dashboard/shares/{id}/edit", handler.protected(handler.editSharePage))
+	mux.HandleFunc("POST /dashboard/shares/{id}", handler.protected(handler.updateShare))
+	mux.HandleFunc("POST /dashboard/shares/{id}/delete", handler.protected(handler.deleteShare))
+	mux.HandleFunc("GET /dashboard/users", handler.protected(handler.usersPage))
+	mux.HandleFunc("GET /dashboard/users/new", handler.protected(handler.newUserPage))
+	mux.HandleFunc("POST /dashboard/users", handler.protected(handler.createUser))
+	mux.HandleFunc("GET /dashboard/users/{id}/edit", handler.protected(handler.editUserPage))
+	mux.HandleFunc("POST /dashboard/users/{id}", handler.protected(handler.updateUser))
+	mux.HandleFunc("GET /dashboard/roles", handler.protected(handler.rolesPage))
+	mux.HandleFunc("GET /dashboard/roles/new", handler.protected(handler.newRolePage))
+	mux.HandleFunc("POST /dashboard/roles", handler.protected(handler.createRole))
+	mux.HandleFunc("GET /dashboard/roles/{id}/edit", handler.protected(handler.editRolePage))
+	mux.HandleFunc("POST /dashboard/roles/{id}", handler.protected(handler.updateRole))
 	return nil
 }
 
@@ -269,12 +269,12 @@ func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request, _ authContext) {
-	http.Redirect(w, r, "/admin/inventories", http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/inventories", http.StatusSeeOther)
 }
 
 func (h *Handler) nodesPage(w http.ResponseWriter, r *http.Request, sess authContext) {
 	var list nodeList
-	if !h.load(w, r, sess, "/api/nodes?count=100", &list) {
+	if !h.load(w, r, sess, "/api/admin/nodes?count=100", &list) {
 		return
 	}
 	h.render(w, "nodes", pageData{
@@ -300,7 +300,7 @@ func (h *Handler) createNode(w http.ResponseWriter, r *http.Request, sess authCo
 		"address": strings.TrimSpace(r.FormValue("address")),
 		"status":  r.FormValue("status"),
 	}
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/nodes", input, nil); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/admin/nodes", input, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
 			h.renderError(w, r, sess, err)
 			return
@@ -308,12 +308,12 @@ func (h *Handler) createNode(w http.ResponseWriter, r *http.Request, sess authCo
 		h.nodeFormError(w, false, node{ID: r.FormValue("id"), Address: r.FormValue("address"), Status: r.FormValue("status")}, apiMessage(err))
 		return
 	}
-	http.Redirect(w, r, "/admin/nodes", http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/nodes", http.StatusSeeOther)
 }
 
 func (h *Handler) editNodePage(w http.ResponseWriter, r *http.Request, sess authContext) {
 	var item node
-	if !h.load(w, r, sess, "/api/nodes/"+url.PathEscape(r.PathValue("id")), &item) {
+	if !h.load(w, r, sess, "/api/admin/nodes/"+url.PathEscape(r.PathValue("id")), &item) {
 		return
 	}
 	h.render(w, "node_form", pageData{
@@ -336,7 +336,7 @@ func (h *Handler) updateNode(w http.ResponseWriter, r *http.Request, sess authCo
 		input["secret"] = secret
 	}
 	id := r.PathValue("id")
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/nodes/"+url.PathEscape(id), input, nil); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/admin/nodes/"+url.PathEscape(id), input, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
 			h.renderError(w, r, sess, err)
 			return
@@ -344,20 +344,20 @@ func (h *Handler) updateNode(w http.ResponseWriter, r *http.Request, sess authCo
 		h.nodeFormError(w, true, node{ID: id, Address: r.FormValue("address"), Status: r.FormValue("status")}, apiMessage(err))
 		return
 	}
-	http.Redirect(w, r, "/admin/nodes", http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/nodes", http.StatusSeeOther)
 }
 
 func (h *Handler) revokeNode(w http.ResponseWriter, r *http.Request, sess authContext) {
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodDelete, "/api/nodes/"+url.PathEscape(r.PathValue("id")), nil, nil); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodDelete, "/api/admin/nodes/"+url.PathEscape(r.PathValue("id")), nil, nil); err != nil {
 		h.renderError(w, r, sess, err)
 		return
 	}
-	http.Redirect(w, r, "/admin/nodes", http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/nodes", http.StatusSeeOther)
 }
 
 func (h *Handler) inventoriesPage(w http.ResponseWriter, r *http.Request, sess authContext) {
 	var list inventoryList
-	if !h.load(w, r, sess, "/api/inventories?count=100", &list) {
+	if !h.load(w, r, sess, "/api/admin/inventories?count=100", &list) {
 		return
 	}
 	h.render(w, "inventories", pageData{
@@ -392,7 +392,7 @@ func (h *Handler) createInventory(w http.ResponseWriter, r *http.Request, sess a
 		input["file_uris"] = fileURIs
 	}
 	var created inventory
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/inventories", input, &created); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/admin/inventories", input, &created); err != nil {
 		if errors.Is(err, errUnauthorized) {
 			h.renderError(w, r, sess, err)
 			return
@@ -400,7 +400,7 @@ func (h *Handler) createInventory(w http.ResponseWriter, r *http.Request, sess a
 		h.inventoryFormError(w, r, sess, false, inventory{Name: r.FormValue("name")}, apiMessage(err))
 		return
 	}
-	http.Redirect(w, r, fmt.Sprintf("/admin/inventories/%d", created.ID), http.StatusSeeOther)
+	http.Redirect(w, r, fmt.Sprintf("/dashboard/inventories/%d", created.ID), http.StatusSeeOther)
 }
 
 func (h *Handler) inventoryPage(w http.ResponseWriter, r *http.Request, sess authContext) {
@@ -409,20 +409,20 @@ func (h *Handler) inventoryPage(w http.ResponseWriter, r *http.Request, sess aut
 
 func (h *Handler) renderInventoryPage(w http.ResponseWriter, r *http.Request, sess authContext, message string) {
 	var item inventory
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, "/api/inventories/"+r.PathValue("id"), nil, &item); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, "/api/admin/inventories/"+r.PathValue("id"), nil, &item); err != nil {
 		h.renderInventoryPageLoadError(w, r, sess, err, message)
 		return
 	}
 	page := positiveInt(r.URL.Query().Get("page"), 1)
 	count := filePageSize(r.URL.Query().Get("count"))
 	var files inventoryFileList
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, fmt.Sprintf("/api/inventories/%s/files?page=%d&count=%d", r.PathValue("id"), page, count), nil, &files); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, fmt.Sprintf("/api/admin/inventories/%s/files?page=%d&count=%d", r.PathValue("id"), page, count), nil, &files); err != nil {
 		h.renderInventoryPageLoadError(w, r, sess, err, message)
 		return
 	}
 	totalPages := pageCount(files.Total, files.Count)
 	if files.Total > 0 && files.Page > totalPages {
-		if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, fmt.Sprintf("/api/inventories/%s/files?page=%d&count=%d", r.PathValue("id"), totalPages, count), nil, &files); err != nil {
+		if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, fmt.Sprintf("/api/admin/inventories/%s/files?page=%d&count=%d", r.PathValue("id"), totalPages, count), nil, &files); err != nil {
 			h.renderInventoryPageLoadError(w, r, sess, err, message)
 			return
 		}
@@ -445,7 +445,7 @@ func (h *Handler) renderInventoryPageLoadError(w http.ResponseWriter, r *http.Re
 
 func (h *Handler) editInventoryPage(w http.ResponseWriter, r *http.Request, sess authContext) {
 	var item inventory
-	if !h.load(w, r, sess, "/api/inventories/"+r.PathValue("id"), &item) {
+	if !h.load(w, r, sess, "/api/admin/inventories/"+r.PathValue("id"), &item) {
 		return
 	}
 	h.render(w, "inventory_form", pageData{
@@ -461,7 +461,7 @@ func (h *Handler) updateInventory(w http.ResponseWriter, r *http.Request, sess a
 	}
 	id, _ := strconv.ParseUint(r.PathValue("id"), 10, 64)
 	item := inventory{ID: uint(id), Name: r.FormValue("name"), Status: r.FormValue("status")}
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/inventories/"+r.PathValue("id"), map[string]any{
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/admin/inventories/"+r.PathValue("id"), map[string]any{
 		"name": item.Name, "status": item.Status,
 	}, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
@@ -471,11 +471,11 @@ func (h *Handler) updateInventory(w http.ResponseWriter, r *http.Request, sess a
 		h.inventoryFormError(w, r, sess, true, item, apiMessage(err))
 		return
 	}
-	http.Redirect(w, r, "/admin/inventories/"+r.PathValue("id"), http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/inventories/"+r.PathValue("id"), http.StatusSeeOther)
 }
 
 func (h *Handler) deleteInventory(w http.ResponseWriter, r *http.Request, sess authContext) {
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodDelete, "/api/inventories/"+r.PathValue("id"), nil, nil); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodDelete, "/api/admin/inventories/"+r.PathValue("id"), nil, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
 			h.renderError(w, r, sess, err)
 			return
@@ -483,7 +483,7 @@ func (h *Handler) deleteInventory(w http.ResponseWriter, r *http.Request, sess a
 		h.renderInventoryPage(w, r, sess, apiMessage(err))
 		return
 	}
-	http.Redirect(w, r, "/admin/inventories", http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/inventories", http.StatusSeeOther)
 }
 
 func (h *Handler) newReplicaPage(w http.ResponseWriter, r *http.Request, sess authContext) {
@@ -512,7 +512,7 @@ func (h *Handler) createReplica(w http.ResponseWriter, r *http.Request, sess aut
 	if upstream := optionalUint(r.FormValue("upstream_replica_id")); upstream != nil {
 		input["upstream_replica_id"] = *upstream
 	}
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/replicas", input, nil); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/admin/replicas", input, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
 			h.renderError(w, r, sess, err)
 			return
@@ -523,7 +523,7 @@ func (h *Handler) createReplica(w http.ResponseWriter, r *http.Request, sess aut
 		}, apiMessage(err))
 		return
 	}
-	http.Redirect(w, r, "/admin/inventories/"+r.PathValue("id"), http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/inventories/"+r.PathValue("id"), http.StatusSeeOther)
 }
 
 func (h *Handler) editReplicaPage(w http.ResponseWriter, r *http.Request, sess authContext) {
@@ -532,7 +532,7 @@ func (h *Handler) editReplicaPage(w http.ResponseWriter, r *http.Request, sess a
 		return
 	}
 	var item replica
-	if !h.load(w, r, sess, "/api/replicas/"+r.PathValue("replica_id"), &item) {
+	if !h.load(w, r, sess, "/api/admin/replicas/"+r.PathValue("replica_id"), &item) {
 		return
 	}
 	if item.InventoryID != inv.ID {
@@ -560,7 +560,7 @@ func (h *Handler) updateReplica(w http.ResponseWriter, r *http.Request, sess aut
 		"status":              item.Status,
 		"upstream_replica_id": item.UpstreamReplicaID,
 	}
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/replicas/"+r.PathValue("replica_id"), input, nil); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/admin/replicas/"+r.PathValue("replica_id"), input, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
 			h.renderError(w, r, sess, err)
 			return
@@ -568,20 +568,20 @@ func (h *Handler) updateReplica(w http.ResponseWriter, r *http.Request, sess aut
 		h.replicaFormError(w, r, sess, true, item, apiMessage(err))
 		return
 	}
-	http.Redirect(w, r, "/admin/inventories/"+r.PathValue("id"), http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/inventories/"+r.PathValue("id"), http.StatusSeeOther)
 }
 
 func (h *Handler) deleteReplica(w http.ResponseWriter, r *http.Request, sess authContext) {
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodDelete, "/api/replicas/"+r.PathValue("replica_id"), nil, nil); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodDelete, "/api/admin/replicas/"+r.PathValue("replica_id"), nil, nil); err != nil {
 		h.renderError(w, r, sess, err)
 		return
 	}
-	http.Redirect(w, r, "/admin/inventories/"+r.PathValue("id"), http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/inventories/"+r.PathValue("id"), http.StatusSeeOther)
 }
 
 func (h *Handler) sharesPage(w http.ResponseWriter, r *http.Request, sess authContext) {
 	var list shareList
-	if !h.load(w, r, sess, "/api/shares?count=100", &list) {
+	if !h.load(w, r, sess, "/api/admin/shares?count=100", &list) {
 		return
 	}
 	inventories, ok := h.loadInventories(w, r, sess)
@@ -644,7 +644,7 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request, sess authC
 		}
 		input["share_expiration"] = expiration
 	}
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/shares", input, nil); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/admin/shares", input, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
 			h.renderError(w, r, sess, err)
 			return
@@ -652,12 +652,12 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request, sess authC
 		h.shareFormError(w, r, sess, false, item, apiMessage(err))
 		return
 	}
-	http.Redirect(w, r, "/admin/shares", http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/shares", http.StatusSeeOther)
 }
 
 func (h *Handler) editSharePage(w http.ResponseWriter, r *http.Request, sess authContext) {
 	var item share
-	if !h.load(w, r, sess, "/api/shares/"+r.PathValue("id"), &item) {
+	if !h.load(w, r, sess, "/api/admin/shares/"+r.PathValue("id"), &item) {
 		return
 	}
 	users, ok := h.loadUsers(w, r, sess)
@@ -682,7 +682,7 @@ func (h *Handler) updateShare(w http.ResponseWriter, r *http.Request, sess authC
 	}
 	id, _ := strconv.ParseUint(r.PathValue("id"), 10, 64)
 	var current share
-	if !h.load(w, r, sess, "/api/shares/"+r.PathValue("id"), &current) {
+	if !h.load(w, r, sess, "/api/admin/shares/"+r.PathValue("id"), &current) {
 		return
 	}
 	item := share{
@@ -720,7 +720,7 @@ func (h *Handler) updateShare(w http.ResponseWriter, r *http.Request, sess authC
 	} else {
 		input["share_expiration"] = nil
 	}
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/shares/"+r.PathValue("id"), input, nil); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/admin/shares/"+r.PathValue("id"), input, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
 			h.renderError(w, r, sess, err)
 			return
@@ -728,11 +728,11 @@ func (h *Handler) updateShare(w http.ResponseWriter, r *http.Request, sess authC
 		h.shareFormError(w, r, sess, true, item, apiMessage(err))
 		return
 	}
-	http.Redirect(w, r, "/admin/shares", http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/shares", http.StatusSeeOther)
 }
 
 func (h *Handler) deleteShare(w http.ResponseWriter, r *http.Request, sess authContext) {
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodDelete, "/api/shares/"+r.PathValue("id"), nil, nil); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodDelete, "/api/admin/shares/"+r.PathValue("id"), nil, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
 			h.renderError(w, r, sess, err)
 			return
@@ -740,12 +740,12 @@ func (h *Handler) deleteShare(w http.ResponseWriter, r *http.Request, sess authC
 		h.renderSharesPageError(w, r, sess, apiMessage(err))
 		return
 	}
-	http.Redirect(w, r, "/admin/shares", http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/shares", http.StatusSeeOther)
 }
 
 func (h *Handler) usersPage(w http.ResponseWriter, r *http.Request, sess authContext) {
 	var list userList
-	if !h.load(w, r, sess, "/api/users?count=100", &list) {
+	if !h.load(w, r, sess, "/api/admin/users?count=100", &list) {
 		return
 	}
 	h.render(w, "users", pageData{
@@ -775,7 +775,7 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request, sess authCo
 		"password": r.FormValue("password"),
 		"role_ids": formUintValues(r.Form["role_ids"]),
 	}
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/users", input, nil); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/admin/users", input, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
 			h.renderError(w, r, sess, err)
 			return
@@ -783,12 +783,12 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request, sess authCo
 		h.userFormError(w, r, sess, false, user{Name: r.FormValue("name")}, apiMessage(err))
 		return
 	}
-	http.Redirect(w, r, "/admin/users", http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/users", http.StatusSeeOther)
 }
 
 func (h *Handler) editUserPage(w http.ResponseWriter, r *http.Request, sess authContext) {
 	var item user
-	if !h.load(w, r, sess, "/api/users/"+r.PathValue("id"), &item) {
+	if !h.load(w, r, sess, "/api/admin/users/"+r.PathValue("id"), &item) {
 		return
 	}
 	roles, ok := h.loadRoles(w, r, sess)
@@ -817,7 +817,7 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request, sess authCo
 	if password := r.FormValue("password"); password != "" {
 		input["password"] = password
 	}
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/users/"+r.PathValue("id"), input, nil); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/admin/users/"+r.PathValue("id"), input, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
 			h.renderError(w, r, sess, err)
 			return
@@ -825,12 +825,12 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request, sess authCo
 		h.userFormError(w, r, sess, true, item, apiMessage(err))
 		return
 	}
-	http.Redirect(w, r, "/admin/users", http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/users", http.StatusSeeOther)
 }
 
 func (h *Handler) rolesPage(w http.ResponseWriter, r *http.Request, sess authContext) {
 	var list roleList
-	if !h.load(w, r, sess, "/api/roles?count=100", &list) {
+	if !h.load(w, r, sess, "/api/admin/roles?count=100", &list) {
 		return
 	}
 	h.render(w, "roles", pageData{
@@ -858,7 +858,7 @@ func (h *Handler) createRole(w http.ResponseWriter, r *http.Request, sess authCo
 		"description": strings.TrimSpace(item.Description),
 		"permissions": permissions,
 	}
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/roles", input, nil); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/admin/roles", input, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
 			h.renderError(w, r, sess, err)
 			return
@@ -866,12 +866,12 @@ func (h *Handler) createRole(w http.ResponseWriter, r *http.Request, sess authCo
 		h.roleFormError(w, false, item, permissions, apiMessage(err))
 		return
 	}
-	http.Redirect(w, r, "/admin/roles", http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/roles", http.StatusSeeOther)
 }
 
 func (h *Handler) editRolePage(w http.ResponseWriter, r *http.Request, sess authContext) {
 	var item role
-	if !h.load(w, r, sess, "/api/roles/"+r.PathValue("id"), &item) {
+	if !h.load(w, r, sess, "/api/admin/roles/"+r.PathValue("id"), &item) {
 		return
 	}
 	h.render(w, "role_form", pageData{
@@ -897,7 +897,7 @@ func (h *Handler) updateRole(w http.ResponseWriter, r *http.Request, sess authCo
 		"status":      item.Status,
 		"permissions": permissions,
 	}
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/roles/"+r.PathValue("id"), input, nil); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/admin/roles/"+r.PathValue("id"), input, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
 			h.renderError(w, r, sess, err)
 			return
@@ -905,7 +905,7 @@ func (h *Handler) updateRole(w http.ResponseWriter, r *http.Request, sess authCo
 		h.roleFormError(w, true, item, permissions, apiMessage(err))
 		return
 	}
-	http.Redirect(w, r, "/admin/roles", http.StatusSeeOther)
+	http.Redirect(w, r, "/dashboard/roles", http.StatusSeeOther)
 }
 
 func (h *Handler) protected(next func(http.ResponseWriter, *http.Request, authContext)) http.HandlerFunc {
@@ -929,7 +929,7 @@ func (h *Handler) load(w http.ResponseWriter, r *http.Request, sess authContext,
 
 func (h *Handler) loadNodes(w http.ResponseWriter, r *http.Request, sess authContext) ([]node, bool) {
 	var list nodeList
-	if !h.load(w, r, sess, "/api/nodes?count=100", &list) {
+	if !h.load(w, r, sess, "/api/admin/nodes?count=100", &list) {
 		return nil, false
 	}
 	return list.Items, true
@@ -937,7 +937,7 @@ func (h *Handler) loadNodes(w http.ResponseWriter, r *http.Request, sess authCon
 
 func (h *Handler) loadInventories(w http.ResponseWriter, r *http.Request, sess authContext) ([]inventory, bool) {
 	var list inventoryList
-	if !h.load(w, r, sess, "/api/inventories?count=100", &list) {
+	if !h.load(w, r, sess, "/api/admin/inventories?count=100", &list) {
 		return nil, false
 	}
 	return list.Items, true
@@ -945,7 +945,7 @@ func (h *Handler) loadInventories(w http.ResponseWriter, r *http.Request, sess a
 
 func (h *Handler) loadReplicaFormData(w http.ResponseWriter, r *http.Request, sess authContext) (inventory, []node, bool) {
 	var inv inventory
-	if !h.load(w, r, sess, "/api/inventories/"+r.PathValue("id"), &inv) {
+	if !h.load(w, r, sess, "/api/admin/inventories/"+r.PathValue("id"), &inv) {
 		return inventory{}, nil, false
 	}
 	nodes, ok := h.loadNodes(w, r, sess)
@@ -954,7 +954,7 @@ func (h *Handler) loadReplicaFormData(w http.ResponseWriter, r *http.Request, se
 
 func (h *Handler) loadRoles(w http.ResponseWriter, r *http.Request, sess authContext) ([]role, bool) {
 	var list roleList
-	if !h.load(w, r, sess, "/api/roles?count=100", &list) {
+	if !h.load(w, r, sess, "/api/admin/roles?count=100", &list) {
 		return nil, false
 	}
 	return list.Items, true
@@ -962,7 +962,7 @@ func (h *Handler) loadRoles(w http.ResponseWriter, r *http.Request, sess authCon
 
 func (h *Handler) loadUsers(w http.ResponseWriter, r *http.Request, sess authContext) ([]user, bool) {
 	var list userList
-	if !h.load(w, r, sess, "/api/users?count=100", &list) {
+	if !h.load(w, r, sess, "/api/admin/users?count=100", &list) {
 		return nil, false
 	}
 	return list.Items, true
@@ -990,7 +990,7 @@ func (h *Handler) inventoryFormError(w http.ResponseWriter, r *http.Request, ses
 	nodes := []node{}
 	if !edit {
 		var list nodeList
-		err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, "/api/nodes?count=100", nil, &list)
+		err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, "/api/admin/nodes?count=100", nil, &list)
 		if errors.Is(err, errUnauthorized) {
 			h.renderError(w, r, sess, err)
 			return
@@ -1059,7 +1059,7 @@ func (h *Handler) shareFormError(w http.ResponseWriter, r *http.Request, sess au
 
 func (h *Handler) renderSharesPageError(w http.ResponseWriter, r *http.Request, sess authContext, message string) {
 	var list shareList
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, "/api/shares?count=100", nil, &list); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, "/api/admin/shares?count=100", nil, &list); err != nil {
 		h.renderError(w, r, sess, err)
 		return
 	}

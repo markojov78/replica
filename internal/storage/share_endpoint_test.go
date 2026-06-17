@@ -19,7 +19,7 @@ func TestServeAuthenticatedSharesFiltersReadableSharesAndCachesToken(t *testing.
 	validateCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "node-token",
@@ -27,7 +27,7 @@ func TestServeAuthenticatedSharesFiltersReadableSharesAndCachesToken(t *testing.
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/auth/validate-user-token":
+		case "/node/auth/validate-user-token":
 			validateCalls++
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"user_id":                 15,
@@ -67,7 +67,7 @@ func TestServeAuthenticatedSharesFiltersReadableSharesAndCachesToken(t *testing.
 	)
 
 	for i := 0; i < 2; i++ {
-		req := httptest.NewRequest(http.MethodGet, "/api/shares", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/share/shares", nil)
 		req.Header.Set("Authorization", "Bearer user-token")
 		rec := httptest.NewRecorder()
 
@@ -124,7 +124,7 @@ func TestServeAuthenticatedSharesUsesCoordinatorListEnvelopeAndFilters(t *testin
 		map[uint][]apiclient.ReplicaInventoryFile{},
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/shares?replica_id=4&name=Vacation&page=1&count=1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/share/shares?replica_id=4&name=Vacation&page=1&count=1", nil)
 	req.Header.Set("Authorization", "Bearer user-token")
 	rec := httptest.NewRecorder()
 
@@ -148,7 +148,7 @@ func TestServeAuthenticatedSharesUsesCoordinatorListEnvelopeAndFilters(t *testin
 func TestRuntimeRefreshLocalStateLoadsShareAssignments(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "node-token",
@@ -156,7 +156,7 @@ func TestRuntimeRefreshLocalStateLoadsShareAssignments(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/replicas":
+		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{{
 				"id":           3,
 				"inventory_id": 1,
@@ -165,9 +165,9 @@ func TestRuntimeRefreshLocalStateLoadsShareAssignments(t *testing.T) {
 				"status":       "active",
 				"type":         "filesystem",
 			}})
-		case "/internal/replica/3/files":
+		case "/node/replica/3/files":
 			_ = json.NewEncoder(w).Encode(map[string]any{"files": []map[string]any{}})
-		case "/internal/shares":
+		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{{
 				"id":                    1,
 				"inventory_id":          1,
@@ -209,7 +209,7 @@ func TestServeAuthenticatedShareWithoutReadPermissionReturnsForbidden(t *testing
 		map[uint][]apiclient.ReplicaInventoryFile{},
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/shares/1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/share/shares/1", nil)
 	req.SetPathValue("id", "1")
 	req.Header.Set("Authorization", "Bearer user-token")
 	rec := httptest.NewRecorder()
@@ -236,7 +236,7 @@ func TestServePublicShareRequiresAnonymousRead(t *testing.T) {
 		map[uint][]apiclient.ReplicaInventoryFile{},
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/public/shares/public-link", nil)
+	req := httptest.NewRequest(http.MethodGet, "/s/public-link", nil)
 	req.SetPathValue("link_hash", "public-link")
 	rec := httptest.NewRecorder()
 
@@ -283,7 +283,7 @@ func TestServeShareFilesListsOnlySynchronizedActiveFilesAndStreamsLocalContent(t
 		},
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/public/shares/public-link/files", nil)
+	req := httptest.NewRequest(http.MethodGet, "/s/public-link/files", nil)
 	req.SetPathValue("link_hash", "public-link")
 	rec := httptest.NewRecorder()
 	runtime.ServePublicShares(rec, req)
@@ -294,7 +294,7 @@ func TestServeShareFilesListsOnlySynchronizedActiveFilesAndStreamsLocalContent(t
 		t.Fatalf("file list body = %s, want only ready.txt", rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/public/shares/public-link/files/10/content", nil)
+	req = httptest.NewRequest(http.MethodGet, "/s/public-link/files/10/content", nil)
 	req.SetPathValue("link_hash", "public-link")
 	req.SetPathValue("file_id", "10")
 	rec = httptest.NewRecorder()
@@ -303,7 +303,7 @@ func TestServeShareFilesListsOnlySynchronizedActiveFilesAndStreamsLocalContent(t
 		t.Fatalf("status/body = %d/%q, want 200/ready", rec.Code, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/public/shares/public-link/files/11/content", nil)
+	req = httptest.NewRequest(http.MethodGet, "/s/public-link/files/11/content", nil)
 	req.SetPathValue("link_hash", "public-link")
 	req.SetPathValue("file_id", "11")
 	rec = httptest.NewRecorder()
@@ -337,7 +337,7 @@ func validationServer(t *testing.T, userID uint, validateStatus int) string {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "node-token",
@@ -345,7 +345,7 @@ func validationServer(t *testing.T, userID uint, validateStatus int) string {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/auth/validate-user-token":
+		case "/node/auth/validate-user-token":
 			if validateStatus != http.StatusOK {
 				w.WriteHeader(validateStatus)
 				return

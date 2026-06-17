@@ -78,8 +78,8 @@ func TestPublicReplicaMutationsRejectDeletedInventory(t *testing.T) {
 	)
 
 	createBody := `{"inventory_id":` + strconv.FormatUint(uint64(inventory.ID), 10) + `,"node_id":"node-a","uri":"/data/new","type":"filesystem"}`
-	assertInventoryDeletedConflict(t, handler, pair.AccessToken, http.MethodPost, "/api/replicas", createBody)
-	assertInventoryDeletedConflict(t, handler, pair.AccessToken, http.MethodPatch, "/api/replicas/"+strconv.FormatUint(uint64(replica.ID), 10), `{"status":"active"}`)
+	assertInventoryDeletedConflict(t, handler, pair.AccessToken, http.MethodPost, "/api/admin/replicas", createBody)
+	assertInventoryDeletedConflict(t, handler, pair.AccessToken, http.MethodPatch, "/api/admin/replicas/"+strconv.FormatUint(uint64(replica.ID), 10), `{"status":"active"}`)
 
 	activeInventory := &model.Inventory{Name: "active", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
 	if err := database.Create(activeInventory).Error; err != nil {
@@ -99,8 +99,8 @@ func TestPublicReplicaMutationsRejectDeletedInventory(t *testing.T) {
 	if err := database.Create(deletedReplica).Error; err != nil {
 		t.Fatalf("Create(deleted replica) error = %v", err)
 	}
-	assertConflict(t, handler, pair.AccessToken, http.MethodDelete, "/api/inventories/"+strconv.FormatUint(uint64(activeInventory.ID), 10), "", "inventory has active replicas")
-	assertConflict(t, handler, pair.AccessToken, http.MethodPatch, "/api/inventories/"+strconv.FormatUint(uint64(activeInventory.ID), 10), `{"status":"deleted"}`, "inventory has active replicas")
+	assertConflict(t, handler, pair.AccessToken, http.MethodDelete, "/api/admin/inventories/"+strconv.FormatUint(uint64(activeInventory.ID), 10), "", "inventory has active replicas")
+	assertConflict(t, handler, pair.AccessToken, http.MethodPatch, "/api/admin/inventories/"+strconv.FormatUint(uint64(activeInventory.ID), 10), `{"status":"deleted"}`, "inventory has active replicas")
 
 	var storedInventory model.Inventory
 	if err := database.First(&storedInventory, activeInventory.ID).Error; err != nil {
@@ -118,7 +118,7 @@ func TestPublicReplicaMutationsRejectDeletedInventory(t *testing.T) {
 	}
 
 	wantMessage := "Active replica " + strconv.FormatUint(uint64(activeReplica.ID), 10) + " on node-a is already using location /data/shared"
-	assertConflict(t, handler, pair.AccessToken, http.MethodPatch, "/api/replicas/"+strconv.FormatUint(uint64(deletedReplica.ID), 10), `{"status":"active"}`, wantMessage)
+	assertConflict(t, handler, pair.AccessToken, http.MethodPatch, "/api/admin/replicas/"+strconv.FormatUint(uint64(deletedReplica.ID), 10), `{"status":"active"}`, wantMessage)
 }
 
 func assertInventoryDeletedConflict(t *testing.T, handler http.Handler, accessToken, method, path, body string) {

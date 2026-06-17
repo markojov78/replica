@@ -1,8 +1,10 @@
 # API
 
 This document is split into:
-- public user-facing endpoints under `/api/`
-- internal endpoints under `/internal/`
+- Coordinator Admin API under `/api/admin/`
+- Coordinator Node Control API under `/node/`
+- Storage Transfer API under `/transfer/`
+- Storage Sharing API under `/api/share/` and anonymous public links under `/s/`
 
 API versioning is implemented through the `X-API-Version` request header. Supported values are `1` and `v1`.
 
@@ -13,9 +15,9 @@ Authorization: Bearer <access_token>
 X-API-Version: 1
 ```
 
-## Public API
+## Coordinator Admin API
 
-Base path for the endpoints in this section is `/api`.
+Base path for the endpoints in this section is `/api/admin`.
 
 ### / endpoint
 #### GET /
@@ -65,8 +67,6 @@ Behavior:
 - returns a signed JWT access token
 - returns a new opaque refresh token
 - creates a refresh-token session on the server
-- on a storage-only node, this endpoint proxies the request to the coordinator `/api/auth/login` and returns the coordinator response unchanged
-- storage-only nodes do not validate passwords locally, store user tokens server-side, mint user tokens, or receive `AUTH_JWT_SECRET`
 
 Request body:
 - `username` required
@@ -154,7 +154,7 @@ Behavior:
 Example request:
 
 ```http
-POST /api/auth/logout
+POST /api/admin/auth/logout
 Authorization: Bearer access-token-value
 X-API-Version: 1
 ```
@@ -171,7 +171,7 @@ Returns the currently authenticated user with expanded roles and permissions.
 Example request:
 
 ```http
-GET /api/auth/me
+GET /api/admin/auth/me
 Authorization: Bearer access-token-value
 X-API-Version: 1
 ```
@@ -824,10 +824,6 @@ Possible errors:
 
 All `/shares` endpoints require the matching `shares` permission for the requested action.
 
-On the coordinator, `/api/shares` is the administrative share-management API documented in this section.
-On a storage-only node, the same paths expose the read-only storage-node sharing API documented above.
-In coordinator + storage mode, the coordinator handlers own these paths to avoid route conflicts.
-
 #### GET /shares
 Returns a paginated list of shares.
 
@@ -1028,15 +1024,20 @@ Possible errors:
 * `409` replica is deleted
 * `409` share already exists
 
-## Sharing API
+## Storage Sharing API
 
-These endpoints are exposed by storage-only nodes under `/api`.
+Authenticated endpoints are exposed by storage nodes under `/api/share`.
+Anonymous browser-friendly public endpoints are exposed under `/s`.
 They are read-only in v1: users can list shares, inspect one share, list available files and download synchronized local file content.
 Upload, create, update and delete through the sharing API are not implemented in v1.
 
-Storage nodes do not persist share, user or permission state. They hydrate assigned shares from the coordinator `/internal/shares` endpoint during startup and whenever a `refresh_state` command is processed. The coordinator database remains the only source of truth.
+Storage nodes expose `POST /api/share/auth/login` as a login proxy to coordinator `POST /api/admin/auth/login`.
+It accepts and returns the same request and response body as coordinator admin login. Storage nodes do not validate
+passwords locally, store user tokens server-side, mint user tokens, or receive `AUTH_JWT_SECRET`.
 
-Storage nodes do not receive `AUTH_JWT_SECRET` and do not validate normal user JWTs locally. For authenticated share access, a previously unseen bearer user access token is validated once through coordinator `POST /internal/auth/validate-user-token`, then cached in volatile memory by token hash until the earlier of:
+Storage nodes do not persist share, user or permission state. They hydrate assigned shares from the coordinator `/node/shares` endpoint during startup and whenever a `refresh_state` command is processed. The coordinator database remains the only source of truth.
+
+Storage nodes do not receive `AUTH_JWT_SECRET` and do not validate normal user JWTs locally. For authenticated share access, a previously unseen bearer user access token is validated once through coordinator `POST /node/auth/validate-user-token`, then cached in volatile memory by token hash until the earlier of:
 - the JWT expiration returned by the coordinator
 - `auth.share_api_token_cache_duration`, default `5m`
 
@@ -1063,7 +1064,7 @@ Availability rules:
 - replica must belong to the authenticated storage node
 - authenticated user must have share permission `read`
 
-The response shape intentionally matches coordinator `GET /api/shares`. Storage nodes still only return shares currently available from their local runtime state, so filters such as `status=deleted` return an empty page.
+The response shape intentionally matches coordinator `GET /api/admin/shares`. Storage nodes still only return shares currently available from their local runtime state, so filters such as `status=deleted` return an empty page.
 
 Example response:
 ```json
@@ -1140,13 +1141,13 @@ If a known active inventory file is not synchronized locally, direct content acc
 
 ### Anonymous access
 
-These endpoints are exposed by storage-only nodes under `/api/public`.
+These endpoints are exposed by storage nodes under `/s`.
 They require no `Authorization` header.
 
 The public identifier is the share `link_hash`. It must be non-guessable and must not be the numeric share ID or share name. In v1, `public_id` is represented by `link_hash`; there is no separate `public_id` response field. Public access is enabled when `link_hash` is present and anonymous permissions include `read`; there is no separate `public_enabled` response field.
 
-####  /public/shares/{link_hash} endpoint
-##### GET /public/shares/{link_hash}
+#### /s/{link_hash} endpoint
+##### GET /s/{link_hash}
 Returns the public share when:
 - `link_hash` matches the share
 - share status is `active`
@@ -1158,16 +1159,16 @@ Errors:
 - `404` unknown `link_hash`, missing `link_hash`, inactive share, expired share, inactive replica, or share not available on this storage node
 - `403` matching public share exists but anonymous read is not allowed
 
-#### /public/shares/{link_hash}/files endpoint
-##### GET /public/shares/{link_hash}/files
+#### /s/{link_hash}/files endpoint
+##### GET /s/{link_hash}/files
 Returns the same synchronized active file list as authenticated share file listing.
 
-##### GET /public/shares/{link_hash}/files/{file_id}/content
+##### GET /s/{link_hash}/files/{file_id}/content
 Streams synchronized local file content for public anonymous read access.
 
 
-## Internal API
-Base path for the endpoints in this section is `/internal/`.
+## Coordinator Node Control API
+Base path for the endpoints in this section is `/node/`.
 
 ### /auth endpoint
 
@@ -1337,7 +1338,7 @@ Behavior:
 Example request:
 
 ```http
-GET /internal/auth/me
+GET /node/auth/me
 Authorization: Bearer node-access-token-value
 X-API-Version: 1
 ```
@@ -1426,7 +1427,7 @@ Behavior:
 - marks the node `online` while at least one WebSocket connection is active
 - reconciles node status from heartbeat freshness when the last WebSocket connection closes
 - sends messages in the `NodeCommand` format
-- does not replace heartbeat reporting; `POST /internal/nodes` is still required for node availability updates
+- does not replace heartbeat reporting; `POST /node/nodes` is still required for node availability updates
 
 Handshake headers:
 - `Authorization: Bearer <node-access-token>`
@@ -1435,7 +1436,7 @@ Handshake headers:
 Example request:
 
 ```http
-GET /internal/nodes/ws
+GET /node/nodes/ws
 Authorization: Bearer node-access-token-value
 X-API-Version: 1
 Upgrade: websocket
@@ -1566,7 +1567,7 @@ Behavior:
 Example request:
 
 ```http
-GET /internal/shares
+GET /node/shares
 Authorization: Bearer node-access-token-value
 X-API-Version: 1
 ```
@@ -1624,7 +1625,7 @@ Query parameters:
 Example request:
 
 ```http
-GET /internal/replica/7/files?status=pending
+GET /node/replica/7/files?status=pending
 Authorization: Bearer node-access-token-value
 X-API-Version: 1
 ```
@@ -1818,11 +1819,11 @@ Possible errors:
 - `404` replica not found
 - `404` replica file not found
 
-## File transfer API
+## Storage Transfer API
 This API is served by storage nodes when `app.storage = true`. It is not a coordinator-relayed download endpoint.
 
-### /internal/replicas/{replica_id}/files/{file_id}/content endpoint
-#### GET /internal/replicas/{replica_id}/files/{file_id}/content?version=123
+### /transfer/replicas/{replica_id}/files/{file_id}/content endpoint
+#### GET /transfer/replicas/{replica_id}/files/{file_id}/content?version=123
 Streams replica file content from a source storage node to a target storage node.
 
 Behavior:
@@ -1863,7 +1864,7 @@ Expected transfer token claims:
 Example request:
 
 ```http
-GET /internal/replicas/1/files/10/content?version=123
+GET /transfer/replicas/1/files/10/content?version=123
 Authorization: Bearer transfer-token-value
 ```
 

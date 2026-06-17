@@ -113,7 +113,7 @@ func TestInternalValidateUserTokenAcceptsActiveUserToken(t *testing.T) {
 	handler := newInternalAuthTestHandler(t, database)
 	userToken, nodeToken := createValidateUserTokenCredentials(t, database, model.UserStatusActive)
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/auth/validate-user-token", strings.NewReader(`{"access_token":`+strconv.Quote(userToken)+`}`))
+	req := httptest.NewRequest(http.MethodPost, "/node/auth/validate-user-token", strings.NewReader(`{"access_token":`+strconv.Quote(userToken)+`}`))
 	req.Header.Set("Authorization", "Bearer "+nodeToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -141,7 +141,7 @@ func TestInternalValidateUserTokenRejectsNodeToken(t *testing.T) {
 	handler := newInternalAuthTestHandler(t, database)
 	_, nodeToken := createValidateUserTokenCredentials(t, database, model.UserStatusActive)
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/auth/validate-user-token", strings.NewReader(`{"access_token":`+strconv.Quote(nodeToken)+`}`))
+	req := httptest.NewRequest(http.MethodPost, "/node/auth/validate-user-token", strings.NewReader(`{"access_token":`+strconv.Quote(nodeToken)+`}`))
 	req.Header.Set("Authorization", "Bearer "+nodeToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -163,7 +163,7 @@ func TestInternalValidateUserTokenRejectsExpiredToken(t *testing.T) {
 		t.Fatalf("GenerateUserAccessToken() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/auth/validate-user-token", strings.NewReader(`{"access_token":`+strconv.Quote(expiredToken)+`}`))
+	req := httptest.NewRequest(http.MethodPost, "/node/auth/validate-user-token", strings.NewReader(`{"access_token":`+strconv.Quote(expiredToken)+`}`))
 	req.Header.Set("Authorization", "Bearer "+nodeToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -181,7 +181,7 @@ func TestInternalValidateUserTokenRejectsInactiveUser(t *testing.T) {
 	handler := newInternalAuthTestHandler(t, database)
 	userToken, nodeToken := createValidateUserTokenCredentials(t, database, model.UserStatusDeleted)
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/auth/validate-user-token", strings.NewReader(`{"access_token":`+strconv.Quote(userToken)+`}`))
+	req := httptest.NewRequest(http.MethodPost, "/node/auth/validate-user-token", strings.NewReader(`{"access_token":`+strconv.Quote(userToken)+`}`))
 	req.Header.Set("Authorization", "Bearer "+nodeToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -264,7 +264,7 @@ func TestInternalAuthMeReturnsAuthenticatedNode(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/internal/auth/me", nil)
+	req := httptest.NewRequest(http.MethodGet, "/node/auth/me", nil)
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	recorder := httptest.NewRecorder()
@@ -327,7 +327,7 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
+	req := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
@@ -425,7 +425,7 @@ func TestInternalNodesReportAvailabilityReturnsPendingCommands(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
+	req := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
@@ -531,7 +531,7 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/internal/replicas", nil)
+	req := httptest.NewRequest(http.MethodGet, "/node/replicas", nil)
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	recorder := httptest.NewRecorder()
@@ -680,7 +680,7 @@ func TestInternalSharesReturnsOnlyAuthenticatedNodeShares(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/internal/shares", nil)
+	req := httptest.NewRequest(http.MethodGet, "/node/shares", nil)
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	recorder := httptest.NewRecorder()
@@ -753,7 +753,7 @@ func TestInternalSharesReturnsEmptyListWhenNodeHasNoShares(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/internal/shares", nil)
+	req := httptest.NewRequest(http.MethodGet, "/node/shares", nil)
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	recorder := httptest.NewRecorder()
@@ -787,7 +787,7 @@ func TestInternalSharesRequiresNodeToken(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/internal/shares", nil)
+	req := httptest.NewRequest(http.MethodGet, "/node/shares", nil)
 	req.Header.Set("X-API-Version", "1")
 	recorder := httptest.NewRecorder()
 
@@ -883,7 +883,7 @@ func TestInternalReplicaFilesReturnsInventoryAndReplicaMetadata(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files", nil)
+	req := httptest.NewRequest(http.MethodGet, "/node/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files", nil)
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	recorder := httptest.NewRecorder()
@@ -935,7 +935,7 @@ func TestInternalReplicaFilesFiltersByStatus(t *testing.T) {
 	database := openRouterTestDB(t)
 	handler, accessToken, replica, pendingFile := newInternalReplicaFilesFilterTestHandler(t, database)
 
-	req := httptest.NewRequest(http.MethodGet, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files?status=pending", nil)
+	req := httptest.NewRequest(http.MethodGet, "/node/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files?status=pending", nil)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("X-API-Version", "1")
 	recorder := httptest.NewRecorder()
@@ -967,7 +967,7 @@ func TestInternalReplicaFilesRejectsInvalidStatusFilter(t *testing.T) {
 	database := openRouterTestDB(t)
 	handler, accessToken, replica, _ := newInternalReplicaFilesFilterTestHandler(t, database)
 
-	req := httptest.NewRequest(http.MethodGet, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files?status=invalid", nil)
+	req := httptest.NewRequest(http.MethodGet, "/node/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files?status=invalid", nil)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("X-API-Version", "1")
 	recorder := httptest.NewRecorder()
@@ -1049,7 +1049,7 @@ func TestPublicReplicasListIsPaginated(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/replicas?page=1&count=1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/replicas?page=1&count=1", nil)
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	recorder := httptest.NewRecorder()
@@ -1123,7 +1123,7 @@ func TestInternalNodesWebSocketAcceptsAuthenticatedNode(t *testing.T) {
 		t.Fatalf("url.Parse() error = %v", err)
 	}
 	wsURL.Scheme = "ws"
-	wsURL.Path = "/internal/nodes/ws"
+	wsURL.Path = "/node/nodes/ws"
 
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+pair.AccessToken)
@@ -1225,7 +1225,7 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 		t.Fatalf("url.Parse() error = %v", err)
 	}
 	wsURL.Scheme = "ws"
-	wsURL.Path = "/internal/nodes/ws"
+	wsURL.Path = "/node/nodes/ws"
 
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+nodePair.AccessToken)
@@ -1239,7 +1239,7 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 	}
 	defer conn.Close()
 
-	createReq := httptest.NewRequest(http.MethodPost, "/api/inventories", strings.NewReader(`{"name":"Photos","node_id":"node-a","folder_uri":"/data/photos"}`))
+	createReq := httptest.NewRequest(http.MethodPost, "/api/admin/inventories", strings.NewReader(`{"name":"Photos","node_id":"node-a","folder_uri":"/data/photos"}`))
 	createReq.Header.Set("Authorization", "Bearer "+userPair.AccessToken)
 	createReq.Header.Set("X-API-Version", "1")
 	createReq.Header.Set("Content-Type", "application/json")
@@ -1296,7 +1296,7 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 		t.Fatalf("refreshCommand.Status = %q, want %q", refreshCommand.Status, model.NodeCommandStatusPending)
 	}
 
-	reportReq := httptest.NewRequest(http.MethodPost, "/internal/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
+	reportReq := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
 	reportReq.Header.Set("Authorization", "Bearer "+nodePair.AccessToken)
 	reportReq.Header.Set("X-API-Version", "1")
 	reportReq.Header.Set("Content-Type", "application/json")
@@ -1433,7 +1433,7 @@ func TestPublicReplicaCreatePopulatesPendingFilesAndReconcileCommand(t *testing.
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/replicas", strings.NewReader(`{"inventory_id":`+strconv.FormatUint(uint64(inventory.ID), 10)+`,"node_id":"node-b","uri":"s3://bucket/photos","type":"storage"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/replicas", strings.NewReader(`{"inventory_id":`+strconv.FormatUint(uint64(inventory.ID), 10)+`,"node_id":"node-b","uri":"s3://bucket/photos","type":"storage"}`))
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
@@ -1526,7 +1526,7 @@ func TestInternalCommandsPatchUpdatesOwnedCommandStatus(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodPatch, "/internal/commands/"+strconv.FormatUint(uint64(command.ID), 10), strings.NewReader(`{"status":"failed","error":"refresh failed"}`))
+	req := httptest.NewRequest(http.MethodPatch, "/node/commands/"+strconv.FormatUint(uint64(command.ID), 10), strings.NewReader(`{"status":"failed","error":"refresh failed"}`))
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
@@ -1664,7 +1664,7 @@ func TestInternalReplicaFilesReportUpdatesCoordinatorState(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/replica/"+strconv.FormatUint(uint64(replicaA.ID), 10)+"/files", strings.NewReader(`{"files":[{"file_id":`+strconv.FormatUint(uint64(file.ID), 10)+`,"relative_uri":"album/img.jpg","file_size":200,"file_hash":"new-hash","created_time":"2026-05-21T11:00:00Z","modified_time":"2026-05-21T12:00:00Z"}]}`))
+	req := httptest.NewRequest(http.MethodPost, "/node/replica/"+strconv.FormatUint(uint64(replicaA.ID), 10)+"/files", strings.NewReader(`{"files":[{"file_id":`+strconv.FormatUint(uint64(file.ID), 10)+`,"relative_uri":"album/img.jpg","file_size":200,"file_hash":"new-hash","created_time":"2026-05-21T11:00:00Z","modified_time":"2026-05-21T12:00:00Z"}]}`))
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
@@ -1709,7 +1709,7 @@ func TestInternalReplicaFilePatchUpdatesStatus(t *testing.T) {
 	database := openRouterTestDB(t)
 	handler, accessToken, replica, file := newInternalReplicaFileStatusTestHandler(t, database)
 
-	req := httptest.NewRequest(http.MethodPatch, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files/"+strconv.FormatUint(uint64(file.ID), 10), strings.NewReader(`{"status":"error","error":"copy failed"}`))
+	req := httptest.NewRequest(http.MethodPatch, "/node/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files/"+strconv.FormatUint(uint64(file.ID), 10), strings.NewReader(`{"status":"error","error":"copy failed"}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
@@ -1734,7 +1734,7 @@ func TestInternalReplicaFilePatchRejectsInvalidStatus(t *testing.T) {
 	database := openRouterTestDB(t)
 	handler, accessToken, replica, file := newInternalReplicaFileStatusTestHandler(t, database)
 
-	req := httptest.NewRequest(http.MethodPatch, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files/"+strconv.FormatUint(uint64(file.ID), 10), strings.NewReader(`{"status":"invalid"}`))
+	req := httptest.NewRequest(http.MethodPatch, "/node/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files/"+strconv.FormatUint(uint64(file.ID), 10), strings.NewReader(`{"status":"invalid"}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
@@ -1759,7 +1759,7 @@ func TestInternalReplicaFilePatchSynchronizesWithMatchingVersion(t *testing.T) {
 	database := openRouterTestDB(t)
 	handler, accessToken, replica, file := newInternalReplicaFileStatusTestHandler(t, database)
 
-	req := httptest.NewRequest(http.MethodPatch, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files/"+strconv.FormatUint(uint64(file.ID), 10), strings.NewReader(`{"status":"synchronized","version":3}`))
+	req := httptest.NewRequest(http.MethodPatch, "/node/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files/"+strconv.FormatUint(uint64(file.ID), 10), strings.NewReader(`{"status":"synchronized","version":3}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
@@ -1784,7 +1784,7 @@ func TestInternalReplicaFilePatchSynchronizeRequiresVersion(t *testing.T) {
 	database := openRouterTestDB(t)
 	handler, accessToken, replica, file := newInternalReplicaFileStatusTestHandler(t, database)
 
-	req := httptest.NewRequest(http.MethodPatch, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files/"+strconv.FormatUint(uint64(file.ID), 10), strings.NewReader(`{"status":"synchronized"}`))
+	req := httptest.NewRequest(http.MethodPatch, "/node/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files/"+strconv.FormatUint(uint64(file.ID), 10), strings.NewReader(`{"status":"synchronized"}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
@@ -1801,7 +1801,7 @@ func TestInternalReplicaFilePatchSynchronizeRejectsMismatchedVersion(t *testing.
 	database := openRouterTestDB(t)
 	handler, accessToken, replica, file := newInternalReplicaFileStatusTestHandler(t, database)
 
-	req := httptest.NewRequest(http.MethodPatch, "/internal/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files/"+strconv.FormatUint(uint64(file.ID), 10), strings.NewReader(`{"status":"synchronized","version":2}`))
+	req := httptest.NewRequest(http.MethodPatch, "/node/replica/"+strconv.FormatUint(uint64(replica.ID), 10)+"/files/"+strconv.FormatUint(uint64(file.ID), 10), strings.NewReader(`{"status":"synchronized","version":2}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")

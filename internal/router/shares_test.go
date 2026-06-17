@@ -28,7 +28,7 @@ func TestShareRoutesCreateAndListWithGlobalPermissions(t *testing.T) {
 	replica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
 	handler := newShareRouteHandler(database)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"name":"Vacation March 2026","user_permissions":[{"user_id":`+strconv.FormatUint(uint64(user.ID), 10)+`,"permissions":["read","create","update","delete"]}],"anonymous_permissions":["read"]}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"name":"Vacation March 2026","user_permissions":[{"user_id":`+strconv.FormatUint(uint64(user.ID), 10)+`,"permissions":["read","create","update","delete"]}],"anonymous_permissions":["read"]}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -85,7 +85,7 @@ func TestShareRoutesCreateAndListWithGlobalPermissions(t *testing.T) {
 	if err := database.Model(&model.Role{}).Where("name = ?", "share-role").Update("status", model.RoleStatusDeleted).Error; err != nil {
 		t.Fatalf("Update(role status) error = %v", err)
 	}
-	req = httptest.NewRequest(http.MethodGet, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/admin/shares/"+strconv.FormatUint(uint64(created.ID), 10), nil)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("X-API-Version", "1")
 	recorder = httptest.NewRecorder()
@@ -96,7 +96,7 @@ func TestShareRoutesCreateAndListWithGlobalPermissions(t *testing.T) {
 		t.Fatalf("explicit permission status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/shares?replica_id="+strconv.FormatUint(uint64(replica.ID), 10), nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/admin/shares?replica_id="+strconv.FormatUint(uint64(replica.ID), 10), nil)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("X-API-Version", "1")
 	recorder = httptest.NewRecorder()
@@ -109,7 +109,7 @@ func TestShareRoutesCreateAndListWithGlobalPermissions(t *testing.T) {
 	if err := database.Model(&model.Role{}).Where("name = ?", "share-role").Update("status", model.RoleStatusActive).Error; err != nil {
 		t.Fatalf("Reactivate(role) error = %v", err)
 	}
-	req = httptest.NewRequest(http.MethodGet, "/api/shares?replica_id="+strconv.FormatUint(uint64(replica.ID), 10), nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/admin/shares?replica_id="+strconv.FormatUint(uint64(replica.ID), 10), nil)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("X-API-Version", "1")
 	recorder = httptest.NewRecorder()
@@ -146,7 +146,7 @@ func TestShareRouteGetAllowsExplicitSharePermission(t *testing.T) {
 	}
 	handler := newShareRouteHandler(database)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/shares/"+strconv.FormatUint(uint64(share.ID), 10), nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/shares/"+strconv.FormatUint(uint64(share.ID), 10), nil)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("X-API-Version", "1")
 	recorder := httptest.NewRecorder()
@@ -170,7 +170,7 @@ func TestShareRouteListRequiresGlobalSharePermission(t *testing.T) {
 	_, accessToken := createShareRouteUser(t, database, nil)
 	handler := newShareRouteHandler(database)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/shares", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/shares", nil)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("X-API-Version", "1")
 	recorder := httptest.NewRecorder()
@@ -193,7 +193,7 @@ func TestShareRouteUserPermissionsOmittedAndPatchReplacement(t *testing.T) {
 	replica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
 	handler := newShareRouteHandler(database)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"name":"Vacation March 2026"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"name":"Vacation March 2026"}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -219,7 +219,7 @@ func TestShareRouteUserPermissionsOmittedAndPatchReplacement(t *testing.T) {
 		t.Fatalf("creator share_user count = %d, want 0", shareUserCount)
 	}
 
-	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"user_permissions":[{"user_id":`+strconv.FormatUint(uint64(other.ID), 10)+`,"permissions":["read","update"]}]}`))
+	req = httptest.NewRequest(http.MethodPatch, "/api/admin/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"user_permissions":[{"user_id":`+strconv.FormatUint(uint64(other.ID), 10)+`,"permissions":["read","update"]}]}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -238,7 +238,7 @@ func TestShareRouteUserPermissionsOmittedAndPatchReplacement(t *testing.T) {
 		t.Fatalf("patched.UserPermissions = %+v, want other read/update", patched.UserPermissions)
 	}
 
-	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"name":"Vacation renamed"}`))
+	req = httptest.NewRequest(http.MethodPatch, "/api/admin/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"name":"Vacation renamed"}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -256,7 +256,7 @@ func TestShareRouteUserPermissionsOmittedAndPatchReplacement(t *testing.T) {
 		t.Fatalf("patched omitted UserPermissions = %+v, want unchanged", patched.UserPermissions)
 	}
 
-	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"user_permissions":[]}`))
+	req = httptest.NewRequest(http.MethodPatch, "/api/admin/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"user_permissions":[]}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -285,7 +285,7 @@ func TestShareRouteAnonymousPermissionsCreateAndPatchReplacement(t *testing.T) {
 	replica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
 	handler := newShareRouteHandler(database)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"anonymous_permissions":["read","read","update"]}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"anonymous_permissions":["read","read","update"]}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -304,7 +304,7 @@ func TestShareRouteAnonymousPermissionsCreateAndPatchReplacement(t *testing.T) {
 		t.Fatalf("created.AnonymousPermissions = %+v, want read/update", created.AnonymousPermissions)
 	}
 
-	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"name":"Vacation renamed"}`))
+	req = httptest.NewRequest(http.MethodPatch, "/api/admin/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"name":"Vacation renamed"}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -323,7 +323,7 @@ func TestShareRouteAnonymousPermissionsCreateAndPatchReplacement(t *testing.T) {
 		t.Fatalf("patched omitted AnonymousPermissions = %+v, want unchanged", patched.AnonymousPermissions)
 	}
 
-	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"anonymous_permissions":["delete"]}`))
+	req = httptest.NewRequest(http.MethodPatch, "/api/admin/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"anonymous_permissions":["delete"]}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -341,7 +341,7 @@ func TestShareRouteAnonymousPermissionsCreateAndPatchReplacement(t *testing.T) {
 		t.Fatalf("patched replace AnonymousPermissions = %+v, want delete", patched.AnonymousPermissions)
 	}
 
-	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"anonymous_permissions":[]}`))
+	req = httptest.NewRequest(http.MethodPatch, "/api/admin/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"anonymous_permissions":[]}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -378,7 +378,7 @@ func TestShareRouteLinkHashAndExpirationCreatePatchBehavior(t *testing.T) {
 	handler := newShareRouteHandler(database)
 	expiresAt := time.Date(2026, 3, 17, 10, 30, 0, 0, time.UTC)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"share_expiration":`+strconv.Quote(expiresAt.Format(time.RFC3339))+`,"generate_hash":true}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"share_expiration":`+strconv.Quote(expiresAt.Format(time.RFC3339))+`,"generate_hash":true}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -401,7 +401,7 @@ func TestShareRouteLinkHashAndExpirationCreatePatchBehavior(t *testing.T) {
 	}
 	firstHash := *created.LinkHash
 
-	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"name":"Vacation renamed"}`))
+	req = httptest.NewRequest(http.MethodPatch, "/api/admin/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"name":"Vacation renamed"}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -423,7 +423,7 @@ func TestShareRouteLinkHashAndExpirationCreatePatchBehavior(t *testing.T) {
 		t.Fatalf("patched.ShareExpiration = %v, want unchanged %v", patched.ShareExpiration, expiresAt)
 	}
 
-	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"generate_hash":false,"share_expiration":null}`))
+	req = httptest.NewRequest(http.MethodPatch, "/api/admin/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"generate_hash":false,"share_expiration":null}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -444,7 +444,7 @@ func TestShareRouteLinkHashAndExpirationCreatePatchBehavior(t *testing.T) {
 		t.Fatalf("patched.ShareExpiration = %v, want nil", patched.ShareExpiration)
 	}
 
-	req = httptest.NewRequest(http.MethodPatch, "/api/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"generate_hash":true,"share_expiration":""}`))
+	req = httptest.NewRequest(http.MethodPatch, "/api/admin/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"generate_hash":true,"share_expiration":""}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -474,7 +474,7 @@ func TestShareRouteInvalidExpiration(t *testing.T) {
 	replica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
 	handler := newShareRouteHandler(database)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"share_expiration":"not-a-time"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"share_expiration":"not-a-time"}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -500,7 +500,7 @@ func TestInventoryRouteUserPermissionsCreateAndPatchReplacement(t *testing.T) {
 	}
 	handler := newShareRouteHandler(database)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/inventories", strings.NewReader(`{"name":"Photos","node_id":"node-a","folder_uri":"/data/photos","user_permissions":[{"user_id":`+strconv.FormatUint(uint64(other.ID), 10)+`,"permissions":["read"]}]}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/inventories", strings.NewReader(`{"name":"Photos","node_id":"node-a","folder_uri":"/data/photos","user_permissions":[{"user_id":`+strconv.FormatUint(uint64(other.ID), 10)+`,"permissions":["read"]}]}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -519,7 +519,7 @@ func TestInventoryRouteUserPermissionsCreateAndPatchReplacement(t *testing.T) {
 		t.Fatalf("created.UserPermissions = %+v, want other read", created.UserPermissions)
 	}
 
-	req = httptest.NewRequest(http.MethodPatch, "/api/inventories/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"user_permissions":[]}`))
+	req = httptest.NewRequest(http.MethodPatch, "/api/admin/inventories/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"user_permissions":[]}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")

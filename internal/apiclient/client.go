@@ -246,7 +246,7 @@ func (c *Client) Authenticate(ctx context.Context) (*NodeTokenPair, error) {
 	}
 
 	var pair NodeTokenPair
-	if err := c.doJSON(ctx, http.MethodPost, "/internal/auth/login", reqBody, "", &pair); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, "/node/auth/login", reqBody, "", &pair); err != nil {
 		return nil, err
 	}
 
@@ -268,7 +268,7 @@ func (c *Client) Refresh(ctx context.Context) (*NodeTokenPair, error) {
 	}
 
 	var pair NodeTokenPair
-	if err := c.doJSON(ctx, http.MethodPost, "/internal/auth/refresh", reqBody, "", &pair); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, "/node/auth/refresh", reqBody, "", &pair); err != nil {
 		return nil, err
 	}
 
@@ -288,13 +288,13 @@ func (c *Client) ReportAvailability(ctx context.Context) (*AvailabilityReport, e
 	}
 
 	var report AvailabilityReport
-	if err := c.doAuthenticatedJSON(ctx, http.MethodPost, "/internal/nodes", reqBody, accessToken, &report); err != nil {
+	if err := c.doAuthenticatedJSON(ctx, http.MethodPost, "/node/nodes", reqBody, accessToken, &report); err != nil {
 		if apiErr, ok := err.(*APIError); ok && apiErr.StatusCode == http.StatusUnauthorized {
 			accessToken, err = c.refreshOrAuthenticate(ctx)
 			if err != nil {
 				return nil, err
 			}
-			if err := c.doAuthenticatedJSON(ctx, http.MethodPost, "/internal/nodes", reqBody, accessToken, &report); err != nil {
+			if err := c.doAuthenticatedJSON(ctx, http.MethodPost, "/node/nodes", reqBody, accessToken, &report); err != nil {
 				return nil, err
 			}
 			return &report, nil
@@ -306,7 +306,7 @@ func (c *Client) ReportAvailability(ctx context.Context) (*AvailabilityReport, e
 }
 
 func (c *Client) ProxyUserLogin(ctx context.Context, body []byte, contentType string) (int, http.Header, []byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.coordinatorURL+"/api/auth/login", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.coordinatorURL+"/api/admin/auth/login", bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, nil, err
 	}
@@ -335,13 +335,13 @@ func (c *Client) ListOwnReplicas(ctx context.Context) ([]Replica, error) {
 	}
 
 	var replicas []Replica
-	if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/internal/replicas", nil, accessToken, &replicas); err != nil {
+	if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/node/replicas", nil, accessToken, &replicas); err != nil {
 		if apiErr, ok := err.(*APIError); ok && apiErr.StatusCode == http.StatusUnauthorized {
 			accessToken, err = c.refreshOrAuthenticate(ctx)
 			if err != nil {
 				return nil, err
 			}
-			if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/internal/replicas", nil, accessToken, &replicas); err != nil {
+			if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/node/replicas", nil, accessToken, &replicas); err != nil {
 				return nil, err
 			}
 			return replicas, nil
@@ -359,13 +359,13 @@ func (c *Client) ListOwnShares(ctx context.Context) ([]Share, error) {
 	}
 
 	var shares []Share
-	if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/internal/shares", nil, accessToken, &shares); err != nil {
+	if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/node/shares", nil, accessToken, &shares); err != nil {
 		if apiErr, ok := err.(*APIError); ok && apiErr.StatusCode == http.StatusUnauthorized {
 			accessToken, err = c.refreshOrAuthenticate(ctx)
 			if err != nil {
 				return nil, err
 			}
-			if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/internal/shares", nil, accessToken, &shares); err != nil {
+			if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/node/shares", nil, accessToken, &shares); err != nil {
 				return nil, err
 			}
 			return shares, nil
@@ -384,13 +384,13 @@ func (c *Client) ValidateUserToken(ctx context.Context, accessToken string) (*Va
 
 	reqBody := map[string]string{"access_token": accessToken}
 	var token ValidatedUserToken
-	if err := c.doAuthenticatedJSON(ctx, http.MethodPost, "/internal/auth/validate-user-token", reqBody, nodeAccessToken, &token); err != nil {
+	if err := c.doAuthenticatedJSON(ctx, http.MethodPost, "/node/auth/validate-user-token", reqBody, nodeAccessToken, &token); err != nil {
 		if apiErr, ok := err.(*APIError); ok && apiErr.StatusCode == http.StatusUnauthorized {
 			nodeAccessToken, err = c.refreshOrAuthenticate(ctx)
 			if err != nil {
 				return nil, err
 			}
-			if err := c.doAuthenticatedJSON(ctx, http.MethodPost, "/internal/auth/validate-user-token", reqBody, nodeAccessToken, &token); err != nil {
+			if err := c.doAuthenticatedJSON(ctx, http.MethodPost, "/node/auth/validate-user-token", reqBody, nodeAccessToken, &token); err != nil {
 				return nil, err
 			}
 			return &token, nil
@@ -415,7 +415,7 @@ func (c *Client) ListReplicaFiles(ctx context.Context, replicaID uint, page, cou
 		query.Set("count", strconv.Itoa(count))
 	}
 
-	path := fmt.Sprintf("/api/replicas/%d/files", replicaID)
+	path := fmt.Sprintf("/api/admin/replicas/%d/files", replicaID)
 	if encoded := query.Encode(); encoded != "" {
 		path += "?" + encoded
 	}
@@ -444,7 +444,7 @@ func (c *Client) ListReplicaInventoryFiles(ctx context.Context, replicaID uint, 
 		return nil, err
 	}
 
-	path := fmt.Sprintf("/internal/replica/%d/files", replicaID)
+	path := fmt.Sprintf("/node/replica/%d/files", replicaID)
 	if len(statuses) > 0 && strings.TrimSpace(statuses[0]) != "" {
 		query := url.Values{}
 		query.Set("status", strings.TrimSpace(statuses[0]))
@@ -475,7 +475,7 @@ func (c *Client) UpdateReplicaFileStatus(ctx context.Context, replicaID, fileID 
 		return err
 	}
 
-	path := fmt.Sprintf("/internal/replica/%d/files/%d", replicaID, fileID)
+	path := fmt.Sprintf("/node/replica/%d/files/%d", replicaID, fileID)
 	reqBody := map[string]any{
 		"status": status,
 	}
@@ -514,7 +514,7 @@ func (c *Client) TransferReplicaFileContent(ctx context.Context, sourceNodeAddre
 
 	query := url.Values{}
 	query.Set("version", strconv.FormatUint(uint64(version), 10))
-	requestURL := fmt.Sprintf("%s/internal/replicas/%d/files/%d/content?%s", base, replicaID, fileID, query.Encode())
+	requestURL := fmt.Sprintf("%s/transfer/replicas/%d/files/%d/content?%s", base, replicaID, fileID, query.Encode())
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
@@ -549,7 +549,7 @@ func (c *Client) ReportReplicaFiles(ctx context.Context, replicaID uint, files [
 		return err
 	}
 
-	path := fmt.Sprintf("/internal/replica/%d/files", replicaID)
+	path := fmt.Sprintf("/node/replica/%d/files", replicaID)
 	reqBody := struct {
 		Files []ReplicaFileReport `json:"files"`
 	}{
@@ -579,7 +579,7 @@ func (c *Client) UpdateCommand(ctx context.Context, commandID uint, status strin
 		return nil, err
 	}
 
-	path := fmt.Sprintf("/internal/commands/%d", commandID)
+	path := fmt.Sprintf("/node/commands/%d", commandID)
 	reqBody := map[string]any{
 		"status": status,
 	}

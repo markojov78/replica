@@ -5,12 +5,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{.Title}} · Replica Admin</title>
-  <link rel="stylesheet" href="/admin/static/admin.css">
-  <script src="/admin/static/admin.js" defer></script>
+  <link rel="stylesheet" href="/dashboard/static/admin.css">
+  <script src="/dashboard/static/admin.js" defer></script>
 
-  <link rel="icon" type="image/png" sizes="32x32" href="/admin/static/favicon-96x96.png">
-  <link rel="shortcut icon" type="image/x-icon" href="/admin/static/favicon.ico">
-  <link rel="apple-touch-icon" sizes="180x180" href="/admin/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/dashboard/static/favicon-96x96.png">
+  <link rel="shortcut icon" type="image/x-icon" href="/dashboard/static/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/dashboard/static/apple-touch-icon.png">
 </head>
 {{end}}
 
@@ -19,17 +19,17 @@
 <body data-admin-authenticated="true">
 <div class="app">
   <aside>
-    <a class="logo" href="/admin">Replica Admin<small>Coordinator console</small></a>
+    <a class="logo" href="/dashboard">Replica Admin<small>Coordinator console</small></a>
     <nav class="nav">
-      <a href="/admin/nodes" class="{{if eq .Active "nodes"}}active{{end}}">Nodes</a>
-      <a href="/admin/inventories" class="{{if eq .Active "inventories"}}active{{end}}">Inventories</a>
-      <a href="/admin/shares" class="{{if eq .Active "shares"}}active{{end}}">Shares</a>
-      <a href="/admin/users" class="{{if eq .Active "users"}}active{{end}}">Users</a>
-      <a href="/admin/roles" class="{{if eq .Active "roles"}}active{{end}}">Roles</a>
+      <a href="/dashboard/nodes" class="{{if eq .Active "nodes"}}active{{end}}">Nodes</a>
+      <a href="/dashboard/inventories" class="{{if eq .Active "inventories"}}active{{end}}">Inventories</a>
+      <a href="/dashboard/shares" class="{{if eq .Active "shares"}}active{{end}}">Shares</a>
+      <a href="/dashboard/users" class="{{if eq .Active "users"}}active{{end}}">Users</a>
+      <a href="/dashboard/roles" class="{{if eq .Active "roles"}}active{{end}}">Roles</a>
       <span>Replication <b>Later</b></span>
       <span>Settings <b>Later</b></span>
     </nav>
-    <form action="/admin/logout" method="post" class="logout">
+    <form action="/dashboard/logout" method="post" class="logout">
       <div class="current-user">User: <span data-current-username></span></div>
       <button type="submit">Log out</button>
     </form>
@@ -57,7 +57,7 @@
     <h1>Sign in</h1>
     <p>Use your Replica user credentials.</p>
     <div class="alert login-error" data-login-error>{{.Error}}</div>
-    <form action="/api/auth/login" method="post" class="stack" data-login-form>
+    <form action="/api/admin/auth/login" method="post" class="stack" data-login-form>
       <label>Username<input name="username" required autofocus autocomplete="username"></label>
       <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
       <button type="submit" class="primary">Sign in</button>
@@ -69,7 +69,7 @@
 
 {{define "nodes"}}
 {{template "layout_start" .}}
-<div class="actions"><a class="btn ghost" href="/admin/nodes">Refresh</a><a class="btn primary" href="/admin/nodes/new">Add node</a></div>
+<div class="actions"><a class="btn ghost" href="/dashboard/nodes">Refresh</a><a class="btn primary" href="/dashboard/nodes/new">Add node</a></div>
 <section class="card">
   <table>
     <thead><tr><th>Node</th><th>Status</th><th>Address</th><th>Interval</th><th>Last seen</th><th>Actions</th></tr></thead>
@@ -82,8 +82,8 @@
         <td>{{if .Interval}}{{.Interval}}s{{else}}—{{end}}</td>
         <td>{{formatTime .LastSeen}}</td>
         <td class="row-actions">
-          <a class="btn" href="/admin/nodes/{{pathEscape .ID}}/edit">Edit</a>
-          {{if ne .Status "revoked"}}<form action="/admin/nodes/{{pathEscape .ID}}/revoke" method="post"><button class="danger" type="submit">Revoke</button></form>{{end}}
+          <a class="btn" href="/dashboard/nodes/{{pathEscape .ID}}/edit">Edit</a>
+          {{if ne .Status "revoked"}}<form action="/dashboard/nodes/{{pathEscape .ID}}/revoke" method="post"><button class="danger" type="submit">Revoke</button></form>{{end}}
         </td>
       </tr>
     {{else}}<tr><td colspan="6" class="empty">No nodes found.</td></tr>{{end}}
@@ -97,7 +97,7 @@
 {{template "layout_start" .}}
 <section class="card form-card">
   {{template "alert" .}}
-  <form action="{{if .IsEdit}}/admin/nodes/{{pathEscape .Node.ID}}{{else}}/admin/nodes{{end}}" method="post" class="form-grid">
+  <form action="{{if .IsEdit}}/dashboard/nodes/{{pathEscape .Node.ID}}{{else}}/dashboard/nodes{{end}}" method="post" class="form-grid">
     {{if not .IsEdit}}<label>Node ID<input name="id" value="{{.Node.ID}}" required></label>{{end}}
     <label>Secret<input name="secret" type="password" {{if not .IsEdit}}required{{end}}><small>{{if .IsEdit}}Leave blank to keep the current secret.{{end}}</small></label>
     <label class="full">Address<input name="address" value="{{.Node.Address}}"></label>
@@ -110,7 +110,7 @@
       </select>
       <small>Online and unreachable statuses are assigned automatically.</small>
     </label>
-    <div class="footer-actions full"><a class="btn" href="/admin/nodes">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save node{{else}}Create node{{end}}</button></div>
+    <div class="footer-actions full"><a class="btn" href="/dashboard/nodes">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save node{{else}}Create node{{end}}</button></div>
   </form>
 </section>
 {{template "layout_end" .}}
@@ -120,21 +120,21 @@
 {{template "layout_start" .}}
 <div class="actions">
   <label class="filter-toggle"><input type="checkbox" data-hide-deleted="inventories"> Hide deleted</label>
-  <a class="btn ghost" href="/admin/inventories">Refresh</a>
-  <a class="btn primary" href="/admin/inventories/new">New inventory</a>
+  <a class="btn ghost" href="/dashboard/inventories">Refresh</a>
+  <a class="btn primary" href="/dashboard/inventories/new">New inventory</a>
 </div>
 <section class="inventory-list">
 {{range .Inventories}}
   <article class="inventory-row" data-filter-item="inventories" data-status="{{.Status}}">
     <div>
-      <a class="inventory-title" href="/admin/inventories/{{.ID}}">{{.Name}}</a>
+      <a class="inventory-title" href="/dashboard/inventories/{{.ID}}">{{.Name}}</a>
       <p>{{.Type}} · Inventory #{{.ID}} · {{len .Replicas}} replicas</p>
       <div class="chips">{{range .Replicas}}<span>{{if .UpstreamReplicaID}}downstream{{else}}base{{end}}: {{.NodeID}}</span>{{end}}</div>
     </div>
     <div class="inventory-actions">
       <span class="pill {{statusClass .Status}}">{{.Status}}</span>
-      <a class="btn" href="/admin/inventories/{{.ID}}">Open</a>
-      <a class="btn" href="/admin/inventories/{{.ID}}/edit">Edit</a>
+      <a class="btn" href="/dashboard/inventories/{{.ID}}">Open</a>
+      <a class="btn" href="/dashboard/inventories/{{.ID}}/edit">Edit</a>
     </div>
   </article>
 {{else}}<section class="card empty">No inventories found.</section>{{end}}
@@ -146,8 +146,8 @@
 {{template "layout_start" .}}
 <div class="actions">
   <label class="filter-toggle"><input type="checkbox" data-hide-deleted="shares"> Hide deleted</label>
-  <a class="btn ghost" href="/admin/shares">Refresh</a>
-  <a class="btn primary" href="/admin/shares/new">New share</a>
+  <a class="btn ghost" href="/dashboard/shares">Refresh</a>
+  <a class="btn primary" href="/dashboard/shares/new">New share</a>
 </div>
 {{template "alert" .}}
 <section class="inventory-list">
@@ -160,8 +160,8 @@
     </div>
     <div class="inventory-actions">
       <span class="pill {{statusClass .Status}}">{{.Status}}</span>
-      <a class="btn" href="/admin/shares/{{.ID}}/edit">Edit</a>
-      {{if ne .Status "deleted"}}<form action="/admin/shares/{{.ID}}/delete" method="post"><button class="danger" type="submit">Delete</button></form>{{end}}
+      <a class="btn" href="/dashboard/shares/{{.ID}}/edit">Edit</a>
+      {{if ne .Status "deleted"}}<form action="/dashboard/shares/{{.ID}}/delete" method="post"><button class="danger" type="submit">Delete</button></form>{{end}}
     </div>
   </article>
 {{else}}<section class="card empty">No shares found.</section>{{end}}
@@ -173,8 +173,8 @@
 {{template "layout_start" .}}
 <div class="actions">
   <label class="filter-toggle"><input type="checkbox" data-hide-deleted="users"> Hide deleted</label>
-  <a class="btn ghost" href="/admin/users">Refresh</a>
-  <a class="btn primary" href="/admin/users/new">New user</a>
+  <a class="btn ghost" href="/dashboard/users">Refresh</a>
+  <a class="btn primary" href="/dashboard/users/new">New user</a>
 </div>
 <section class="inventory-list">
 {{range .Users}}
@@ -186,7 +186,7 @@
     </div>
     <div class="inventory-actions">
       <span class="pill {{statusClass .Status}}">{{.Status}}</span>
-      <a class="btn" href="/admin/users/{{.ID}}/edit">Edit</a>
+      <a class="btn" href="/dashboard/users/{{.ID}}/edit">Edit</a>
     </div>
   </article>
 {{else}}<section class="card empty">No users found.</section>{{end}}
@@ -198,7 +198,7 @@
 {{template "layout_start" .}}
 <section class="card form-card">
   {{template "alert" .}}
-  <form action="{{if .IsEdit}}/admin/users/{{.User.ID}}{{else}}/admin/users{{end}}" method="post" class="form-grid">
+  <form action="{{if .IsEdit}}/dashboard/users/{{.User.ID}}{{else}}/dashboard/users{{end}}" method="post" class="form-grid">
     <label>Username<input name="name" value="{{.User.Name}}" required></label>
     <label>Password<input name="password" type="password" {{if not .IsEdit}}required{{end}}><small>{{if .IsEdit}}Leave blank to keep the current password.{{end}}</small></label>
     {{if .IsEdit}}
@@ -209,7 +209,7 @@
         {{range .Roles}}<option value="{{.ID}}" {{if hasRole .ID $.User.Roles}}selected{{end}}>{{.Name}} · {{.Status}}</option>{{end}}
       </select>
     </label>
-    <div class="footer-actions full"><a class="btn" href="/admin/users">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save user{{else}}Create user{{end}}</button></div>
+    <div class="footer-actions full"><a class="btn" href="/dashboard/users">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save user{{else}}Create user{{end}}</button></div>
   </form>
 </section>
 {{template "layout_end" .}}
@@ -219,8 +219,8 @@
 {{template "layout_start" .}}
 <div class="actions">
   <label class="filter-toggle"><input type="checkbox" data-hide-deleted="roles"> Hide deleted</label>
-  <a class="btn ghost" href="/admin/roles">Refresh</a>
-  <a class="btn primary" href="/admin/roles/new">New role</a>
+  <a class="btn ghost" href="/dashboard/roles">Refresh</a>
+  <a class="btn primary" href="/dashboard/roles/new">New role</a>
 </div>
 <section class="inventory-list">
 {{range .Roles}}
@@ -232,7 +232,7 @@
     </div>
     <div class="inventory-actions">
       <span class="pill {{statusClass .Status}}">{{.Status}}</span>
-      <a class="btn" href="/admin/roles/{{.ID}}/edit">Edit</a>
+      <a class="btn" href="/dashboard/roles/{{.ID}}/edit">Edit</a>
     </div>
   </article>
 {{else}}<section class="card empty">No roles found.</section>{{end}}
@@ -244,7 +244,7 @@
 {{template "layout_start" .}}
 <section class="card form-card">
   {{template "alert" .}}
-  <form action="{{if .IsEdit}}/admin/roles/{{.Role.ID}}{{else}}/admin/roles{{end}}" method="post" class="form-grid">
+  <form action="{{if .IsEdit}}/dashboard/roles/{{.Role.ID}}{{else}}/dashboard/roles{{end}}" method="post" class="form-grid">
     <label>Name<input name="name" value="{{.Role.Name}}" required></label>
     {{if .IsEdit}}
       <label>Status<select name="status"><option value="active" {{if eq .Role.Status "active"}}selected{{end}}>active</option><option value="deleted" {{if eq .Role.Status "deleted"}}selected{{end}}>deleted</option></select></label>
@@ -267,7 +267,7 @@
         </tbody>
       </table>
     </div>
-    <div class="footer-actions full"><a class="btn" href="/admin/roles">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save role{{else}}Create role{{end}}</button></div>
+    <div class="footer-actions full"><a class="btn" href="/dashboard/roles">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save role{{else}}Create role{{end}}</button></div>
   </form>
 </section>
 {{template "layout_end" .}}
@@ -277,7 +277,7 @@
 {{template "layout_start" .}}
 <section class="card form-card">
   {{template "alert" .}}
-  <form action="{{if .IsEdit}}/admin/shares/{{.Share.ID}}{{else}}/admin/shares{{end}}" method="post" class="form-grid" data-share-form>
+  <form action="{{if .IsEdit}}/dashboard/shares/{{.Share.ID}}{{else}}/dashboard/shares{{end}}" method="post" class="form-grid" data-share-form>
     {{if .IsEdit}}
       <div class="callout full">Share #{{.Share.ID}} · Inventory #{{.Share.InventoryID}} · Replica #{{.Share.ReplicaID}}</div>
       <div class="anon-label full" data-anonymous-warning {{if not (anonymousEnabled .Share)}}hidden{{end}}>Anonymous access is enabled.</div>
@@ -331,7 +331,7 @@
         <small>Choose a date from the calendar or type a date using your browser locale.</small>
       </label>
     </div>
-    <div class="footer-actions full"><a class="btn" href="/admin/shares">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save share{{else}}Create share{{end}}</button></div>
+    <div class="footer-actions full"><a class="btn" href="/dashboard/shares">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save share{{else}}Create share{{end}}</button></div>
   </form>
 </section>
 {{template "layout_end" .}}
@@ -340,9 +340,9 @@
 {{define "inventory"}}
 {{template "layout_start" .}}
 <div class="actions">
-  <a class="btn" href="/admin/inventories/{{.Inventory.ID}}/edit">Edit inventory</a>
-  <a class="btn primary" href="/admin/inventories/{{.Inventory.ID}}/replicas/new">Add replica</a>
-  {{if ne .Inventory.Status "deleted"}}<form action="/admin/inventories/{{.Inventory.ID}}/delete" method="post"><button class="danger" type="submit">Delete inventory</button></form>{{end}}
+  <a class="btn" href="/dashboard/inventories/{{.Inventory.ID}}/edit">Edit inventory</a>
+  <a class="btn primary" href="/dashboard/inventories/{{.Inventory.ID}}/replicas/new">Add replica</a>
+  {{if ne .Inventory.Status "deleted"}}<form action="/dashboard/inventories/{{.Inventory.ID}}/delete" method="post"><button class="danger" type="submit">Delete inventory</button></form>{{end}}
 </div>
 {{template "alert" .}}
 <section class="card detail">
@@ -363,8 +363,8 @@
         <td>{{if .UpstreamReplicaID}}downstream from #{{.UpstreamReplicaID}}{{else}}base{{end}}</td>
         <td><span class="pill {{statusClass .Status}}">{{.Status}}</span></td>
         <td class="row-actions">
-          <a class="btn" href="/admin/inventories/{{$.Inventory.ID}}/replicas/{{.ID}}/edit">Edit</a>
-          {{if ne .Status "deleted"}}<form action="/admin/inventories/{{$.Inventory.ID}}/replicas/{{.ID}}/delete" method="post"><button class="danger" type="submit">Delete</button></form>{{end}}
+          <a class="btn" href="/dashboard/inventories/{{$.Inventory.ID}}/replicas/{{.ID}}/edit">Edit</a>
+          {{if ne .Status "deleted"}}<form action="/dashboard/inventories/{{$.Inventory.ID}}/replicas/{{.ID}}/delete" method="post"><button class="danger" type="submit">Delete</button></form>{{end}}
         </td>
       </tr>
     {{else}}<tr><td colspan="7" class="empty">No replicas found.</td></tr>{{end}}
@@ -375,7 +375,7 @@
   <div class="section-head"><div><h2>Inventory files</h2><p>{{.Files.Total}} files in authoritative inventory state.</p></div></div>
   <div class="table-controls">
     <span>{{.Files.Displayed}} of {{.Files.Total}} files, page {{.Files.Page}} of {{.Files.TotalPages}}</span>
-    <form action="/admin/inventories/{{.Inventory.ID}}" method="get">
+    <form action="/dashboard/inventories/{{.Inventory.ID}}" method="get">
       <input type="hidden" name="page" value="1">
       <label>Files per page
         <select name="count">
@@ -388,10 +388,10 @@
       <button type="submit">Apply</button>
     </form>
     <nav class="pagination" aria-label="Inventory files pagination">
-      <a class="btn {{if not .Files.HasPrev}}disabled{{end}}" {{if .Files.HasPrev}}href="/admin/inventories/{{.Inventory.ID}}?page=1&count={{.Files.Count}}"{{end}}>First</a>
-      <a class="btn {{if not .Files.HasPrev}}disabled{{end}}" {{if .Files.HasPrev}}href="/admin/inventories/{{.Inventory.ID}}?page={{.Files.PrevPage}}&count={{.Files.Count}}"{{end}}>Previous</a>
-      <a class="btn {{if not .Files.HasNext}}disabled{{end}}" {{if .Files.HasNext}}href="/admin/inventories/{{.Inventory.ID}}?page={{.Files.NextPage}}&count={{.Files.Count}}"{{end}}>Next</a>
-      <a class="btn {{if not .Files.HasNext}}disabled{{end}}" {{if .Files.HasNext}}href="/admin/inventories/{{.Inventory.ID}}?page={{.Files.TotalPages}}&count={{.Files.Count}}"{{end}}>Last</a>
+      <a class="btn {{if not .Files.HasPrev}}disabled{{end}}" {{if .Files.HasPrev}}href="/dashboard/inventories/{{.Inventory.ID}}?page=1&count={{.Files.Count}}"{{end}}>First</a>
+      <a class="btn {{if not .Files.HasPrev}}disabled{{end}}" {{if .Files.HasPrev}}href="/dashboard/inventories/{{.Inventory.ID}}?page={{.Files.PrevPage}}&count={{.Files.Count}}"{{end}}>Previous</a>
+      <a class="btn {{if not .Files.HasNext}}disabled{{end}}" {{if .Files.HasNext}}href="/dashboard/inventories/{{.Inventory.ID}}?page={{.Files.NextPage}}&count={{.Files.Count}}"{{end}}>Next</a>
+      <a class="btn {{if not .Files.HasNext}}disabled{{end}}" {{if .Files.HasNext}}href="/dashboard/inventories/{{.Inventory.ID}}?page={{.Files.TotalPages}}&count={{.Files.Count}}"{{end}}>Last</a>
     </nav>
   </div>
   <table>
@@ -418,7 +418,7 @@
 {{template "layout_start" .}}
 <section class="card form-card">
   {{template "alert" .}}
-  <form action="{{if .IsEdit}}/admin/inventories/{{.Inventory.ID}}{{else}}/admin/inventories{{end}}" method="post" class="form-grid">
+  <form action="{{if .IsEdit}}/dashboard/inventories/{{.Inventory.ID}}{{else}}/dashboard/inventories{{end}}" method="post" class="form-grid">
     <label>Name<input name="name" value="{{.Inventory.Name}}" required></label>
     {{if .IsEdit}}
       <label>Status<select name="status"><option value="active" {{if eq .Inventory.Status "active"}}selected{{end}}>active</option><option value="deleted" {{if eq .Inventory.Status "deleted"}}selected{{end}}>deleted</option></select></label>
@@ -427,7 +427,7 @@
       <label class="full">Folder URI<input name="folder_uri" value="{{.FolderURI}}" placeholder="/srv/data or s3://bucket/prefix"><small>Set this to create a folder inventory. Leave file URIs empty.</small></label>
       <label class="full">File URIs<textarea name="file_uris" rows="7" placeholder="/home/user/images/file1.jpg&#10;/home/user/images/file2.jpg">{{.FileURIs}}</textarea><small>One absolute filesystem, file://, or s3:// URI per line. Leave folder URI empty.</small></label>
     {{end}}
-    <div class="footer-actions full"><a class="btn" href="{{if .IsEdit}}/admin/inventories/{{.Inventory.ID}}{{else}}/admin/inventories{{end}}">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save inventory{{else}}Create inventory{{end}}</button></div>
+    <div class="footer-actions full"><a class="btn" href="{{if .IsEdit}}/dashboard/inventories/{{.Inventory.ID}}{{else}}/dashboard/inventories{{end}}">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save inventory{{else}}Create inventory{{end}}</button></div>
   </form>
 </section>
 {{template "layout_end" .}}
@@ -438,7 +438,7 @@
 <section class="card form-card">
   {{template "alert" .}}
   <div class="callout">Replica actions are scoped to <b>{{.Inventory.Name}}</b> · Inventory #{{.Inventory.ID}}.</div>
-  <form action="{{if .IsEdit}}/admin/inventories/{{.Inventory.ID}}/replicas/{{.Replica.ID}}{{else}}/admin/inventories/{{.Inventory.ID}}/replicas{{end}}" method="post" class="form-grid">
+  <form action="{{if .IsEdit}}/dashboard/inventories/{{.Inventory.ID}}/replicas/{{.Replica.ID}}{{else}}/dashboard/inventories/{{.Inventory.ID}}/replicas{{end}}" method="post" class="form-grid">
     {{if not .IsEdit}}
       <label>Node<select name="node_id" required><option value="">Select node</option>{{range .Nodes}}<option value="{{.ID}}" {{if eq .ID $.Replica.NodeID}}selected{{end}}>{{.ID}} · {{.Status}}</option>{{end}}</select></label>
       <label class="full">URI<input name="uri" value="{{.Replica.URI}}" required></label>
@@ -446,7 +446,7 @@
     <label>Type<select name="type"><option value="filesystem" {{if or (eq .Replica.Type "") (eq .Replica.Type "filesystem")}}selected{{end}}>filesystem</option><option value="storage" {{if eq .Replica.Type "storage"}}selected{{end}}>storage</option><option value="removable" {{if eq .Replica.Type "removable"}}selected{{end}}>removable</option></select></label>
     {{if .IsEdit}}<label>Status<select name="status"><option value="active" {{if eq .Replica.Status "active"}}selected{{end}}>active</option><option value="deleted" {{if eq .Replica.Status "deleted"}}selected{{end}}>deleted</option></select></label>{{end}}
     <label>Upstream replica<select name="upstream_replica_id"><option value="">None · base replica</option>{{range .Inventory.Replicas}}{{if ne .ID $.Replica.ID}}<option value="{{.ID}}" {{if isUpstream .ID $.Replica.UpstreamReplicaID}}selected{{end}}>#{{.ID}} · {{.NodeID}}</option>{{end}}{{end}}</select></label>
-    <div class="footer-actions full"><a class="btn" href="/admin/inventories/{{.Inventory.ID}}">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save replica{{else}}Create replica{{end}}</button></div>
+    <div class="footer-actions full"><a class="btn" href="/dashboard/inventories/{{.Inventory.ID}}">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save replica{{else}}Create replica{{end}}</button></div>
   </form>
 </section>
 {{template "layout_end" .}}
@@ -454,6 +454,6 @@
 
 {{define "error"}}
 {{template "layout_start" .}}
-<section class="card"><div class="alert">{{.Error}}</div><a class="btn" href="/admin">Back to admin</a></section>
+<section class="card"><div class="alert">{{.Error}}</div><a class="btn" href="/dashboard">Back to admin</a></section>
 {{template "layout_end" .}}
 {{end}}

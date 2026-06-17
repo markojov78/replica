@@ -44,7 +44,7 @@ func registerInternalNodeRoutes(api huma.API, svc services) {
 func registerInternalNodeWebSocketRoute(mux *http.ServeMux, svc services) {
 	upgrader := websocket.Upgrader{}
 
-	mux.Handle("/internal/nodes/ws", requireAuthenticatedNode(svc.auth, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/node/nodes/ws", requireAuthenticatedNode(svc.auth, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		nodeID, ok := authenticatedNodeIDFromContext(r.Context())
 		if !ok {
 			http.Error(w, "missing authenticated node", http.StatusUnauthorized)

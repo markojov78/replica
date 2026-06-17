@@ -45,8 +45,8 @@ func New(
 ) http.Handler {
 	mux := http.NewServeMux()
 	api := humago.New(mux, huma.DefaultConfig(ServiceName, info.Version))
-	apiGroup := huma.NewGroup(api, "/api")
-	internalGroup := huma.NewGroup(api, "/internal")
+	adminGroup := huma.NewGroup(api, "/api/admin")
+	nodeGroup := huma.NewGroup(api, "/node")
 
 	svc := services{
 		auth:        authService,
@@ -62,24 +62,22 @@ func New(
 	registerServiceInfoRoute(mux, cfg, info, svc)
 	if cfg.App.Storage && storageRuntime != nil {
 		registerInternalStorageTransferRoutes(mux, svc)
-		if !cfg.App.Coordinator {
-			registerStorageShareRoutes(mux, svc)
-		}
+		registerStorageShareRoutes(mux, svc)
 	}
 	if cfg.App.Coordinator || authService != nil {
-		registerPublicAuthRoutes(apiGroup, svc)
-		registerInternalAuthRoutes(internalGroup, svc)
+		registerPublicAuthRoutes(adminGroup, svc)
+		registerInternalAuthRoutes(nodeGroup, svc)
 		registerInternalNodeWebSocketRoute(mux, svc)
-		registerInternalNodeRoutes(internalGroup, svc)
-		registerInternalCommandRoutes(internalGroup, svc)
-		registerInternalReplicaRoutes(internalGroup, svc)
-		registerInternalShareRoutes(internalGroup, svc)
-		registerUserRoutes(apiGroup, svc)
-		registerRoleRoutes(apiGroup, svc)
-		registerNodeRoutes(apiGroup, svc)
-		registerInventoryRoutes(apiGroup, svc)
-		registerReplicaRoutes(apiGroup, svc)
-		registerShareRoutes(apiGroup, svc)
+		registerInternalNodeRoutes(nodeGroup, svc)
+		registerInternalCommandRoutes(nodeGroup, svc)
+		registerInternalReplicaRoutes(nodeGroup, svc)
+		registerInternalShareRoutes(nodeGroup, svc)
+		registerUserRoutes(adminGroup, svc)
+		registerRoleRoutes(adminGroup, svc)
+		registerNodeRoutes(adminGroup, svc)
+		registerInventoryRoutes(adminGroup, svc)
+		registerReplicaRoutes(adminGroup, svc)
+		registerShareRoutes(adminGroup, svc)
 		if err := admin.Register(mux, mux); err != nil {
 			panic(err)
 		}

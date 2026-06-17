@@ -95,7 +95,7 @@
         if (!refreshToken) {
           throw new Error("missing refresh token");
         }
-        const response = await fetch("/api/auth/refresh", {
+        const response = await fetch("/api/admin/auth/refresh", {
           method: "POST",
           headers: {"Content-Type": "application/json", "X-API-Version": "1"},
           body: JSON.stringify({refresh_token: refreshToken}),
@@ -134,13 +134,13 @@
     const accessToken = token("access_token");
     if (callAPI && accessToken) {
       try {
-        await authRequest("/api/auth/logout", {method: "POST"});
+        await authRequest("/api/admin/auth/logout", {method: "POST"});
       } catch {
         // Local logout must still complete when the service is unavailable.
       }
     }
     clearTokens();
-    window.location.replace("/admin/login");
+    window.location.replace("/dashboard/login");
   }
 
   async function showPage(path, options, pushState = true) {
@@ -165,7 +165,7 @@
     bindShareForms();
     document.addEventListener("click", (event) => {
       const link = event.target.closest("a[href]");
-      if (!link || link.origin !== window.location.origin || !link.pathname.startsWith("/admin")) {
+      if (!link || link.origin !== window.location.origin || !link.pathname.startsWith("/dashboard")) {
         return;
       }
       event.preventDefault();
@@ -177,7 +177,7 @@
         return;
       }
       event.preventDefault();
-      if (form.action.endsWith("/admin/logout")) {
+      if (form.action.endsWith("/dashboard/logout")) {
         logout();
         return;
       }
@@ -190,7 +190,7 @@
   }
 
   async function login(form) {
-    const response = await fetch("/api/auth/login", {
+    const response = await fetch("/api/admin/auth/login", {
       method: "POST",
       headers: {"Content-Type": "application/json", "X-API-Version": "1"},
       body: JSON.stringify({
@@ -206,7 +206,7 @@
     }
     storeTokens(await response.json());
     localStorage.setItem(usernameKey, form.elements.username.value.trim());
-    window.location.replace("/admin");
+    window.location.replace("/dashboard");
   }
 
   async function bootstrapLogin() {
@@ -219,12 +219,12 @@
       clearTokens();
       return;
     }
-    const response = await requestWithRefresh("/api/auth/me");
+    const response = await requestWithRefresh("/api/admin/auth/me");
     if (response?.ok) {
       const user = await response.json();
       localStorage.setItem(userIDKey, user.id);
       localStorage.setItem(usernameKey, user.username);
-      const destination = window.location.pathname === "/admin/login" ? "/admin" : window.location.href;
+      const destination = window.location.pathname === "/dashboard/login" ? "/dashboard" : window.location.href;
       await showPage(destination, undefined, false);
     }
   }

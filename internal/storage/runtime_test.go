@@ -40,7 +40,7 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 		defer mu.Unlock()
 
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			loginCalls++
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
@@ -49,7 +49,7 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(1200 * time.Millisecond),
 				"refresh_token_expires_at": time.Now().UTC().Add(time.Hour),
 			})
-		case "/internal/auth/refresh":
+		case "/node/auth/refresh":
 			refreshCalls++
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
@@ -58,7 +58,7 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(1200 * time.Millisecond),
 				"refresh_token_expires_at": time.Now().UTC().Add(time.Hour),
 			})
-		case "/internal/nodes":
+		case "/node/nodes":
 			heartbeatCalls++
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":   "node-a",
@@ -66,12 +66,12 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 				"last_seen": time.Now().UTC().Format(time.RFC3339),
 				"commands":  []any{},
 			})
-		case "/internal/shares":
+		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
-		case "/internal/replicas":
+		case "/node/replicas":
 			replicaCalls++
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
-		case "/internal/commands/7":
+		case "/node/commands/7":
 			if r.Method != http.MethodPatch {
 				t.Fatalf("command update method = %s, want PATCH", r.Method)
 			}
@@ -92,7 +92,7 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 				"created_at": "2026-05-21T11:59:00Z",
 				"updated_at": "2026-05-21T11:59:00Z",
 			})
-		case "/internal/nodes/ws":
+		case "/node/nodes/ws":
 			if got := r.Header.Get("Authorization"); got == "" {
 				t.Fatalf("Authorization header missing for websocket request")
 			}
@@ -164,7 +164,7 @@ func TestRuntimeProcessesFallbackCommandsWhenWebSocketUnavailable(t *testing.T) 
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "access-token",
@@ -172,7 +172,7 @@ func TestRuntimeProcessesFallbackCommandsWhenWebSocketUnavailable(t *testing.T) 
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/nodes":
+		case "/node/nodes":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":   "node-a",
 				"address":   "http://node-a:8081",
@@ -189,9 +189,9 @@ func TestRuntimeProcessesFallbackCommandsWhenWebSocketUnavailable(t *testing.T) 
 					},
 				},
 			})
-		case "/internal/shares":
+		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
-		case "/internal/replicas":
+		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		default:
 			http.NotFound(w, r)
@@ -241,7 +241,7 @@ func TestRuntimeDeduplicatesCompletedRefreshStateCommand(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "access-token",
@@ -249,21 +249,21 @@ func TestRuntimeDeduplicatesCompletedRefreshStateCommand(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/nodes":
+		case "/node/nodes":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":   "node-a",
 				"address":   "http://node-a:8081",
 				"last_seen": time.Now().UTC().Format(time.RFC3339),
 				"commands":  []any{},
 			})
-		case "/internal/shares":
+		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
-		case "/internal/replicas":
+		case "/node/replicas":
 			mu.Lock()
 			replicaCalls++
 			mu.Unlock()
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
-		case "/internal/commands/7":
+		case "/node/commands/7":
 			if r.Method != http.MethodPatch {
 				t.Fatalf("command update method = %s, want PATCH", r.Method)
 			}
@@ -292,7 +292,7 @@ func TestRuntimeDeduplicatesCompletedRefreshStateCommand(t *testing.T) {
 				"created_at": "2026-05-21T11:59:00Z",
 				"updated_at": "2026-05-21T11:59:00Z",
 			})
-		case "/internal/nodes/ws":
+		case "/node/nodes/ws":
 			conn, err := upgrader.Upgrade(w, r, nil)
 			if err != nil {
 				t.Fatalf("Upgrade() error = %v", err)
@@ -427,7 +427,7 @@ func TestRuntimeScanReplicaReportsCreatedAndChangedFiles(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "access-token",
@@ -435,7 +435,7 @@ func TestRuntimeScanReplicaReportsCreatedAndChangedFiles(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/nodes":
+		case "/node/nodes":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":   "node-a",
 				"address":   "http://node-a:8081",
@@ -452,9 +452,9 @@ func TestRuntimeScanReplicaReportsCreatedAndChangedFiles(t *testing.T) {
 					},
 				},
 			})
-		case "/internal/shares":
+		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
-		case "/internal/replicas":
+		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"id":           3,
@@ -465,7 +465,7 @@ func TestRuntimeScanReplicaReportsCreatedAndChangedFiles(t *testing.T) {
 					"type":         "filesystem",
 				},
 			})
-		case "/internal/replica/3/files":
+		case "/node/replica/3/files":
 			switch r.Method {
 			case http.MethodGet:
 				mu.Lock()
@@ -517,7 +517,7 @@ func TestRuntimeScanReplicaReportsCreatedAndChangedFiles(t *testing.T) {
 			default:
 				t.Fatalf("method = %s, want GET or POST", r.Method)
 			}
-		case "/internal/commands/21":
+		case "/node/commands/21":
 			if r.Method != http.MethodPatch {
 				t.Fatalf("command update method = %s, want PATCH", r.Method)
 			}
@@ -638,7 +638,7 @@ func TestRuntimeScanReplicaRefreshesLocalStateBeforeScan(t *testing.T) {
 	var commandCompleted bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "access-token",
@@ -646,9 +646,9 @@ func TestRuntimeScanReplicaRefreshesLocalStateBeforeScan(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/shares":
+		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
-		case "/internal/replicas":
+		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"id":             7,
@@ -660,7 +660,7 @@ func TestRuntimeScanReplicaRefreshesLocalStateBeforeScan(t *testing.T) {
 					"type":           "filesystem",
 				},
 			})
-		case "/internal/replica/7/files":
+		case "/node/replica/7/files":
 			switch r.Method {
 			case http.MethodGet:
 				_ = json.NewEncoder(w).Encode(map[string]any{"files": []map[string]any{
@@ -694,7 +694,7 @@ func TestRuntimeScanReplicaRefreshesLocalStateBeforeScan(t *testing.T) {
 			default:
 				t.Fatalf("method = %s, want GET or POST", r.Method)
 			}
-		case "/internal/commands/118":
+		case "/node/commands/118":
 			var body struct {
 				Status string `json:"status"`
 			}
@@ -829,7 +829,7 @@ func TestRuntimeRefreshLocalStateSkipsDeletedReplicaFiles(t *testing.T) {
 	commandCompleted := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "access-token",
@@ -837,9 +837,9 @@ func TestRuntimeRefreshLocalStateSkipsDeletedReplicaFiles(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/shares":
+		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
-		case "/internal/replicas":
+		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"id":           8,
@@ -850,10 +850,10 @@ func TestRuntimeRefreshLocalStateSkipsDeletedReplicaFiles(t *testing.T) {
 					"type":         "filesystem",
 				},
 			})
-		case "/internal/replica/8/files":
+		case "/node/replica/8/files":
 			deletedFileListRequested = true
 			t.Fatalf("deleted replica files should not be requested")
-		case "/internal/commands/120":
+		case "/node/commands/120":
 			var body struct {
 				Status string `json:"status"`
 			}
@@ -974,7 +974,7 @@ func TestRuntimeScanReplicaSkipsDeletedReplica(t *testing.T) {
 	commandCompleted := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "access-token",
@@ -982,9 +982,9 @@ func TestRuntimeScanReplicaSkipsDeletedReplica(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/replica/8/files":
+		case "/node/replica/8/files":
 			t.Fatalf("deleted replica files should not be requested")
-		case "/internal/commands/119":
+		case "/node/commands/119":
 			var body struct {
 				Status string `json:"status"`
 			}
@@ -1062,7 +1062,7 @@ func TestRuntimeReconcileReplicaTransfersPendingFiles(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "access-token",
@@ -1070,9 +1070,9 @@ func TestRuntimeReconcileReplicaTransfersPendingFiles(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/shares":
+		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
-		case "/internal/replicas":
+		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"id":           4,
@@ -1083,7 +1083,7 @@ func TestRuntimeReconcileReplicaTransfersPendingFiles(t *testing.T) {
 					"type":         "filesystem",
 				},
 			})
-		case "/internal/replica/4/files":
+		case "/node/replica/4/files":
 			if got := r.URL.Query().Get("status"); got != "" && got != "pending" {
 				t.Fatalf("status query = %q, want empty or pending", got)
 			}
@@ -1105,7 +1105,7 @@ func TestRuntimeReconcileReplicaTransfersPendingFiles(t *testing.T) {
 					},
 				},
 			})
-		case "/internal/replicas/3/files/10/content":
+		case "/transfer/replicas/3/files/10/content":
 			if got := r.URL.Query().Get("version"); got != "5" {
 				t.Fatalf("version query = %q, want 5", got)
 			}
@@ -1113,7 +1113,7 @@ func TestRuntimeReconcileReplicaTransfersPendingFiles(t *testing.T) {
 				t.Fatalf("Authorization = %q, want Bearer transfer-token", got)
 			}
 			_, _ = w.Write([]byte("content"))
-		case "/internal/replica/4/files/10":
+		case "/node/replica/4/files/10":
 			if r.Method != http.MethodPatch {
 				t.Fatalf("method = %s, want PATCH", r.Method)
 			}
@@ -1129,7 +1129,7 @@ func TestRuntimeReconcileReplicaTransfersPendingFiles(t *testing.T) {
 			body = replicaFileStatusUpdate{Status: decoded.Status, Version: decoded.Version}
 			statusUpdates = append(statusUpdates, body)
 			w.WriteHeader(http.StatusNoContent)
-		case "/internal/commands/31":
+		case "/node/commands/31":
 			var body struct {
 				Status string `json:"status"`
 			}
@@ -1225,7 +1225,7 @@ func TestRuntimeReconcileReplicaDeletesPendingDeletedFiles(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "access-token",
@@ -1233,13 +1233,13 @@ func TestRuntimeReconcileReplicaDeletesPendingDeletedFiles(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/shares":
+		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
-		case "/internal/replicas":
+		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": 4, "inventory_id": 2, "node_id": "node-a", "uri": destinationRoot, "status": "active", "type": "filesystem"},
 			})
-		case "/internal/replica/4/files":
+		case "/node/replica/4/files":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"files": []map[string]any{
 					{
@@ -1258,10 +1258,10 @@ func TestRuntimeReconcileReplicaDeletesPendingDeletedFiles(t *testing.T) {
 					},
 				},
 			})
-		case "/internal/replicas/3/files/10/content":
+		case "/transfer/replicas/3/files/10/content":
 			contentRequested = true
 			http.Error(w, "should not transfer deleted file", http.StatusInternalServerError)
-		case "/internal/replica/4/files/10":
+		case "/node/replica/4/files/10":
 			var body struct {
 				Status  string `json:"status"`
 				Version uint   `json:"version"`
@@ -1271,7 +1271,7 @@ func TestRuntimeReconcileReplicaDeletesPendingDeletedFiles(t *testing.T) {
 			}
 			statusUpdates = append(statusUpdates, replicaFileStatusUpdate{Status: body.Status, Version: body.Version})
 			w.WriteHeader(http.StatusNoContent)
-		case "/internal/commands/34":
+		case "/node/commands/34":
 			var body struct {
 				Status string `json:"status"`
 			}
@@ -1326,7 +1326,7 @@ func TestRuntimeReconcileReplicaDeletesUnknownDownstreamFiles(t *testing.T) {
 	commandCompleted := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "access-token",
@@ -1334,15 +1334,15 @@ func TestRuntimeReconcileReplicaDeletesUnknownDownstreamFiles(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/shares":
+		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
-		case "/internal/replicas":
+		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": 4, "inventory_id": 2, "node_id": "node-a", "uri": destinationRoot, "status": "active", "type": "filesystem", "upstream_replica_id": 3},
 			})
-		case "/internal/replica/4/files":
+		case "/node/replica/4/files":
 			_ = json.NewEncoder(w).Encode(map[string]any{"files": []any{}})
-		case "/internal/commands/35":
+		case "/node/commands/35":
 			commandCompleted = true
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 35, "node_id": "node-a", "type": "reconcile_replica", "status": "completed"})
 		default:
@@ -1392,7 +1392,7 @@ func TestRuntimeReconcileReplicaMarksTerminalFileErrorAndContinues(t *testing.T)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "access-token",
@@ -1400,24 +1400,24 @@ func TestRuntimeReconcileReplicaMarksTerminalFileErrorAndContinues(t *testing.T)
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/shares":
+		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
-		case "/internal/replicas":
+		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": 4, "inventory_id": 2, "node_id": "node-a", "uri": destinationRoot, "status": "active", "type": "filesystem"},
 			})
-		case "/internal/replica/4/files":
+		case "/node/replica/4/files":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"files": []map[string]any{
 					{"file_id": 10, "replica_id": 4, "inventory_id": 2, "relative_uri": "missing.txt", "inventory_status": "active", "inventory_version": 5, "replica_status": "pending", "replica_version": 0, "created": "2026-05-21T11:00:00Z", "modified": "2026-05-21T12:00:00Z"},
 					{"file_id": 11, "replica_id": 4, "inventory_id": 2, "relative_uri": "ok.txt", "inventory_status": "active", "inventory_version": 6, "replica_status": "pending", "replica_version": 0, "created": "2026-05-21T11:00:00Z", "modified": "2026-05-21T12:00:00Z"},
 				},
 			})
-		case "/internal/replicas/3/files/10/content":
+		case "/transfer/replicas/3/files/10/content":
 			http.Error(w, "missing", http.StatusNotFound)
-		case "/internal/replicas/3/files/11/content":
+		case "/transfer/replicas/3/files/11/content":
 			_, _ = w.Write([]byte("ok"))
-		case "/internal/replica/4/files/10", "/internal/replica/4/files/11":
+		case "/node/replica/4/files/10", "/node/replica/4/files/11":
 			var body struct {
 				Status  string `json:"status"`
 				Version uint   `json:"version"`
@@ -1431,7 +1431,7 @@ func TestRuntimeReconcileReplicaMarksTerminalFileErrorAndContinues(t *testing.T)
 				Version uint
 			}{FileID: filepath.Base(r.URL.Path), Status: body.Status, Version: body.Version})
 			w.WriteHeader(http.StatusNoContent)
-		case "/internal/commands/32":
+		case "/node/commands/32":
 			var body struct {
 				Status string `json:"status"`
 			}
@@ -1490,7 +1490,7 @@ func TestRuntimeReconcileReplicaAuthErrorStopsWithoutFileStatusUpdates(t *testin
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "access-token",
@@ -1498,24 +1498,24 @@ func TestRuntimeReconcileReplicaAuthErrorStopsWithoutFileStatusUpdates(t *testin
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/shares":
+		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
-		case "/internal/replicas":
+		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": 4, "inventory_id": 2, "node_id": "node-a", "uri": destinationRoot, "status": "active", "type": "filesystem"},
 			})
-		case "/internal/replica/4/files":
+		case "/node/replica/4/files":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"files": []map[string]any{
 					{"file_id": 10, "replica_id": 4, "inventory_id": 2, "relative_uri": "auth.txt", "inventory_status": "active", "inventory_version": 5, "replica_status": "pending", "replica_version": 0, "created": "2026-05-21T11:00:00Z", "modified": "2026-05-21T12:00:00Z"},
 				},
 			})
-		case "/internal/replicas/3/files/10/content":
+		case "/transfer/replicas/3/files/10/content":
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
-		case "/internal/replica/4/files/10":
+		case "/node/replica/4/files/10":
 			statusUpdateCalls++
 			w.WriteHeader(http.StatusNoContent)
-		case "/internal/commands/33":
+		case "/node/commands/33":
 			commandFailed = true
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 33, "node_id": "node-a", "type": "reconcile_replica", "status": "failed"})
 		default:
@@ -1609,7 +1609,7 @@ func TestRuntimeReportsStartupLocalChanges(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "access-token",
@@ -1617,7 +1617,7 @@ func TestRuntimeReportsStartupLocalChanges(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/replica/3/files":
+		case "/node/replica/3/files":
 			switch r.Method {
 			case http.MethodPost:
 				if err := json.NewDecoder(r.Body).Decode(&gotReport); err != nil {
@@ -1681,7 +1681,7 @@ func TestRuntimeReportsStartupLocalChanges(t *testing.T) {
 func TestRuntimeStartupScanSkipsPendingDownstreamMissingRoot(t *testing.T) {
 	reportCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/internal/replica/3/files" && r.Method == http.MethodPost {
+		if r.URL.Path == "/node/replica/3/files" && r.Method == http.MethodPost {
 			reportCalls++
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -1724,7 +1724,7 @@ func TestRuntimeStartsReplicaWatcherAndLogsChanges(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "access-token",
@@ -1732,16 +1732,16 @@ func TestRuntimeStartsReplicaWatcherAndLogsChanges(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/nodes":
+		case "/node/nodes":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":   "node-a",
 				"address":   "http://node-a:8081",
 				"last_seen": time.Now().UTC().Format(time.RFC3339),
 				"commands":  []any{},
 			})
-		case "/internal/shares":
+		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
-		case "/internal/replicas":
+		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"id":           3,
@@ -1752,7 +1752,7 @@ func TestRuntimeStartsReplicaWatcherAndLogsChanges(t *testing.T) {
 					"type":         "filesystem",
 				},
 			})
-		case "/internal/replica/3/files":
+		case "/node/replica/3/files":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"files": []any{},
 			})
@@ -1828,7 +1828,7 @@ func TestRuntimeReportsWatcherCreatedFile(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/internal/auth/login":
+		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",
 				"access_token":             "access-token",
@@ -1836,7 +1836,7 @@ func TestRuntimeReportsWatcherCreatedFile(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/internal/replica/3/files":
+		case "/node/replica/3/files":
 			switch r.Method {
 			case http.MethodPost:
 				if err := json.NewDecoder(r.Body).Decode(&gotReport); err != nil {

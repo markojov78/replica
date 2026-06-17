@@ -22,7 +22,7 @@ import (
 )
 
 const bootstrapRetryInterval = 5 * time.Second
-const commandWebSocketPath = "/internal/nodes/ws"
+const commandWebSocketPath = "/node/nodes/ws"
 const watcherReportSettleDelay = 250 * time.Millisecond
 
 type Runtime struct {
