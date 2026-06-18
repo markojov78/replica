@@ -243,20 +243,7 @@ func (r *Runtime) reportStartupLocalChanges(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runtime) setLocalState(replicas []apiclient.Replica, shareOrFiles any, optionalFiles ...map[uint][]apiclient.ReplicaInventoryFile) {
-	var shares []apiclient.Share
-	var replicaFiles map[uint][]apiclient.ReplicaInventoryFile
-	switch value := shareOrFiles.(type) {
-	case []apiclient.Share:
-		shares = value
-		if len(optionalFiles) > 0 {
-			replicaFiles = optionalFiles[0]
-		}
-	case map[uint][]apiclient.ReplicaInventoryFile:
-		replicaFiles = value
-	default:
-		replicaFiles = make(map[uint][]apiclient.ReplicaInventoryFile)
-	}
+func (r *Runtime) setLocalState(replicas []apiclient.Replica, shares []apiclient.Share, replicaFiles map[uint][]apiclient.ReplicaInventoryFile) {
 	if replicaFiles == nil {
 		replicaFiles = make(map[uint][]apiclient.ReplicaInventoryFile)
 	}

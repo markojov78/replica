@@ -76,6 +76,7 @@ func TestServeReplicaFileContentStreamsS3ReplicaThroughReader(t *testing.T) {
 			NodeID: "node-a",
 			URI:    "s3://bucket/root",
 		}},
+		nil,
 		map[uint][]apiclient.ReplicaInventoryFile{
 			1: {{
 				FileID:         10,
@@ -153,6 +154,7 @@ func newTransferTestRuntime(t *testing.T, root string) (*Runtime, string) {
 			NodeID: "node-a",
 			URI:    root,
 		}},
+		nil,
 		map[uint][]apiclient.ReplicaInventoryFile{
 			1: {{
 				FileID:         10,

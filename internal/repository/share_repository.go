@@ -105,7 +105,7 @@ func (r *ShareRepository) CreateWithUserPermissions(share *model.Share, permissi
 	})
 }
 
-func (r *ShareRepository) CreateWithPermissions(share *model.Share, userPermissions []UserPermissionDetails, anonymousPermissions []string) error {
+func (r *ShareRepository) CreateWithPermissions(share *model.Share, userPermissions []UserPermissionDetails, anonymousPermissions []string, command *model.Command) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(share).Error; err != nil {
 			return err
@@ -113,7 +113,10 @@ func (r *ShareRepository) CreateWithPermissions(share *model.Share, userPermissi
 		if err := replaceShareUserPermissions(tx, share.ID, userPermissions); err != nil {
 			return err
 		}
-		return replaceShareAnonymousPermissions(tx, share.ID, anonymousPermissions)
+		if err := replaceShareAnonymousPermissions(tx, share.ID, anonymousPermissions); err != nil {
+			return err
+		}
+		return createShareRefreshCommand(tx, command)
 	})
 }
 
@@ -133,7 +136,7 @@ func (r *ShareRepository) UpdateWithUserPermissions(share *model.Share, permissi
 	})
 }
 
-func (r *ShareRepository) UpdateWithPermissions(share *model.Share, userPermissions []UserPermissionDetails, replaceUserPermissions bool, anonymousPermissions []string, replaceAnonymousPermissions bool) error {
+func (r *ShareRepository) UpdateWithPermissions(share *model.Share, userPermissions []UserPermissionDetails, replaceUserPermissions bool, anonymousPermissions []string, replaceAnonymousPermissions bool, command *model.Command) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(share).Error; err != nil {
 			return err
@@ -148,8 +151,27 @@ func (r *ShareRepository) UpdateWithPermissions(share *model.Share, userPermissi
 				return err
 			}
 		}
-		return nil
+		return createShareRefreshCommand(tx, command)
 	})
+}
+
+func (r *ShareRepository) UpdateWithCommand(share *model.Share, command *model.Command) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(share).Error; err != nil {
+			return err
+		}
+		return createShareRefreshCommand(tx, command)
+	})
+}
+
+func createShareRefreshCommand(tx *gorm.DB, command *model.Command) error {
+	if command == nil {
+		return nil
+	}
+	if len(command.Payload) == 0 {
+		command.Payload = []byte("{}")
+	}
+	return tx.Create(command).Error
 }
 
 func (r *ShareRepository) UserPermissions(shareID uint) ([]UserPermissionDetails, error) {

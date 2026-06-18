@@ -13,7 +13,8 @@ import (
 )
 
 type ShareService struct {
-	repo *repository.ShareRepository
+	repo  *repository.ShareRepository
+	nodes *NodeService
 }
 
 var (
@@ -69,8 +70,8 @@ type UpdateShareInput struct {
 	AnonymousPermissions *[]string
 }
 
-func NewShareService(repo *repository.ShareRepository) *ShareService {
-	return &ShareService{repo: repo}
+func NewShareService(repo *repository.ShareRepository, nodes *NodeService) *ShareService {
+	return &ShareService{repo: repo, nodes: nodes}
 }
 
 func (s *ShareService) List() ([]model.Share, error) {
@@ -212,9 +213,11 @@ func (s *ShareService) Create(input CreateShareInput) (*ShareDetails, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := s.repo.CreateWithPermissions(share, permissions, anonymousPermissions); err != nil {
+	command := newShareRefreshStateCommand(replica.NodeID)
+	if err := s.repo.CreateWithPermissions(share, permissions, anonymousPermissions, command); err != nil {
 		return nil, err
 	}
+	s.publishCommand(command)
 	details := toShareDetails(share)
 	if err := s.loadShareUserPermissions(details); err != nil {
 		return nil, err
@@ -277,9 +280,11 @@ func (s *ShareService) Update(id uint, input UpdateShareInput) (*ShareDetails, e
 		}
 	}
 
-	if err := s.repo.UpdateWithPermissions(share, permissions, input.UserPermissions != nil, anonymousPermissions, input.AnonymousPermissions != nil); err != nil {
+	command := newShareRefreshStateCommand(share.Replica.NodeID)
+	if err := s.repo.UpdateWithPermissions(share, permissions, input.UserPermissions != nil, anonymousPermissions, input.AnonymousPermissions != nil, command); err != nil {
 		return nil, err
 	}
+	s.publishCommand(command)
 	details := toShareDetails(share)
 	if err := s.loadShareUserPermissions(details); err != nil {
 		return nil, err
@@ -296,11 +301,31 @@ func (s *ShareService) Delete(id uint) error {
 		return err
 	}
 	share.Status = model.ShareStatusDeleted
-	return s.repo.Update(share)
+	command := newShareRefreshStateCommand(share.Replica.NodeID)
+	if err := s.repo.UpdateWithCommand(share, command); err != nil {
+		return err
+	}
+	s.publishCommand(command)
+	return nil
 }
 
 func (s *ShareService) IsNotFound(err error) bool {
 	return errors.Is(err, ErrShareNotFound) || errors.Is(err, gorm.ErrRecordNotFound)
+}
+
+func newShareRefreshStateCommand(nodeID string) *model.Command {
+	return &model.Command{
+		NodeID: strings.TrimSpace(nodeID),
+		Type:   model.NodeCommandTypeRefreshState,
+		Status: model.NodeCommandStatusPending,
+	}
+}
+
+func (s *ShareService) publishCommand(command *model.Command) {
+	if s.nodes == nil {
+		return
+	}
+	s.nodes.PublishCommand(command)
 }
 
 func validateShareListFilter(filter *ShareListFilter) error {

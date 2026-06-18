@@ -260,7 +260,7 @@ func TestInternalAuthMeReturnsAuthenticatedNode(t *testing.T) {
 		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
 		newRouterTestReplicaService(database, nil),
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 
@@ -323,7 +323,7 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
 		newRouterTestReplicaService(database, nil),
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 
@@ -421,7 +421,7 @@ func TestInternalNodesReportAvailabilityReturnsPendingCommands(t *testing.T) {
 		nodeService,
 		service.NewInventoryService(inventoryRepo),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService),
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 
@@ -527,7 +527,7 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 		nodeService,
 		inventoryService,
 		replicaService,
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 
@@ -665,7 +665,7 @@ func TestInternalSharesReturnsOnlyAuthenticatedNodeShares(t *testing.T) {
 	nodeService := service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
 	inventoryService := service.NewInventoryService(repository.NewInventoryRepository(database), nodeService)
 	replicaService := newRouterTestReplicaService(database, nodeService)
-	shareService := service.NewShareService(repository.NewShareRepository(database))
+	shareService := service.NewShareService(repository.NewShareRepository(database), nil)
 
 	handler := New(
 		config.Config{},
@@ -749,7 +749,7 @@ func TestInternalSharesReturnsEmptyListWhenNodeHasNoShares(t *testing.T) {
 		nodeService,
 		service.NewInventoryService(repository.NewInventoryRepository(database), nodeService),
 		newRouterTestReplicaService(database, nodeService),
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 
@@ -783,7 +783,7 @@ func TestInternalSharesRequiresNodeToken(t *testing.T) {
 		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
 		nil,
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 
@@ -879,7 +879,7 @@ func TestInternalReplicaFilesReturnsInventoryAndReplicaMetadata(t *testing.T) {
 		nodeService,
 		inventoryService,
 		replicaService,
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 
@@ -1045,7 +1045,7 @@ func TestPublicReplicasListIsPaginated(t *testing.T) {
 		nodeService,
 		inventoryService,
 		replicaService,
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 
@@ -1111,7 +1111,7 @@ func TestInternalNodesWebSocketAcceptsAuthenticatedNode(t *testing.T) {
 		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
 		nil,
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 
@@ -1213,7 +1213,7 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 		nodeService,
 		inventoryService,
 		nil,
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 
@@ -1429,7 +1429,7 @@ func TestPublicReplicaCreatePopulatesPendingFilesAndReconcileCommand(t *testing.
 		nodeService,
 		service.NewInventoryService(inventoryRepo, nodeService),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService, settingService),
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 
@@ -1522,7 +1522,7 @@ func TestInternalCommandsPatchUpdatesOwnedCommandStatus(t *testing.T) {
 		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
 		newRouterTestReplicaService(database, nil),
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 
@@ -1660,7 +1660,7 @@ func TestInternalReplicaFilesReportUpdatesCoordinatorState(t *testing.T) {
 		nodeService,
 		service.NewInventoryService(inventoryRepo),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService, settingService),
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 
@@ -1880,7 +1880,7 @@ func newInternalReplicaFileStatusTestHandler(t *testing.T, database *gorm.DB) (h
 		nodeService,
 		service.NewInventoryService(inventoryRepo),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService),
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 
@@ -1963,7 +1963,7 @@ func newInternalReplicaFilesFilterTestHandler(t *testing.T, database *gorm.DB) (
 		nodeService,
 		service.NewInventoryService(inventoryRepo),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService),
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 

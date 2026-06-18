@@ -79,7 +79,7 @@ func main() {
 		nodeService.Start(ctx)
 		inventoryService = service.NewInventoryService(inventoryRepo, nodeService)
 		replicaService = service.NewReplicaService(replicaRepo, inventoryRepo, nodeService, settingService)
-		shareService = service.NewShareService(shareRepo)
+		shareService = service.NewShareService(shareRepo, nodeService)
 	}
 
 	handler := router.New(

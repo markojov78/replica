@@ -73,7 +73,7 @@ func TestPublicReplicaMutationsRejectDeletedInventory(t *testing.T) {
 		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
 		service.NewInventoryService(inventoryRepo),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo),
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 

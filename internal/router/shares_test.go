@@ -182,6 +182,53 @@ func TestShareRouteListRequiresGlobalSharePermission(t *testing.T) {
 	}
 }
 
+func TestShareRouteMutationsCreateRefreshStateCommands(t *testing.T) {
+	database := openRouterTestDB(t)
+	_, accessToken := createShareRouteUser(t, database, []model.Permission{
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionCreate},
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionUpdate},
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionDelete},
+	})
+	replica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
+	handler := newShareRouteHandler(database)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"name":"Vacation March 2026"}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("create status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var created service.ShareDetails
+	if err := json.Unmarshal(recorder.Body.Bytes(), &created); err != nil {
+		t.Fatalf("Unmarshal(created) error = %v", err)
+	}
+	assertShareRefreshCommands(t, database, replica.NodeID, 1)
+
+	req = httptest.NewRequest(http.MethodPatch, "/api/admin/shares/"+strconv.FormatUint(uint64(created.ID), 10), strings.NewReader(`{"name":"Vacation renamed"}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", "1")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	assertShareRefreshCommands(t, database, replica.NodeID, 2)
+
+	req = httptest.NewRequest(http.MethodDelete, "/api/admin/shares/"+strconv.FormatUint(uint64(created.ID), 10), nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-API-Version", "1")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want %d; body=%s", recorder.Code, http.StatusNoContent, recorder.Body.String())
+	}
+	assertShareRefreshCommands(t, database, replica.NodeID, 3)
+}
+
 func TestShareRouteUserPermissionsOmittedAndPatchReplacement(t *testing.T) {
 	database := openRouterTestDB(t)
 	creator, accessToken := createShareRouteUser(t, database, []model.Permission{
@@ -540,18 +587,41 @@ func TestInventoryRouteUserPermissionsCreateAndPatchReplacement(t *testing.T) {
 }
 
 func newShareRouteHandler(database *gorm.DB) http.Handler {
+	nodeService := service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
 	return New(
 		config.Config{},
 		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
 		newRouterTestAuthService(database),
 		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
 		service.NewRoleService(repository.NewRoleRepository(database)),
-		service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database)),
+		nodeService,
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
 		nil,
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nodeService),
 		nil,
 	)
+}
+
+func assertShareRefreshCommands(t *testing.T, database *gorm.DB, nodeID string, want int64) {
+	t.Helper()
+
+	var count int64
+	if err := database.Model(&model.Command{}).
+		Where("node_id = ? AND type = ? AND status = ?", nodeID, model.NodeCommandTypeRefreshState, model.NodeCommandStatusPending).
+		Count(&count).Error; err != nil {
+		t.Fatalf("Count(refresh_state commands) error = %v", err)
+	}
+	if count != want {
+		t.Fatalf("refresh_state command count = %d, want %d", count, want)
+	}
+
+	var latest model.Command
+	if err := database.Where("node_id = ? AND type = ?", nodeID, model.NodeCommandTypeRefreshState).Order("id desc").First(&latest).Error; err != nil {
+		t.Fatalf("First(latest refresh_state command) error = %v", err)
+	}
+	if string(latest.Payload) != "{}" {
+		t.Fatalf("latest refresh_state payload = %s, want {}", string(latest.Payload))
+	}
 }
 
 func createShareRouteUser(t *testing.T, database *gorm.DB, permissions []model.Permission) (*model.User, string) {

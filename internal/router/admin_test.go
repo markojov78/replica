@@ -64,7 +64,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		nodeService,
 		service.NewInventoryService(inventoryRepo, nodeService),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService, settingService),
-		service.NewShareService(repository.NewShareRepository(database)),
+		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
 	)
 

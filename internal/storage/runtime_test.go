@@ -952,7 +952,7 @@ func TestRuntimeStopDeletedReplicaWatchers(t *testing.T) {
 	runtime.setLocalState([]apiclient.Replica{
 		{ID: 8, Status: "deleted"},
 		{ID: 9, Status: "active"},
-	}, nil)
+	}, nil, nil)
 
 	runtime.stopDeletedReplicaWatchers()
 
@@ -1030,7 +1030,7 @@ func TestRuntimeScanReplicaSkipsDeletedReplica(t *testing.T) {
 		URI:    "/deleted",
 		Status: "deleted",
 		Type:   "filesystem",
-	}}, nil)
+	}}, nil, nil)
 
 	payload, err := json.Marshal(map[string]any{"replica_id": 8})
 	if err != nil {
@@ -1641,6 +1641,7 @@ func TestRuntimeReportsStartupLocalChanges(t *testing.T) {
 	replica := apiclient.Replica{ID: 3, InventoryID: 2, NodeID: "node-a", URI: replicaRoot, Status: "active", Type: "filesystem"}
 	runtime.setLocalState(
 		[]apiclient.Replica{replica},
+		nil,
 		map[uint][]apiclient.ReplicaInventoryFile{
 			3: {
 				{FileID: 10, ReplicaID: 3, InventoryID: 2, RelativeURI: "changed.txt", Size: 3, Hash: "old-hash", InventoryStatus: "active", InventoryVersion: 1, ReplicaStatus: "synchronized", ReplicaVersion: 1},
@@ -1703,6 +1704,7 @@ func TestRuntimeStartupScanSkipsPendingDownstreamMissingRoot(t *testing.T) {
 	}
 	runtime.setLocalState(
 		[]apiclient.Replica{replica},
+		nil,
 		map[uint][]apiclient.ReplicaInventoryFile{
 			3: {
 				{FileID: 10, ReplicaID: 3, InventoryID: 2, RelativeURI: "file.txt", Size: 7, Hash: "hash", InventoryStatus: "active", InventoryVersion: 1, ReplicaStatus: "pending", ReplicaVersion: 0},
@@ -1886,6 +1888,7 @@ func TestRuntimeReportsWatcherCreatedFile(t *testing.T) {
 	}
 	runtime.setLocalState(
 		[]apiclient.Replica{{ID: 3, InventoryID: 2, NodeID: "node-a", URI: replicaRoot, Status: "active", Type: "filesystem"}},
+		nil,
 		map[uint][]apiclient.ReplicaInventoryFile{3: {}},
 	)
 

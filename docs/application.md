@@ -212,7 +212,9 @@ for the responsible storage node. After refreshing its assignments, the storage 
 whose current status is `deleted`.
 
 The same `refresh_state` command refreshes assigned share state from `/node/shares`. Shares not returned by the
-coordinator are removed from storage-node memory. No local database or durable cache is used for sharing state.
+coordinator are removed from storage-node memory. Share create, update and delete operations create a durable
+`refresh_state` command for the node assigned to the share replica. No local database or durable cache is used for
+sharing state.
 
 #### Heartbeat
 Storage services periodically report heartbeat information to the coordinator using 
