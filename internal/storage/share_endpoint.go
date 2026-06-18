@@ -28,7 +28,10 @@ var (
 )
 
 type shareFileListBody struct {
-	Files []apiclient.ReplicaInventoryFile `json:"files"`
+	Items []apiclient.ReplicaInventoryFile `json:"items"`
+	Page  int                              `json:"page"`
+	Count int                              `json:"count"`
+	Total int64                            `json:"total"`
 }
 
 type shareListBody struct {
@@ -138,7 +141,12 @@ func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Requ
 			writeStorageShareError(w, storageShareStatus(err), err.Error())
 			return
 		}
-		writeStorageShareJSON(w, http.StatusOK, shareFileListBody{Files: r.availableShareFiles(replica.ID)})
+		list, err := r.availableShareFileList(req, replica.ID)
+		if err != nil {
+			writeStorageShareError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeStorageShareJSON(w, http.StatusOK, list)
 	case req.Method == http.MethodGet && req.PathValue("id") != "" && req.PathValue("file_id") != "":
 		shareID, ok := parseSharePathUint(w, req, "id")
 		if !ok {
@@ -180,7 +188,12 @@ func (r *Runtime) ServePublicShares(w http.ResponseWriter, req *http.Request) {
 			writeStorageShareError(w, storageShareStatus(err), err.Error())
 			return
 		}
-		writeStorageShareJSON(w, http.StatusOK, shareFileListBody{Files: r.availableShareFiles(replica.ID)})
+		list, err := r.availableShareFileList(req, replica.ID)
+		if err != nil {
+			writeStorageShareError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeStorageShareJSON(w, http.StatusOK, list)
 	case req.Method == http.MethodGet && req.PathValue("file_id") != "":
 		fileID, ok := parseSharePathUint(w, req, "file_id")
 		if !ok {
@@ -375,6 +388,33 @@ func (r *Runtime) availableShareFiles(replicaID uint) []apiclient.ReplicaInvento
 		}
 	}
 	return result
+}
+
+func (r *Runtime) availableShareFileList(req *http.Request, replicaID uint) (shareFileListBody, error) {
+	page, count, err := parseShareListPagination(req)
+	if err != nil {
+		return shareFileListBody{}, err
+	}
+
+	files := r.availableShareFiles(replicaID)
+	total := int64(len(files))
+	start := (page - 1) * count
+	if start >= len(files) {
+		files = []apiclient.ReplicaInventoryFile{}
+	} else {
+		end := start + count
+		if end > len(files) {
+			end = len(files)
+		}
+		files = files[start:end]
+	}
+
+	return shareFileListBody{
+		Items: files,
+		Page:  page,
+		Count: count,
+		Total: total,
+	}, nil
 }
 
 func (r *Runtime) serveShareFileContent(w http.ResponseWriter, req *http.Request, replica apiclient.Replica, fileID uint) {

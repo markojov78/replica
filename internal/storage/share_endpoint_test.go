@@ -259,6 +259,9 @@ func TestServeShareFilesListsOnlySynchronizedActiveFilesAndStreamsLocalContent(t
 	if err := os.WriteFile(filepath.Join(root, "ready.txt"), []byte("ready"), 0o600); err != nil {
 		t.Fatalf("WriteFile(ready) error = %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(root, "second.txt"), []byte("second"), 0o600); err != nil {
+		t.Fatalf("WriteFile(second) error = %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "pending.txt"), []byte("pending"), 0o600); err != nil {
 		t.Fatalf("WriteFile(pending) error = %v", err)
 	}
@@ -277,21 +280,32 @@ func TestServeShareFilesListsOnlySynchronizedActiveFilesAndStreamsLocalContent(t
 		map[uint][]apiclient.ReplicaInventoryFile{
 			3: {
 				{FileID: 10, ReplicaID: 3, RelativeURI: "ready.txt", Size: 5, InventoryStatus: "active", ReplicaStatus: "synchronized"},
-				{FileID: 11, ReplicaID: 3, RelativeURI: "pending.txt", Size: 7, InventoryStatus: "active", ReplicaStatus: "pending"},
-				{FileID: 12, ReplicaID: 3, RelativeURI: "deleted.txt", InventoryStatus: "deleted", ReplicaStatus: "synchronized"},
+				{FileID: 11, ReplicaID: 3, RelativeURI: "second.txt", Size: 6, InventoryStatus: "active", ReplicaStatus: "synchronized"},
+				{FileID: 12, ReplicaID: 3, RelativeURI: "pending.txt", Size: 7, InventoryStatus: "active", ReplicaStatus: "pending"},
+				{FileID: 13, ReplicaID: 3, RelativeURI: "deleted.txt", InventoryStatus: "deleted", ReplicaStatus: "synchronized"},
 			},
 		},
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/s/public-link/files", nil)
+	req := httptest.NewRequest(http.MethodGet, "/s/public-link/files?page=2&count=1", nil)
 	req.SetPathValue("link_hash", "public-link")
 	rec := httptest.NewRecorder()
 	runtime.ServePublicShares(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
 	}
-	if strings.Contains(rec.Body.String(), "pending.txt") || strings.Contains(rec.Body.String(), "deleted.txt") || !strings.Contains(rec.Body.String(), "ready.txt") {
-		t.Fatalf("file list body = %s, want only ready.txt", rec.Body.String())
+	var list shareFileListBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("Unmarshal(files) error = %v", err)
+	}
+	if list.Page != 2 || list.Count != 1 || list.Total != 2 {
+		t.Fatalf("file list metadata = page:%d count:%d total:%d, want 2/1/2", list.Page, list.Count, list.Total)
+	}
+	if len(list.Items) != 1 || list.Items[0].RelativeURI != "second.txt" {
+		t.Fatalf("file list items = %+v, want second.txt page", list.Items)
+	}
+	if strings.Contains(rec.Body.String(), "pending.txt") || strings.Contains(rec.Body.String(), "deleted.txt") || strings.Contains(rec.Body.String(), `"files"`) {
+		t.Fatalf("file list body = %s, want paginated items without unavailable files", rec.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/s/public-link/files/10/content", nil)
@@ -303,13 +317,59 @@ func TestServeShareFilesListsOnlySynchronizedActiveFilesAndStreamsLocalContent(t
 		t.Fatalf("status/body = %d/%q, want 200/ready", rec.Code, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/s/public-link/files/11/content", nil)
+	req = httptest.NewRequest(http.MethodGet, "/s/public-link/files/12/content", nil)
 	req.SetPathValue("link_hash", "public-link")
-	req.SetPathValue("file_id", "11")
+	req.SetPathValue("file_id", "12")
 	rec = httptest.NewRecorder()
 	runtime.ServePublicShares(rec, req)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusConflict)
+	}
+}
+
+func TestServeAuthenticatedShareFilesUsesCoordinatorListEnvelope(t *testing.T) {
+	runtime := newShareEndpointRuntime(t, validationServer(t, 15, http.StatusOK))
+	runtime.setLocalState(
+		[]apiclient.Replica{{ID: 3, NodeID: "node-a", URI: t.TempDir(), Status: "active"}},
+		[]apiclient.Share{{
+			ID:        1,
+			ReplicaID: 3,
+			Status:    "active",
+			UserPermissions: []apiclient.UserPermission{{
+				UserID:      15,
+				Permissions: []string{"read"},
+			}},
+		}},
+		map[uint][]apiclient.ReplicaInventoryFile{
+			3: {
+				{FileID: 10, ReplicaID: 3, RelativeURI: "a.txt", InventoryStatus: "active", ReplicaStatus: "synchronized"},
+				{FileID: 11, ReplicaID: 3, RelativeURI: "b.txt", InventoryStatus: "active", ReplicaStatus: "synchronized"},
+			},
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/share/shares/1/files?page=1&count=1", nil)
+	req.SetPathValue("id", "1")
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+
+	runtime.ServeAuthenticatedShares(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
+	}
+	var list shareFileListBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("Unmarshal(files) error = %v", err)
+	}
+	if list.Page != 1 || list.Count != 1 || list.Total != 2 {
+		t.Fatalf("file list metadata = page:%d count:%d total:%d, want 1/1/2", list.Page, list.Count, list.Total)
+	}
+	if len(list.Items) != 1 || list.Items[0].RelativeURI != "a.txt" {
+		t.Fatalf("file list items = %+v, want first file", list.Items)
+	}
+	if strings.Contains(rec.Body.String(), `"files"`) {
+		t.Fatalf("file list body = %s, want items envelope", rec.Body.String())
 	}
 }
 

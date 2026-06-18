@@ -1030,8 +1030,6 @@ This API is exposed on the storage node and used to access private aand public s
 
 Authenticated endpoints are exposed by storage nodes under `/api/share`.
 Anonymous browser-friendly public endpoints are exposed under `/s`.
-They are read-only in v1: users can list shares, inspect one share, list available files and download synchronized local file content.
-Upload, create, update and delete through the sharing API are not implemented in v1.
 
 Storage nodes expose sharing authentication endpoints so a sharing UI can authenticate through the storage node without
 knowing whether it is connected to a storage-only deployment or coordinator + storage deployment. In storage-only
@@ -1103,7 +1101,7 @@ Possible errors:
 
 ### /shares endpoint
 #### GET /shares
-Returns a paginated list of active shares on the current storage node where the authenticated user has share permission `read`.
+Returns a paginated list of active shares on the current storage node where the authenticated user has read permission.
 
 Authorization:
 - `Authorization: Bearer <normal-user-access-token>` required
@@ -1164,15 +1162,21 @@ Errors:
 #### GET /shares/{id}/files
 Returns files available for read through the share.
 
+Query parameters:
+* `page` optional, default `1`
+* `count` optional, default `20`, maximum `100`
+
 Only files matching all of the following are returned:
 - `inventory_files.status = active`
 - local `replica_files` row exists for the share replica
 - `replica_files.status = synchronized`
 
+The response shape intentionally matches coordinator list endpoints.
+
 Example response:
 ```json
 {
-  "files": [
+  "items": [
     {
       "file_id": 10,
       "replica_id": 3,
@@ -1187,10 +1191,13 @@ Example response:
       "created": "2026-03-17T10:30:00Z",
       "modified": "2026-03-17T10:30:00Z"
     }
-  ]
+  ],
+  "page": 1,
+  "count": 20,
+  "total": 1
 }
 ```
-#### POST /api/share/shares/{id}/files
+#### POST /shares/{id}/files
 Content-Type: multipart/form-data  
 
 Request fields:
@@ -1204,29 +1211,26 @@ file=<binary>
 ```
 Behavior:  
 - Requires create permission.
-  - Allowed only for folder inventories.
-  - relative_uri must be relative, normalized, non-empty, and must not escape replica root.
-  - File must not already exist as active inventory file.
-  - Storage node writes file to local replica.
-  - Storage node calculates size/hash/created/modified.
-  - Storage node reports action=created to coordinator through existing replica change flow.
-  - Coordinator creates/updates inventory_files, file_journal, replica_files.
+- Allowed only for folder inventories.
+- relative_uri must be relative, normalized, non-empty, and must not escape replica root.
+- File must not already exist as active inventory file.
+- Storage node writes file to local replica.
+- Storage node calculates size/hash/created/modified.
+- Storage node reports action=created to coordinator through existing replica change mechanism.  
+- Coordinator creates/updates inventory_files, file_journal, replica_files.  
 
 Response:  
-```json
-{
-  "file_id": 123,
-  "inventory_id": 1,
-  "replica_id": 3,
-  "relative_uri": "album/new-photo.jpg",
-  "status": "active",
-  "size": 12345,
-  "hash": "blake3-hash",
-  "version": 5
-}
-```
+`202` Accepted for processing  
 
-#### DELETE /api/share/shares/{id}/files/{file_id}
+Errors:  
+- `401` missing, invalid or expired user access token
+- `403` missing required share permission
+- `404` share or file not found / unavailable on this storage node
+- `409` create not allowed for inventory of type file
+- `503` coordinator unavailable for uncached token validation  
+- `500` local storage write/delete failed  
+
+#### DELETE /shares/{id}/files/{file_id}
 
 Behavior:  
 - Requires delete permission.
@@ -1235,15 +1239,26 @@ Behavior:
 - File must be active.
 - Local replica file should be synchronized before delete.
 - Storage node deletes local file.
-- Storage node reports action=deleted to coordinator.
+- Storage node reports action=deleted to coordinator through existing replica change mechanism.  
 
-Also use expected version:  
+
+Response:  
+`204` No Content
+
+For conflict safety, require client to pass expected version:
 ```http request
-If-Match: 4
+If-Match: "4"
 ```
 
-If version mismatch:  
-`409` version conflict
+Errors:  
+- `401` missing, invalid or expired user access token
+- `403` missing required share permission
+- `404` share or file not found / unavailable on this storage node
+- `409` version conflict / file already exists / file not synchronized / create not allowed for file-set inventory
+- `428` missing If-Match
+- `400` malformed If-Match / invalid relative_uri / invalid multipart request
+- `503` coordinator unavailable for uncached token validation
+- `500` local storage write/delete failed
 
 ### /shares/{id}/files/{file_id}/content endpoint
 #### GET /shares/{id}/files/{file_id}/content
@@ -1263,14 +1278,25 @@ Behavior:
 - Local replica file should be synchronized before overwrite.
 - Storage node replaces local content atomically where possible.
 - Storage node calculates new metadata.
-- Storage node reports action=updated to coordinator.
+- Storage node reports action=deleted to coordinator through existing replica change mechanism.  
 
 For conflict safety, require client to pass expected version:
 ```http request
-If-Match: 4
+If-Match: "4"
 ```
-If current inventory version differs:  
-`409` version conflict  
+
+Response:  
+`202` Accepted for processing  
+
+Errors:  
+- `401` missing, invalid or expired user access token
+- `403` missing required share permission
+- `404` share or file not found / unavailable on this storage node
+- `409` version conflict / file already exists / file not synchronized / create not allowed for file-set inventory
+- `428` missing If-Match
+- `400` malformed If-Match / invalid relative_uri / invalid multipart request
+- `503` coordinator unavailable for uncached token validation
+- `500` local storage write/delete failed
 
 ### Anonymous access
 
@@ -1290,16 +1316,114 @@ Returns the public share when:
 
 Errors:
 - `404` unknown `link_hash`, missing `link_hash`, inactive share, expired share, inactive replica, or share not available on this storage node
-  - `403` matching public share exists but anonymous read is not allowed
+- `403` matching public share exists but anonymous read is not allowed
 
 #### /s/{link_hash}/files endpoint
 ##### GET /s/{link_hash}/files
 Returns the same synchronized active file list as authenticated share file listing.
 
+Query parameters:
+* `page` optional, default `1`
+* `count` optional, default `20`, maximum `100`
+
+The response shape intentionally matches coordinator list endpoints.
+
+##### POST /s/{link_hash}/files
+Content-Type: multipart/form-data
+
+Request fields:
+`relative_uri` required
+`file` required
+
+Example:
+```
+relative_uri=album/new-photo.jpg
+file=<binary>
+```
+Behavior:
+- Requires create permission.
+- Allowed only for folder inventories.
+- relative_uri must be relative, normalized, non-empty, and must not escape replica root.
+- File must not already exist as active inventory file.
+- Storage node writes file to local replica.
+- Storage node calculates size/hash/created/modified.
+- Storage node reports action=created to coordinator through existing replica change mechanism.
+- Coordinator creates/updates inventory_files, file_journal, replica_files.
+
+Response:  
+`202` Accepted for processing  
+
+- Errors:  
+- `401` missing, invalid or expired user access token
+- `403` missing required share permission
+- `404` share or file not found / unavailable on this storage node
+- `409` create not allowed for inventory of type file
+- `503` coordinator unavailable for uncached token validation
+- `500` local storage write/delete failed
+
+##### DELETE /s/{link_hash}/files/{file_id}
+
+Behavior:
+- Requires delete permission.
+- Allowed for folder and file-set inventories.
+- file_id must belong to this share inventory.
+- File must be active.
+- Local replica file should be synchronized before delete.
+- Storage node deletes local file.
+- Storage node reports action=deleted to coordinator through existing replica change mechanism.
+
+For conflict safety, require client to pass expected version:
+```http request
+If-Match: "4"
+```
+
+Response:  
+`204` No Content
+
+Errors:
+- `401` missing, invalid or expired user access token
+- `403` missing required share permission
+- `404` share or file not found / unavailable on this storage node
+- `409` version conflict / file already exists / file not synchronized / create not allowed for file-set inventory
+- `428` missing If-Match
+- `400` malformed If-Match / invalid relative_uri / invalid multipart request
+- `503` coordinator unavailable for uncached token validation
+- `500` local storage write/delete failed
+
 #### /s/{link_hash}/files/{file_id}/content endpoint
 ##### GET /s/{link_hash}/files/{file_id}/content
 Streams synchronized local file content for public anonymous read access.
 
+##### PUT /s/{link_hash}/files/{file_id}/content
+Content-Type: application/octet-stream
+
+Behavior:
+- Requires update permission.
+- Allowed for folder and file-set inventories.
+- file_id must belong to this share inventory.
+- File must be active.
+- Local replica file should be synchronized before overwrite.
+- Storage node replaces local content atomically where possible.
+- Storage node calculates new metadata.
+- Storage node reports action=updated to coordinator through existing replica change mechanism.
+
+For conflict safety, require client to pass expected version:  
+```http request
+If-Match: "4"
+```
+
+Response:  
+`202` Accepted for processing  
+
+Errors:  
+- `401` missing, invalid or expired user access token
+- `403` missing required share permission
+- `404` share or file not found / unavailable on this storage node
+- `409` version conflict / file already exists / file not synchronized / create not allowed for file-set inventory
+- `428` missing If-Match
+- `400` malformed If-Match / invalid relative_uri / invalid multipart request
+- `503` coordinator unavailable for uncached token validation
+- `500` local storage write/delete failed
 
 ## Coordinator Node Control API
 This API is exposed on the coordinator and used by the storage nodes to get data from the coordinator.
