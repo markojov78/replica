@@ -16,6 +16,7 @@ X-API-Version: 1
 ```
 
 ## Coordinator Admin API
+This API is exposed ont he coordinator and used to manage nodes, inventories, replicas, shares, users and roles.  
 
 Base path for the endpoints in this section is `/api/admin`.
 
@@ -828,11 +829,11 @@ All `/shares` endpoints require the matching `shares` permission for the request
 Returns a paginated list of shares.
 
 Query parameters:
-* `page` optional, default `1`
-* `count` optional, default `20`, maximum `100`
-* `status` optional, filter by share status: `active`, `deleted`
-* `replica_id` optional
-* `name` optional
+- `page` optional, default `1`
+- `count` optional, default `20`, maximum `100`
+- `status` optional, filter by share status: `active`, `deleted`
+- `replica_id` optional
+- `name` optional
 
 Example response:
 ```json
@@ -892,14 +893,14 @@ Example response:
 Creates a share.
 
 Request body:
-* `replica_id` required
-* `name` optional, defaults to inventory name
-* `status` optional, defaults to `active`
-  * allowed values are `active`, `deleted`
-* `share_expiration` optional RFC3339 timestamp, defaults to `null`
-* `generate_hash` optional boolean to generate new `link_hash`
-* `user_permissions` optional, per-user permissions for the share
-* `anonymous_permissions` optional permissions for anonymous users
+- `replica_id` required
+- `name` optional, defaults to inventory name
+- `status` optional, defaults to `active`
+  - allowed values are `active`, `deleted`
+- `share_expiration` optional RFC3339 timestamp, defaults to `null`
+- `generate_hash` optional boolean to generate new `link_hash`
+- `user_permissions` optional, per-user permissions for the share
+- `anonymous_permissions` optional permissions for anonymous users
 
 Example request:
 ```json
@@ -1025,6 +1026,7 @@ Possible errors:
 * `409` share already exists
 
 ## Storage Sharing API
+This API is exposed on the storage node and used to access private aand public shares.  
 
 Authenticated endpoints are exposed by storage nodes under `/api/share`.
 Anonymous browser-friendly public endpoints are exposed under `/s`.
@@ -1188,12 +1190,87 @@ Example response:
   ]
 }
 ```
+#### POST /api/share/shares/{id}/files
+Content-Type: multipart/form-data  
 
+Request fields:
+`relative_uri` required
+`file` required
+
+Example:
+```
+relative_uri=album/new-photo.jpg
+file=<binary>
+```
+Behavior:  
+- Requires create permission.
+  - Allowed only for folder inventories.
+  - relative_uri must be relative, normalized, non-empty, and must not escape replica root.
+  - File must not already exist as active inventory file.
+  - Storage node writes file to local replica.
+  - Storage node calculates size/hash/created/modified.
+  - Storage node reports action=created to coordinator through existing replica change flow.
+  - Coordinator creates/updates inventory_files, file_journal, replica_files.
+
+Response:  
+```json
+{
+  "file_id": 123,
+  "inventory_id": 1,
+  "replica_id": 3,
+  "relative_uri": "album/new-photo.jpg",
+  "status": "active",
+  "size": 12345,
+  "hash": "blake3-hash",
+  "version": 5
+}
+```
+
+#### DELETE /api/share/shares/{id}/files/{file_id}
+
+Behavior:  
+- Requires delete permission.
+- Allowed for folder and file-set inventories.
+- file_id must belong to this share inventory.
+- File must be active.
+- Local replica file should be synchronized before delete.
+- Storage node deletes local file.
+- Storage node reports action=deleted to coordinator.
+
+Also use expected version:  
+```http request
+If-Match: 4
+```
+
+If version mismatch:  
+`409` version conflict
+
+### /shares/{id}/files/{file_id}/content endpoint
 #### GET /shares/{id}/files/{file_id}/content
 Streams file content from the local replica storage. Content is not proxied through the coordinator and is not fetched from other storage nodes in v1.
 
 The request identifies files by numeric `file_id`; raw filesystem paths are not accepted.
 If a known active inventory file is not synchronized locally, direct content access returns `409`.
+
+#### PUT /shares/{id}/files/{file_id}/content
+Content-Type: application/octet-stream  
+
+Behavior:
+- Requires update permission.
+- Allowed for folder and file-set inventories.
+- file_id must belong to this share inventory.
+- File must be active.
+- Local replica file should be synchronized before overwrite.
+- Storage node replaces local content atomically where possible.
+- Storage node calculates new metadata.
+- Storage node reports action=updated to coordinator.
+
+For conflict safety, require client to pass expected version:
+```http request
+If-Match: 4
+```
+If current inventory version differs:  
+`409` version conflict  
 
 ### Anonymous access
 
@@ -1213,17 +1290,20 @@ Returns the public share when:
 
 Errors:
 - `404` unknown `link_hash`, missing `link_hash`, inactive share, expired share, inactive replica, or share not available on this storage node
-- `403` matching public share exists but anonymous read is not allowed
+  - `403` matching public share exists but anonymous read is not allowed
 
 #### /s/{link_hash}/files endpoint
 ##### GET /s/{link_hash}/files
 Returns the same synchronized active file list as authenticated share file listing.
 
+#### /s/{link_hash}/files/{file_id}/content endpoint
 ##### GET /s/{link_hash}/files/{file_id}/content
 Streams synchronized local file content for public anonymous read access.
 
 
 ## Coordinator Node Control API
+This API is exposed on the coordinator and used by the storage nodes to get data from the coordinator.
+
 Base path for the endpoints in this section is `/node/`.
 
 ### /auth endpoint
@@ -1644,12 +1724,18 @@ Example response:
       {
         "user_id": 15,
         "permissions": ["read", "create", "update", "delete"]
+      },
+      {
+        "user_id": 16,
+        "permissions": ["read"]
       }
     ],
     "anonymous_permissions": ["read"]
   }
 ]
 ```
+Behavior: 
+`user_permissions` returned here are effective permissions for all the users derived from user roles and per-use permissions.  
 
 Possible errors:
 - `401` missing authenticated node
@@ -1876,10 +1962,15 @@ Possible errors:
 - `404` replica file not found
 
 ## Storage Transfer API
-This API is served by storage nodes when `app.storage = true`. It is not a coordinator-relayed download endpoint.
+This API is exposed on the storage nodes and used for ndoe-to-node file transfer.
 
-### /transfer/replicas/{replica_id}/files/{file_id}/content endpoint
-#### GET /transfer/replicas/{replica_id}/files/{file_id}/content?version=123
+Base path for the endpoints in this section is `/transfer/`.  
+
+Endpoints use transfer token issued by the coordinator and signed by coordinator private key.
+Node can decrypt transfer token using coordinator public kay received on [node login](#post-authlogin-2).
+
+### /replicas/{replica_id}/files/{file_id}/content endpoint
+#### GET /replicas/{replica_id}/files/{file_id}/content?version=123
 Streams replica file content from a source storage node to a target storage node.
 
 Behavior:
@@ -1920,7 +2011,7 @@ Expected transfer token claims:
 Example request:
 
 ```http
-GET /transfer/replicas/1/files/10/content?version=123
+GET /replicas/1/files/10/content?version=123
 Authorization: Bearer transfer-token-value
 ```
 
