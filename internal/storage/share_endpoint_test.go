@@ -1,8 +1,10 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -371,6 +373,315 @@ func TestServeAuthenticatedShareFilesUsesCoordinatorListEnvelope(t *testing.T) {
 	if strings.Contains(rec.Body.String(), `"files"`) {
 		t.Fatalf("file list body = %s, want items envelope", rec.Body.String())
 	}
+}
+
+func TestServeAuthenticatedShareWriteEndpoints(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "existing.txt"), []byte("old"), 0o600); err != nil {
+		t.Fatalf("WriteFile(existing) error = %v", err)
+	}
+
+	runtime := newShareEndpointRuntime(t, validationServer(t, 15, http.StatusOK))
+	runtime.setLocalState(
+		[]apiclient.Replica{{ID: 3, InventoryID: 1, InventoryType: "folder", NodeID: "node-a", URI: root, Status: "active"}},
+		[]apiclient.Share{{
+			ID:          1,
+			InventoryID: 1,
+			ReplicaID:   3,
+			Status:      "active",
+			UserPermissions: []apiclient.UserPermission{{
+				UserID:      15,
+				Permissions: []string{"read", "create", "update", "delete"},
+			}},
+		}},
+		map[uint][]apiclient.ReplicaInventoryFile{
+			3: {
+				{
+					FileID:           10,
+					ReplicaID:        3,
+					InventoryID:      1,
+					RelativeURI:      "existing.txt",
+					InventoryStatus:  "active",
+					InventoryVersion: 4,
+					ReplicaStatus:    "synchronized",
+					ReplicaVersion:   4,
+				},
+			},
+		},
+	)
+
+	body, contentType := multipartShareUpload(t, "nested/new.txt", "new content")
+	req := httptest.NewRequest(http.MethodPost, "/api/share/shares/1/files", body)
+	req.SetPathValue("id", "1")
+	req.Header.Set("Authorization", "Bearer user-token")
+	req.Header.Set("Content-Type", contentType)
+	rec := httptest.NewRecorder()
+	runtime.ServeAuthenticatedShares(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("create status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusAccepted)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "nested", "new.txt")); err != nil || string(got) != "new content" {
+		t.Fatalf("created file = %q, err=%v, want new content", string(got), err)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/share/shares/1/files/10/content", strings.NewReader("updated"))
+	req.SetPathValue("id", "1")
+	req.SetPathValue("file_id", "10")
+	req.Header.Set("Authorization", "Bearer user-token")
+	req.Header.Set("If-Match", `"4"`)
+	rec = httptest.NewRecorder()
+	runtime.ServeAuthenticatedShares(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("update status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusAccepted)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "existing.txt")); err != nil || string(got) != "updated" {
+		t.Fatalf("updated file = %q, err=%v, want updated", string(got), err)
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/api/share/shares/1/files/10", nil)
+	req.SetPathValue("id", "1")
+	req.SetPathValue("file_id", "10")
+	req.Header.Set("Authorization", "Bearer user-token")
+	req.Header.Set("If-Match", `"4"`)
+	rec = httptest.NewRecorder()
+	runtime.ServeAuthenticatedShares(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusNoContent)
+	}
+	if _, err := os.Stat(filepath.Join(root, "existing.txt")); !os.IsNotExist(err) {
+		t.Fatalf("deleted file stat err = %v, want not exist", err)
+	}
+}
+
+func TestServePublicShareWriteEndpoints(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "public.txt"), []byte("old"), 0o600); err != nil {
+		t.Fatalf("WriteFile(public) error = %v", err)
+	}
+	linkHash := "public-link"
+	runtime := newShareEndpointRuntime(t, "http://coordinator")
+	runtime.setLocalState(
+		[]apiclient.Replica{{ID: 3, InventoryID: 1, InventoryType: "folder", NodeID: "node-a", URI: root, Status: "active"}},
+		[]apiclient.Share{{
+			ID:                   1,
+			InventoryID:          1,
+			ReplicaID:            3,
+			Status:               "active",
+			LinkHash:             &linkHash,
+			AnonymousPermissions: []string{"read", "create", "update", "delete"},
+		}},
+		map[uint][]apiclient.ReplicaInventoryFile{
+			3: {
+				{
+					FileID:           10,
+					ReplicaID:        3,
+					InventoryID:      1,
+					RelativeURI:      "public.txt",
+					InventoryStatus:  "active",
+					InventoryVersion: 4,
+					ReplicaStatus:    "synchronized",
+					ReplicaVersion:   4,
+				},
+			},
+		},
+	)
+
+	body, contentType := multipartShareUpload(t, "upload.txt", "upload")
+	req := httptest.NewRequest(http.MethodPost, "/s/public-link/files", body)
+	req.SetPathValue("link_hash", "public-link")
+	req.Header.Set("Content-Type", contentType)
+	rec := httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("public create status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusAccepted)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "upload.txt")); err != nil || string(got) != "upload" {
+		t.Fatalf("public created file = %q, err=%v, want upload", string(got), err)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/s/public-link/files/10/content", strings.NewReader("updated"))
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "10")
+	req.Header.Set("If-Match", `"4"`)
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("public update status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusAccepted)
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/s/public-link/files/10", nil)
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "10")
+	req.Header.Set("If-Match", `"4"`)
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("public delete status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusNoContent)
+	}
+}
+
+func TestServeShareWriteEndpointErrors(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "existing.txt"), []byte("old"), 0o600); err != nil {
+		t.Fatalf("WriteFile(existing) error = %v", err)
+	}
+	linkHash := "public-link"
+	folderLinkHash := "folder-link"
+	runtime := newShareEndpointRuntime(t, "http://coordinator")
+	runtime.setLocalState(
+		[]apiclient.Replica{
+			{ID: 3, InventoryID: 1, InventoryType: "file", NodeID: "node-a", URI: root, Status: "active"},
+			{ID: 4, InventoryID: 2, InventoryType: "folder", NodeID: "node-a", URI: root, Status: "active"},
+		},
+		[]apiclient.Share{
+			{
+				ID:                   1,
+				InventoryID:          1,
+				ReplicaID:            3,
+				Status:               "active",
+				LinkHash:             &linkHash,
+				AnonymousPermissions: []string{"read"},
+			},
+			{
+				ID:                   2,
+				InventoryID:          2,
+				ReplicaID:            4,
+				Status:               "active",
+				LinkHash:             &folderLinkHash,
+				AnonymousPermissions: []string{"read", "create"},
+			},
+		},
+		map[uint][]apiclient.ReplicaInventoryFile{
+			3: {
+				{FileID: 10, ReplicaID: 3, InventoryID: 1, RelativeURI: "existing.txt", InventoryStatus: "active", InventoryVersion: 4, ReplicaStatus: "synchronized", ReplicaVersion: 4},
+				{FileID: 11, ReplicaID: 3, InventoryID: 1, RelativeURI: "pending.txt", InventoryStatus: "active", InventoryVersion: 5, ReplicaStatus: "pending", ReplicaVersion: 4},
+			},
+			4: {
+				{FileID: 20, ReplicaID: 4, InventoryID: 2, RelativeURI: "folder.txt", InventoryStatus: "active", InventoryVersion: 7, ReplicaStatus: "synchronized", ReplicaVersion: 7},
+			},
+		},
+	)
+
+	body, contentType := multipartShareUpload(t, "new.txt", "new")
+	req := httptest.NewRequest(http.MethodPost, "/s/public-link/files", body)
+	req.SetPathValue("link_hash", "public-link")
+	req.Header.Set("Content-Type", contentType)
+	rec := httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("missing create status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusForbidden)
+	}
+
+	runtime.shares[0].AnonymousPermissions = []string{"read", "create"}
+	body, contentType = multipartShareUpload(t, "new.txt", "new")
+	req = httptest.NewRequest(http.MethodPost, "/s/public-link/files", body)
+	req.SetPathValue("link_hash", "public-link")
+	req.Header.Set("Content-Type", contentType)
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("file inventory create status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusConflict)
+	}
+
+	body, contentType = multipartShareUpload(t, "folder.txt", "new")
+	req = httptest.NewRequest(http.MethodPost, "/s/folder-link/files", body)
+	req.SetPathValue("link_hash", "folder-link")
+	req.Header.Set("Content-Type", contentType)
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("duplicate create status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusConflict)
+	}
+
+	body, contentType = multipartShareUpload(t, "../escape.txt", "new")
+	req = httptest.NewRequest(http.MethodPost, "/s/folder-link/files", body)
+	req.SetPathValue("link_hash", "folder-link")
+	req.Header.Set("Content-Type", contentType)
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid relative uri status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusBadRequest)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/s/public-link/files/10/content", strings.NewReader("updated"))
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "10")
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("missing update permission status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusForbidden)
+	}
+
+	runtime.shares[0].AnonymousPermissions = []string{"read", "update", "delete"}
+	req = httptest.NewRequest(http.MethodPut, "/s/public-link/files/10/content", strings.NewReader("updated"))
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "10")
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusPreconditionRequired {
+		t.Fatalf("missing If-Match status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusPreconditionRequired)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/s/public-link/files/10/content", strings.NewReader("updated"))
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "10")
+	req.Header.Set("If-Match", "4")
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("malformed If-Match status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusBadRequest)
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/s/public-link/files/10", nil)
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "10")
+	req.Header.Set("If-Match", `"3"`)
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("version conflict status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusConflict)
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/s/public-link/files/11", nil)
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "11")
+	req.Header.Set("If-Match", `"5"`)
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("unsynchronized status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusConflict)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/s/public-link/files/20/content", strings.NewReader("updated"))
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "20")
+	req.Header.Set("If-Match", `"7"`)
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("different inventory status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusNotFound)
+	}
+}
+
+func multipartShareUpload(t *testing.T, relativeURI string, content string) (*bytes.Buffer, string) {
+	t.Helper()
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	if err := writer.WriteField("relative_uri", relativeURI); err != nil {
+		t.Fatalf("WriteField(relative_uri) error = %v", err)
+	}
+	part, err := writer.CreateFormFile("file", "upload")
+	if err != nil {
+		t.Fatalf("CreateFormFile(file) error = %v", err)
+	}
+	if _, err := part.Write([]byte(content)); err != nil {
+		t.Fatalf("Write(file) error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close(multipart) error = %v", err)
+	}
+	return body, writer.FormDataContentType()
 }
 
 func newShareEndpointRuntime(t *testing.T, coordinatorURL string) *Runtime {

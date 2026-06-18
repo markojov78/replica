@@ -15,10 +15,16 @@ func registerStorageShareRoutes(mux *http.ServeMux, svc services) {
 	mux.HandleFunc("GET /api/share/shares", svc.storage.ServeAuthenticatedShares)
 	mux.HandleFunc("GET /api/share/shares/{id}", svc.storage.ServeAuthenticatedShares)
 	mux.HandleFunc("GET /api/share/shares/{id}/files", svc.storage.ServeAuthenticatedShares)
+	mux.HandleFunc("POST /api/share/shares/{id}/files", svc.storage.ServeAuthenticatedShares)
+	mux.HandleFunc("DELETE /api/share/shares/{id}/files/{file_id}", svc.storage.ServeAuthenticatedShares)
 	mux.HandleFunc("GET /api/share/shares/{id}/files/{file_id}/content", svc.storage.ServeAuthenticatedShares)
+	mux.HandleFunc("PUT /api/share/shares/{id}/files/{file_id}/content", svc.storage.ServeAuthenticatedShares)
 	mux.HandleFunc("GET /s/{link_hash}", svc.storage.ServePublicShares)
 	mux.HandleFunc("GET /s/{link_hash}/files", svc.storage.ServePublicShares)
+	mux.HandleFunc("POST /s/{link_hash}/files", svc.storage.ServePublicShares)
+	mux.HandleFunc("DELETE /s/{link_hash}/files/{file_id}", svc.storage.ServePublicShares)
 	mux.HandleFunc("GET /s/{link_hash}/files/{file_id}/content", svc.storage.ServePublicShares)
+	mux.HandleFunc("PUT /s/{link_hash}/files/{file_id}/content", svc.storage.ServePublicShares)
 }
 
 func serveShareAuthLogin(svc services) http.HandlerFunc {

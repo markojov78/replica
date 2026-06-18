@@ -1214,9 +1214,7 @@ Behavior:
 - Allowed only for folder inventories.
 - relative_uri must be relative, normalized, non-empty, and must not escape replica root.
 - File must not already exist as active inventory file.
-- Storage node writes file to local replica.
-- Storage node calculates size/hash/created/modified.
-- Storage node reports change to coordinator through existing replica watcher mechanism.    
+- Storage node writes file to local replica.  
 
 Response:  
 `202` Accepted for processing  
@@ -1233,7 +1231,7 @@ Errors:
 
 Behavior:  
 - Requires delete permission.
-- Allowed for folder and file-set inventories.
+- Allowed for folder and file inventories.
 - file_id must belong to this share inventory.
 - File must be active.
 - Local replica file should be synchronized before delete.
@@ -1271,13 +1269,11 @@ Content-Type: application/octet-stream
 
 Behavior:
 - Requires update permission.
-- Allowed for folder and file-set inventories.
+- Allowed for folder and file inventories.
 - file_id must belong to this share inventory.
 - File must be active.
 - Local replica file should be synchronized before overwrite.
 - Storage node replaces local content atomically where possible.
-- Storage node calculates new metadata.
-- Storage node reports change to coordinator through existing replica watcher mechanism.    
 
 For conflict safety, require client to pass expected version:
 ```http request
@@ -1293,7 +1289,7 @@ Errors:
 - `404` share or file not found / unavailable / inactive / expired on this storage node
 - `409` version conflict / file not synchronized
 - `428` missing If-Match
-- `400` malformed If-Match / invalid multipart request
+- `400` malformed If-Match
 - `503` coordinator unavailable for uncached token validation
 - `500` local storage write/delete failed
 
@@ -1345,8 +1341,6 @@ Behavior:
 - relative_uri must be relative, normalized, non-empty, and must not escape replica root.
 - File must not already exist as active inventory file.
 - Storage node writes file to local replica.
-- Storage node calculates size/hash/created/modified.
-- Storage node reports change to coordinator through existing replica watcher mechanism.  
 
 Response:  
 `202` Accepted for processing  
@@ -1362,7 +1356,7 @@ Errors:
 
 Behavior:
 - Requires anonymous delete permission.
-- Allowed for folder and file-set inventories.
+- Allowed for folder and file inventories.
 - file_id must belong to this share inventory.
 - File must be active.
 - Local replica file should be synchronized before delete.
@@ -1394,13 +1388,11 @@ Content-Type: application/octet-stream
 
 Behavior:
 - Requires anonymous update permission.
-- Allowed for folder and file-set inventories.
+- Allowed for folder and file inventories.
 - file_id must belong to this share inventory.
 - File must be active.
 - Local replica file should be synchronized before overwrite.
 - Storage node replaces local content atomically where possible.
-- Storage node calculates new metadata.
-- Storage node reports change to coordinator through existing replica watcher mechanism.  
 
 For conflict safety, require client to pass expected version:  
 ```http request
@@ -1415,7 +1407,7 @@ Errors:
 - `404` share or file not found / unavailable on this storage node
 - `409` version conflict / file not synchronized
 - `428` missing If-Match
-- `400` malformed If-Match / invalid multipart request
+- `400` malformed If-Match
 - `500` local storage write/delete failed
 
 ## Coordinator Node Control API
