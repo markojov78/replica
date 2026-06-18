@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"sort"
 	"strings"
 
 	"replica/internal/model"
@@ -174,6 +175,55 @@ func createShareRefreshCommand(tx *gorm.DB, command *model.Command) error {
 	return tx.Create(command).Error
 }
 
+// compile per-user permisions derived from roles
+func (r *ShareRepository) RoleDerivedPermissions() ([]UserPermissionDetails, error) {
+	type userPermissionRow struct {
+		UserID     uint
+		Permission string
+	}
+
+	var rows []userPermissionRow
+	if err := r.db.Table("permissions").
+		Select("user_role.user_id, permissions.actions AS permission").
+		Joins("JOIN user_role ON user_role.role_id = permissions.role_id").
+		Where("permissions.resource = ?", model.PermissionResourceShares).
+		Order("user_role.user_id asc, permissions.actions asc").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	permissionsByUser := make(map[uint]map[string]bool)
+	for _, row := range rows {
+		if permissionsByUser[row.UserID] == nil {
+			permissionsByUser[row.UserID] = make(map[string]bool)
+		}
+		permissionsByUser[row.UserID][row.Permission] = true
+	}
+
+	userIDs := make([]uint, 0, len(permissionsByUser))
+	for userID := range permissionsByUser {
+		userIDs = append(userIDs, userID)
+	}
+	sort.Slice(userIDs, func(i, j int) bool {
+		return userIDs[i] < userIDs[j]
+	})
+
+	result := make([]UserPermissionDetails, 0, len(userIDs))
+	for _, userID := range userIDs {
+		permissions := make([]string, 0, len(permissionsByUser[userID]))
+		for permission := range permissionsByUser[userID] {
+			permissions = append(permissions, permission)
+		}
+		sort.Strings(permissions)
+		result = append(result, UserPermissionDetails{
+			UserID:      userID,
+			Permissions: permissions,
+		})
+	}
+	return result, nil
+}
+
+// get per-user permissions for share
 func (r *ShareRepository) UserPermissions(shareID uint) ([]UserPermissionDetails, error) {
 	var users []model.ShareUser
 	if err := r.db.Where("share_id = ? AND anonymous = ?", shareID, false).Order("user_id asc").Find(&users).Error; err != nil {

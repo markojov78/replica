@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -128,7 +129,7 @@ func (s *ShareService) ListForNode(nodeID string) ([]ShareDetails, error) {
 	items := make([]ShareDetails, 0, len(shares))
 	for _, share := range shares {
 		details := toShareDetails(&share)
-		if err := s.loadShareUserPermissions(details); err != nil {
+		if err := s.loadEffectiveSharePermissions(details); err != nil {
 			return nil, err
 		}
 		items = append(items, *details)
@@ -381,6 +382,70 @@ func (s *ShareService) loadShareUserPermissions(details *ShareDetails) error {
 		return err
 	}
 	details.AnonymousPermissions = anonymousPermissions
+	return nil
+}
+
+func (s *ShareService) loadEffectiveSharePermissions(details *ShareDetails) error {
+	roleDerivedPermissions, err := s.repo.RoleDerivedPermissions()
+	if err != nil {
+		return err
+	}
+	perUserPermissions, err := s.repo.UserPermissions(details.ID)
+	if err != nil {
+		return err
+	}
+	anonymousPermissions, err := s.repo.AnonymousPermissions(details.ID)
+	if err != nil {
+		return err
+	}
+
+	// user_id -> permission set
+	permissionsMap := make(map[uint]map[string]struct{})
+
+	for _, p := range roleDerivedPermissions {
+		if permissionsMap[p.UserID] == nil {
+			permissionsMap[p.UserID] = make(map[string]struct{})
+		}
+
+		for _, permission := range p.Permissions {
+			permissionsMap[p.UserID][permission] = struct{}{}
+		}
+	}
+
+	for _, p := range perUserPermissions {
+		if permissionsMap[p.UserID] == nil {
+			permissionsMap[p.UserID] = make(map[string]struct{})
+		}
+
+		for _, permission := range p.Permissions {
+			permissionsMap[p.UserID][permission] = struct{}{}
+		}
+	}
+
+	permissions := make([]UserPermissionDetails, 0, len(permissionsMap))
+
+	for userID, permissionSet := range permissionsMap {
+		userPermissions := make([]string, 0, len(permissionSet))
+
+		for permission := range permissionSet {
+			userPermissions = append(userPermissions, permission)
+		}
+
+		sort.Strings(userPermissions)
+
+		permissions = append(permissions, UserPermissionDetails{
+			UserID:      userID,
+			Permissions: userPermissions,
+		})
+	}
+
+	sort.Slice(permissions, func(i, j int) bool {
+		return permissions[i].UserID < permissions[j].UserID
+	})
+
+	details.UserPermissions = permissions
+	details.AnonymousPermissions = anonymousPermissions
+
 	return nil
 }
 
