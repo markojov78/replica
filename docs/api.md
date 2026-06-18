@@ -1216,17 +1216,16 @@ Behavior:
 - File must not already exist as active inventory file.
 - Storage node writes file to local replica.
 - Storage node calculates size/hash/created/modified.
-- Storage node reports action=created to coordinator through existing replica change mechanism.  
-- Coordinator creates/updates inventory_files, file_journal, replica_files.  
+- Storage node reports change to coordinator through existing replica watcher mechanism.    
 
 Response:  
 `202` Accepted for processing  
 
 Errors:  
+- `400` invalid relative_uri / invalid multipart request
 - `401` missing, invalid or expired user access token
 - `403` missing required share permission
-- `404` share or file not found / unavailable on this storage node
-- `409` create not allowed for inventory of type file
+- `409` create not allowed for inventory of type file  / active file already exists under the same relative_uri
 - `503` coordinator unavailable for uncached token validation  
 - `500` local storage write/delete failed  
 
@@ -1239,7 +1238,7 @@ Behavior:
 - File must be active.
 - Local replica file should be synchronized before delete.
 - Storage node deletes local file.
-- Storage node reports action=deleted to coordinator through existing replica change mechanism.  
+- Storage node reports change to coordinator through existing replica watcher mechanism.    
 
 
 Response:  
@@ -1254,9 +1253,9 @@ Errors:
 - `401` missing, invalid or expired user access token
 - `403` missing required share permission
 - `404` share or file not found / unavailable on this storage node
-- `409` version conflict / file already exists / file not synchronized / create not allowed for file-set inventory
+- `409` version conflict / file not synchronized
 - `428` missing If-Match
-- `400` malformed If-Match / invalid relative_uri / invalid multipart request
+- `400` malformed If-Match
 - `503` coordinator unavailable for uncached token validation
 - `500` local storage write/delete failed
 
@@ -1278,7 +1277,7 @@ Behavior:
 - Local replica file should be synchronized before overwrite.
 - Storage node replaces local content atomically where possible.
 - Storage node calculates new metadata.
-- Storage node reports action=deleted to coordinator through existing replica change mechanism.  
+- Storage node reports change to coordinator through existing replica watcher mechanism.    
 
 For conflict safety, require client to pass expected version:
 ```http request
@@ -1291,10 +1290,10 @@ Response:
 Errors:  
 - `401` missing, invalid or expired user access token
 - `403` missing required share permission
-- `404` share or file not found / unavailable on this storage node
-- `409` version conflict / file already exists / file not synchronized / create not allowed for file-set inventory
+- `404` share or file not found / unavailable / inactive / expired on this storage node
+- `409` version conflict / file not synchronized
 - `428` missing If-Match
-- `400` malformed If-Match / invalid relative_uri / invalid multipart request
+- `400` malformed If-Match / invalid multipart request
 - `503` coordinator unavailable for uncached token validation
 - `500` local storage write/delete failed
 
@@ -1341,36 +1340,34 @@ relative_uri=album/new-photo.jpg
 file=<binary>
 ```
 Behavior:
-- Requires create permission.
+- Requires anonymous create permission.
 - Allowed only for folder inventories.
 - relative_uri must be relative, normalized, non-empty, and must not escape replica root.
 - File must not already exist as active inventory file.
 - Storage node writes file to local replica.
 - Storage node calculates size/hash/created/modified.
-- Storage node reports action=created to coordinator through existing replica change mechanism.
-- Coordinator creates/updates inventory_files, file_journal, replica_files.
+- Storage node reports change to coordinator through existing replica watcher mechanism.  
 
 Response:  
 `202` Accepted for processing  
 
-- Errors:  
-- `401` missing, invalid or expired user access token
+Errors:  
+- `400` invalid relative_uri / invalid multipart request
 - `403` missing required share permission
-- `404` share or file not found / unavailable on this storage node
-- `409` create not allowed for inventory of type file
-- `503` coordinator unavailable for uncached token validation
+- `404` share or link_hash not found / unavailable / inactive / expired on this storage node
+- `409` create not allowed for inventory of type file / active file already exists under the same relative_uri
 - `500` local storage write/delete failed
 
 ##### DELETE /s/{link_hash}/files/{file_id}
 
 Behavior:
-- Requires delete permission.
+- Requires anonymous delete permission.
 - Allowed for folder and file-set inventories.
 - file_id must belong to this share inventory.
 - File must be active.
 - Local replica file should be synchronized before delete.
 - Storage node deletes local file.
-- Storage node reports action=deleted to coordinator through existing replica change mechanism.
+- Storage node reports change to coordinator through existing replica watcher mechanism.  
 
 For conflict safety, require client to pass expected version:
 ```http request
@@ -1381,13 +1378,11 @@ Response:
 `204` No Content
 
 Errors:
-- `401` missing, invalid or expired user access token
 - `403` missing required share permission
 - `404` share or file not found / unavailable on this storage node
-- `409` version conflict / file already exists / file not synchronized / create not allowed for file-set inventory
+- `409` version conflict / file not synchronized
 - `428` missing If-Match
-- `400` malformed If-Match / invalid relative_uri / invalid multipart request
-- `503` coordinator unavailable for uncached token validation
+- `400` malformed If-Match
 - `500` local storage write/delete failed
 
 #### /s/{link_hash}/files/{file_id}/content endpoint
@@ -1398,14 +1393,14 @@ Streams synchronized local file content for public anonymous read access.
 Content-Type: application/octet-stream
 
 Behavior:
-- Requires update permission.
+- Requires anonymous update permission.
 - Allowed for folder and file-set inventories.
 - file_id must belong to this share inventory.
 - File must be active.
 - Local replica file should be synchronized before overwrite.
 - Storage node replaces local content atomically where possible.
 - Storage node calculates new metadata.
-- Storage node reports action=updated to coordinator through existing replica change mechanism.
+- Storage node reports change to coordinator through existing replica watcher mechanism.  
 
 For conflict safety, require client to pass expected version:  
 ```http request
@@ -1416,13 +1411,11 @@ Response:
 `202` Accepted for processing  
 
 Errors:  
-- `401` missing, invalid or expired user access token
 - `403` missing required share permission
 - `404` share or file not found / unavailable on this storage node
-- `409` version conflict / file already exists / file not synchronized / create not allowed for file-set inventory
+- `409` version conflict / file not synchronized
 - `428` missing If-Match
-- `400` malformed If-Match / invalid relative_uri / invalid multipart request
-- `503` coordinator unavailable for uncached token validation
+- `400` malformed If-Match / invalid multipart request
 - `500` local storage write/delete failed
 
 ## Coordinator Node Control API
