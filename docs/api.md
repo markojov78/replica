@@ -681,6 +681,11 @@ Replica management is exposed as a top-level endpoint. Authorization uses `inven
 - `read` for reads
 - `update` for create, update, and delete
 
+Replica topology:
+- `upstream_replica_id: null` means the replica is a base replica and may be treated as an authoritative source for local changes.
+- `upstream_replica_id` set to another replica id means the replica is downstream/read-only from replication perspective.
+- upstream replicas must be active, belong to the same inventory and a replica cannot reference itself as upstream.
+
 #### GET /replicas
 Returns a paginated list of replicas filtered by optional query parameters.
 
@@ -748,6 +753,9 @@ Updates a replica.
 When the update changes replica state, the coordinator creates a durable `refresh_state` command for the responsible
 storage node.
 
+Changing a non-deleted replica status to `deleted` is rejected with `409 replica has active shares` while any share
+linked to the replica has a status other than `deleted`.
+
 Changing a deleted replica to a non-deleted status is rejected with `409 inventory is deleted` when its inventory is
 deleted. Updates that leave the replica deleted remain allowed.
 
@@ -759,13 +767,10 @@ Request body fields are optional:
 - `status`
 - `upstream_replica_id`
 
-Replica topology:
-- `upstream_replica_id: null` means the replica is a base replica and may be treated as an authoritative source for local changes.
-- `upstream_replica_id` set to another replica id means the replica is downstream/read-only from replication perspective.
-- upstream replicas must be active, belong to the same inventory, and a replica cannot reference itself as upstream.
-
 #### DELETE /replicas/{id}
 Soft-deletes a replica by setting its status to `deleted`.
+Deletion is rejected with `409 replica has active shares` while any share linked to the replica has a status other
+than `deleted`.
 Deleting a replica creates a durable `refresh_state` command for the responsible storage node so it can stop runtime
 work, including its replica watcher.
 
@@ -778,6 +783,7 @@ Possible errors:
 - `400` invalid replica uri
 - `400` invalid replica upstream
 - `409` inventory is deleted
+- `409` replica has active shares
 - `409` active replica location conflict
 
 ### /replicas/{id}/files endpoint
@@ -1205,10 +1211,14 @@ Request fields:
 `file` required
 
 Example:
+```shell
+curl -X POST \
+  "https://servername.com/api/share/shares/5/files" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI..." \
+  -F "relative_uri=image.jpg" \
+  -F "file=@/path/to/image.jpg"
 ```
-relative_uri=album/new-photo.jpg
-file=<binary>
-```
+
 Behavior:  
 - Requires create permission.
 - Allowed only for folder inventories.
@@ -1229,6 +1239,14 @@ Errors:
 
 #### DELETE /shares/{id}/files/{file_id}
 
+Example:
+```shell
+curl -X DELETE \
+  "https://servername.com/api/share/shares/5/files/123" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI..." \
+  -H 'If-Match: "1"'
+```
+
 Behavior:  
 - Requires delete permission.
 - Allowed for folder and file inventories.
@@ -1237,7 +1255,6 @@ Behavior:
 - Local replica file should be synchronized before delete.
 - Storage node deletes local file.
 - Storage node reports change to coordinator through existing replica watcher mechanism.    
-
 
 Response:  
 `204` No Content
@@ -1266,6 +1283,16 @@ If a known active inventory file is not synchronized locally, direct content acc
 
 #### PUT /shares/{id}/files/{file_id}/content
 Content-Type: application/octet-stream  
+
+Example:
+```shell
+curl -X PUT \
+  "https://servername.com/api/share/shares/6/files/208/content" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H 'If-Match: "4"' \
+  -H "Content-Type: application/octet-stream" \
+  --data-binary "@/path/to/file.txt"
+```
 
 Behavior:
 - Requires update permission.
@@ -1331,10 +1358,13 @@ Request fields:
 `file` required
 
 Example:
+```shell
+curl -X POST \
+  "https://servername.com/s/JDFpfRV6Sis2rNuwYvaLa07F-CJE4rqbEGMwbY4RBb8/files" \
+  -F "relative_uri=image.jpg" \
+  -F "file=@/path/to/image.jpg"
 ```
-relative_uri=album/new-photo.jpg
-file=<binary>
-```
+
 Behavior:
 - Requires anonymous create permission.
 - Allowed only for folder inventories.
@@ -1353,6 +1383,13 @@ Errors:
 - `500` local storage write/delete failed
 
 ##### DELETE /s/{link_hash}/files/{file_id}
+
+Example:
+```shell
+curl -X DELETE \
+  "https://servername.com/s/JDFpfRV6Sis2rNuwYvaLa07F-CJE4rqbEGMwbY4RBb8/files/207" \
+  -H 'If-Match: "1"'
+```
 
 Behavior:
 - Requires anonymous delete permission.
@@ -1385,6 +1422,15 @@ Streams synchronized local file content for public anonymous read access.
 
 ##### PUT /s/{link_hash}/files/{file_id}/content
 Content-Type: application/octet-stream
+
+Example:
+```shell
+curl -X PUT \
+  "https://servername.com/s/JDFpfRV6Sis2rNuwYvaLa07F-CJE4rqbEGMwbY4RBb8/files/207/content" \
+  -H 'If-Match: "2"' \
+  -H "Content-Type: application/octet-stream" \
+  --data-binary "@/path/to/file.txt"
+```
 
 Behavior:
 - Requires anonymous update permission.

@@ -102,6 +102,23 @@ func TestPublicReplicaMutationsRejectDeletedInventory(t *testing.T) {
 	assertConflict(t, handler, pair.AccessToken, http.MethodDelete, "/api/admin/inventories/"+strconv.FormatUint(uint64(activeInventory.ID), 10), "", "inventory has active replicas")
 	assertConflict(t, handler, pair.AccessToken, http.MethodPatch, "/api/admin/inventories/"+strconv.FormatUint(uint64(activeInventory.ID), 10), `{"status":"deleted"}`, "inventory has active replicas")
 
+	sharedReplica := &model.Replica{
+		InventoryID: activeInventory.ID, NodeID: "node-b", URI: "/data/shared-with-share",
+		Status: model.ReplicaStatusActive, Type: model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(sharedReplica).Error; err != nil {
+		t.Fatalf("Create(shared replica) error = %v", err)
+	}
+	if err := database.Create(&model.Share{
+		ReplicaID: sharedReplica.ID,
+		Name:      "Shared",
+		Status:    model.ShareStatusActive,
+	}).Error; err != nil {
+		t.Fatalf("Create(active share) error = %v", err)
+	}
+	assertConflict(t, handler, pair.AccessToken, http.MethodPatch, "/api/admin/replicas/"+strconv.FormatUint(uint64(sharedReplica.ID), 10), `{"status":"deleted"}`, "replica has active shares")
+	assertConflict(t, handler, pair.AccessToken, http.MethodDelete, "/api/admin/replicas/"+strconv.FormatUint(uint64(sharedReplica.ID), 10), "", "replica has active shares")
+
 	var storedInventory model.Inventory
 	if err := database.First(&storedInventory, activeInventory.ID).Error; err != nil {
 		t.Fatalf("First(active inventory) error = %v", err)
@@ -113,8 +130,8 @@ func TestPublicReplicaMutationsRejectDeletedInventory(t *testing.T) {
 	if err := database.Model(&model.Replica{}).Where("inventory_id = ?", activeInventory.ID).Count(&replicaCount).Error; err != nil {
 		t.Fatalf("Count(replicas) error = %v", err)
 	}
-	if replicaCount != 2 {
-		t.Fatalf("replicaCount = %d, want 2", replicaCount)
+	if replicaCount != 3 {
+		t.Fatalf("replicaCount = %d, want 3", replicaCount)
 	}
 
 	wantMessage := "Active replica " + strconv.FormatUint(uint64(activeReplica.ID), 10) + " on node-a is already using location /data/shared"

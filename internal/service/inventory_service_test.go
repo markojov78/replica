@@ -665,6 +665,54 @@ func TestReplicaServiceRejectsUndeleteWhenActiveReplicaUsesLocation(t *testing.T
 	}
 }
 
+func TestReplicaServiceRejectsDeleteWithActiveShare(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "replica-active-share.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	inventory := &model.Inventory{Name: "shared", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	replica := &model.Replica{
+		InventoryID: inventory.ID,
+		NodeID:      "node-a",
+		URI:         "/data/shared",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}
+	if err := database.Create(replica).Error; err != nil {
+		t.Fatalf("Create(replica) error = %v", err)
+	}
+	share := &model.Share{
+		ReplicaID: replica.ID,
+		Name:      "Shared",
+		Status:    model.ShareStatusActive,
+	}
+	if err := database.Create(share).Error; err != nil {
+		t.Fatalf("Create(share) error = %v", err)
+	}
+
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
+	if _, err := svc.Delete(replica.ID); err != ErrReplicaHasActiveShare {
+		t.Fatalf("Delete(active share) error = %v, want %v", err, ErrReplicaHasActiveShare)
+	}
+
+	if err := database.Model(share).Update("status", model.ShareStatusDeleted).Error; err != nil {
+		t.Fatalf("Update(share deleted) error = %v", err)
+	}
+	if _, err := svc.Delete(replica.ID); err != nil {
+		t.Fatalf("Delete(deleted share) error = %v", err)
+	}
+}
+
 func TestInventoryServiceListReplicaFiles(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
 		Driver: "sqlite",

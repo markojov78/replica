@@ -366,6 +366,15 @@ func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput) (*Inve
 		if !status.Valid() {
 			return nil, ErrInvalidReplicaStatus
 		}
+		if replica.Status != model.ReplicaStatusDeleted && status == model.ReplicaStatusDeleted {
+			hasActiveShares, err := s.repo.HasActiveShares(replica.ID)
+			if err != nil {
+				return nil, err
+			}
+			if hasActiveShares {
+				return nil, ErrReplicaHasActiveShare
+			}
+		}
 		if replica.Status == model.ReplicaStatusDeleted && status != model.ReplicaStatusDeleted {
 			inventory, err := s.inventories.FindByID(replica.InventoryID)
 			if err != nil {

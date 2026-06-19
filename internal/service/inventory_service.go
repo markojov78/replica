@@ -38,6 +38,7 @@ var (
 	ErrReplicaNotFound            = errors.New("replica not found")
 	ErrInventoryDeleted           = errors.New("inventory is deleted")
 	ErrInventoryHasActiveReplica  = errors.New("inventory has active replicas")
+	ErrReplicaHasActiveShare      = errors.New("replica has active shares")
 )
 
 type ActiveReplicaLocationError struct {

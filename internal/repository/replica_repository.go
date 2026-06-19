@@ -313,6 +313,16 @@ func (r *ReplicaRepository) FindActiveByLocationExcludingID(nodeID, uri string, 
 	return &replica, nil
 }
 
+func (r *ReplicaRepository) HasActiveShares(replicaID uint) (bool, error) {
+	var count int64
+	if err := r.db.Model(&model.Share{}).
+		Where("replica_id = ? AND status <> ?", replicaID, model.ShareStatusDeleted).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (r *ReplicaRepository) FindFileByID(replicaID, fileID uint) (*model.ReplicaFile, error) {
 	var file model.ReplicaFile
 	if err := r.db.Where("replica_id = ? AND file_id = ?", replicaID, fileID).First(&file).Error; err != nil {
