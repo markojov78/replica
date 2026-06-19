@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -75,6 +76,8 @@ type shareUserPermission struct {
 
 type shareList struct {
 	Items []share `json:"items"`
+	Page  int     `json:"page"`
+	Count int     `json:"count"`
 	Total int64   `json:"total"`
 }
 
@@ -90,11 +93,12 @@ type shareView struct {
 }
 
 type inventory struct {
-	ID       uint      `json:"id"`
-	Name     string    `json:"name"`
-	Status   string    `json:"status"`
-	Type     string    `json:"type"`
-	Replicas []replica `json:"replicas"`
+	ID         uint      `json:"id"`
+	Name       string    `json:"name"`
+	Status     string    `json:"status"`
+	Type       string    `json:"type"`
+	Replicas   []replica `json:"replicas"`
+	ShareCount int
 }
 
 type inventoryList struct {
@@ -206,6 +210,7 @@ func Register(mux *http.ServeMux, api http.Handler) error {
 		"hasStringPermission":    hasStringPermission,
 		"expirationValue":        expirationValue,
 		"anonymousEnabled":       anonymousEnabled,
+		"shareNodeIDs":           shareNodeIDs,
 	}).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		return err
@@ -360,9 +365,14 @@ func (h *Handler) inventoriesPage(w http.ResponseWriter, r *http.Request, sess a
 	if !h.load(w, r, sess, "/api/admin/inventories?count=100", &list) {
 		return
 	}
+	shares, ok := h.loadAllShares(w, r, sess)
+	if !ok {
+		return
+	}
+	inventories := withInventoryShareCounts(list.Items, shares)
 	h.render(w, "inventories", pageData{
 		Title: "Inventories", Subtitle: "Logical datasets with replicas managed in inventory context.",
-		Active: "inventories", Inventories: list.Items,
+		Active: "inventories", Inventories: inventories,
 	})
 }
 
@@ -968,6 +978,21 @@ func (h *Handler) loadUsers(w http.ResponseWriter, r *http.Request, sess authCon
 	return list.Items, true
 }
 
+func (h *Handler) loadAllShares(w http.ResponseWriter, r *http.Request, sess authContext) ([]share, bool) {
+	const count = 100
+	var result []share
+	for page := 1; ; page++ {
+		var list shareList
+		if !h.load(w, r, sess, fmt.Sprintf("/api/admin/shares?page=%d&count=%d", page, count), &list) {
+			return nil, false
+		}
+		result = append(result, list.Items...)
+		if int64(len(result)) >= list.Total || len(list.Items) == 0 {
+			return result, true
+		}
+	}
+}
+
 func (h *Handler) renderError(w http.ResponseWriter, r *http.Request, _ authContext, err error) {
 	if errors.Is(err, errUnauthorized) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -1398,6 +1423,51 @@ func shareViews(shares []share, inventories []inventory) []shareView {
 		}
 		result = append(result, view)
 	}
+	return result
+}
+
+func withInventoryShareCounts(inventories []inventory, shares []share) []inventory {
+	replicaInventoryIDs := make(map[uint]uint)
+	for _, inv := range inventories {
+		for _, rep := range inv.Replicas {
+			replicaInventoryIDs[rep.ID] = inv.ID
+		}
+	}
+
+	shareCounts := make(map[uint]int)
+	for _, item := range shares {
+		inventoryID, ok := replicaInventoryIDs[item.ReplicaID]
+		if !ok {
+			continue
+		}
+		shareCounts[inventoryID]++
+	}
+
+	result := make([]inventory, len(inventories))
+	copy(result, inventories)
+	for i := range result {
+		result[i].ShareCount = shareCounts[result[i].ID]
+	}
+	return result
+}
+
+func shareNodeIDs(inventories []inventory) []string {
+	seen := make(map[string]struct{})
+	for _, inv := range inventories {
+		for _, rep := range inv.Replicas {
+			nodeID := strings.TrimSpace(rep.NodeID)
+			if nodeID == "" {
+				continue
+			}
+			seen[nodeID] = struct{}{}
+		}
+	}
+
+	result := make([]string, 0, len(seen))
+	for nodeID := range seen {
+		result = append(result, nodeID)
+	}
+	sort.Strings(result)
 	return result
 }
 

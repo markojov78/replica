@@ -58,6 +58,8 @@
       const expirationInput = form.querySelector("[data-expiration-input]");
       const anonymousWarning = form.querySelector("[data-anonymous-warning]");
       const anonymousInputs = [...form.querySelectorAll("[data-anonymous-permission]")];
+      const nodeSelect = form.querySelector("[data-share-node-select]");
+      const replicaSelect = form.querySelector("[data-share-replica-select]");
 
       const syncExpiration = () => {
         if (expirationInput) {
@@ -69,13 +71,39 @@
           anonymousWarning.hidden = !anonymousInputs.some((input) => input.checked);
         }
       };
+      const syncReplicas = () => {
+        if (!nodeSelect || !replicaSelect) {
+          return;
+        }
+        const nodeID = nodeSelect.value;
+        replicaSelect.disabled = nodeID === "";
+        for (const option of replicaSelect.options) {
+          if (option.value === "") {
+            option.hidden = false;
+            option.textContent = nodeID === "" ? "Select node first" : "Select replica";
+            continue;
+          }
+          option.hidden = option.dataset.node !== nodeID;
+        }
+        if (replicaSelect.selectedOptions.length > 0 && replicaSelect.selectedOptions[0].hidden) {
+          replicaSelect.value = "";
+        }
+      };
 
       expirationToggle?.addEventListener("change", syncExpiration);
       for (const input of anonymousInputs) {
         input.addEventListener("change", syncAnonymous);
       }
+      if (nodeSelect && replicaSelect) {
+        const selectedReplica = replicaSelect.selectedOptions[0];
+        if (selectedReplica?.dataset.node) {
+          nodeSelect.value = selectedReplica.dataset.node;
+        }
+        nodeSelect.addEventListener("change", syncReplicas);
+      }
       syncExpiration();
       syncAnonymous();
+      syncReplicas();
     }
   }
 

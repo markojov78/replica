@@ -128,7 +128,7 @@
   <article class="inventory-row" data-filter-item="inventories" data-status="{{.Status}}">
     <div>
       <a class="inventory-title" href="/dashboard/inventories/{{.ID}}">{{.Name}}</a>
-      <p>{{.Type}} · Inventory #{{.ID}} · {{len .Replicas}} replicas</p>
+      <p>{{.Type}} · Inventory #{{.ID}} · {{len .Replicas}} replicas - {{.ShareCount}} shares</p>
       <div class="chips">{{range .Replicas}}<span>{{if .UpstreamReplicaID}}downstream{{else}}base{{end}}: {{.NodeID}}</span>{{end}}</div>
     </div>
     <div class="inventory-actions">
@@ -285,13 +285,21 @@
       <label>Status<select name="status"><option value="active" {{if eq .Share.Status "active"}}selected{{end}}>active</option><option value="deleted" {{if eq .Share.Status "deleted"}}selected{{end}}>deleted</option></select></label>
     {{else}}
       <div class="anon-label full" data-anonymous-warning {{if not (anonymousEnabled .Share)}}hidden{{end}}>Anonymous access is enabled.</div>
-      <label class="full">Replica
-        <select name="replica_id" required>
-          <option value="">Select replica</option>
+      <label>Node
+        <select data-share-node-select required>
+          <option value="">Select node</option>
+          {{range shareNodeIDs .Inventories}}
+            <option value="{{.}}">{{.}}</option>
+          {{end}}
+        </select>
+      </label>
+      <label>Replica
+        <select name="replica_id" required data-share-replica-select {{if not .Share.ReplicaID}}disabled{{end}}>
+          <option value="">Select node first</option>
           {{range .Inventories}}
             {{$inventory := .}}
             {{range .Replicas}}
-              <option value="{{.ID}}" {{if eq .ID $.Share.ReplicaID}}selected{{end}}>Replica #{{.ID}} · Inventory #{{$inventory.ID}} · {{$inventory.Name}} · Node {{.NodeID}} · {{.Status}}</option>
+              <option value="{{.ID}}" data-node="{{.NodeID}}" {{if eq .ID $.Share.ReplicaID}}selected{{end}}>#{{$inventory.ID}} {{$inventory.Name}} - Replica #{{.ID}}{{if .UpstreamReplicaID}} (read only){{end}}</option>
             {{end}}
           {{end}}
         </select>

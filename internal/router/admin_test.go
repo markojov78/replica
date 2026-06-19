@@ -244,7 +244,9 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories", nil, accessToken)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `data-filter-item="inventories"`) {
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `data-filter-item="inventories"`) ||
+		!strings.Contains(response.Body.String(), `folder · Inventory #1 · 1 replicas - 0 shares`) {
 		t.Fatalf("inventories filtering markup response = %d body=%q", response.Code, response.Body.String())
 	}
 
@@ -334,11 +336,13 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "New share") ||
 		!strings.Contains(response.Body.String(), `name="replica_id"`) ||
+		!strings.Contains(response.Body.String(), `data-share-node-select`) ||
+		!strings.Contains(response.Body.String(), `data-share-replica-select`) ||
 		!strings.Contains(response.Body.String(), `name="anonymous_permissions"`) ||
 		!strings.Contains(response.Body.String(), `name="enable_expiration"`) ||
-		!strings.Contains(response.Body.String(), `Inventory #1`) ||
+		!strings.Contains(response.Body.String(), `#1 Documents - Replica #1`) ||
 		!strings.Contains(response.Body.String(), `Documents`) ||
-		!strings.Contains(response.Body.String(), `Node node-a`) {
+		!strings.Contains(response.Body.String(), `value="node-a"`) {
 		t.Fatalf("new share response = %d body=%q", response.Code, response.Body.String())
 	}
 
@@ -371,6 +375,11 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}
 	if createdShare.ShareExpiration == nil || !createdShare.ShareExpiration.Equal(parsedExpiresAt) {
 		t.Fatalf("createdShare.ShareExpiration = %v, want %v", createdShare.ShareExpiration, parsedExpiresAt)
+	}
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `folder · Inventory #1 · 2 replicas - 1 shares`) {
+		t.Fatalf("inventories share count response = %d body=%q", response.Code, response.Body.String())
 	}
 	var shareUser model.ShareUser
 	if err := database.First(&shareUser, "share_id = ? AND user_id = ?", createdShare.ID, adminUser.ID).Error; err != nil {
