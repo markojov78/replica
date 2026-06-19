@@ -145,6 +145,18 @@
 {{define "shares"}}
 {{template "layout_start" .}}
 <div class="actions">
+  <label class="filter-select">Node
+    <select data-list-filter="shares" data-filter-field="nodeId">
+      <option value="">All nodes</option>
+      {{range shareFilterNodes .Shares}}<option value="{{.}}">{{.}}</option>{{end}}
+    </select>
+  </label>
+  <label class="filter-select">Inventory
+    <select data-list-filter="shares" data-filter-field="inventoryId">
+      <option value="">All inventories</option>
+      {{range shareFilterInventories .Shares}}<option value="{{.ID}}">#{{.ID}}{{if .Name}} · {{.Name}}{{end}}</option>{{end}}
+    </select>
+  </label>
   <label class="filter-toggle"><input type="checkbox" data-hide-deleted="shares"> Hide deleted</label>
   <a class="btn ghost" href="/dashboard/shares">Refresh</a>
   <a class="btn primary" href="/dashboard/shares/new">New share</a>
@@ -152,7 +164,7 @@
 {{template "alert" .}}
 <section class="inventory-list">
 {{range .Shares}}
-  <article class="inventory-row" data-filter-item="shares" data-status="{{.Status}}">
+  <article class="inventory-row" data-filter-item="shares" data-status="{{.Status}}" data-node-id="{{.NodeID}}" data-inventory-id="{{.InventoryID}}">
     <div>
       <span class="inventory-title">{{.Name}}</span>
       <p>Share #{{.ID}} · Inventory #{{.InventoryID}}{{if .InventoryName}} · {{.InventoryName}}{{end}} · Replica #{{.ReplicaID}}</p>
@@ -435,6 +447,25 @@
       <label class="full">Folder URI<input name="folder_uri" value="{{.FolderURI}}" placeholder="/srv/data or s3://bucket/prefix"><small>Set this to create a folder inventory. Leave file URIs empty.</small></label>
       <label class="full">File URIs<textarea name="file_uris" rows="7" placeholder="/home/user/images/file1.jpg&#10;/home/user/images/file2.jpg">{{.FileURIs}}</textarea><small>One absolute filesystem, file://, or s3:// URI per line. Leave folder URI empty.</small></label>
     {{end}}
+    <div class="full permission-panel">
+      <div class="section-head"><div><h2>User permissions</h2><p>Explicit permissions for authenticated users on this inventory.</p></div></div>
+      <table>
+        <thead><tr><th>User</th><th>Read</th><th>Update</th><th>Delete</th></tr></thead>
+        <tbody>
+          {{$inventory := .Inventory}}
+          {{range .Users}}
+          <tr>
+            <td>{{.Name}}</td>
+            <td><label class="filter-toggle"><input type="checkbox" name="user_permissions_{{.ID}}" value="read" {{if hasShareUserPermission .ID "read" $inventory.UserPermissions}}checked{{end}}> Read</label></td>
+            <td><label class="filter-toggle"><input type="checkbox" name="user_permissions_{{.ID}}" value="update" {{if hasShareUserPermission .ID "update" $inventory.UserPermissions}}checked{{end}}> Update</label></td>
+            <td><label class="filter-toggle"><input type="checkbox" name="user_permissions_{{.ID}}" value="delete" {{if hasShareUserPermission .ID "delete" $inventory.UserPermissions}}checked{{end}}> Delete</label></td>
+          </tr>
+          {{else}}
+          <tr><td colspan="4">No users found.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
     <div class="footer-actions full"><a class="btn" href="{{if .IsEdit}}/dashboard/inventories/{{.Inventory.ID}}{{else}}/dashboard/inventories{{end}}">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save inventory{{else}}Create inventory{{end}}</button></div>
   </form>
 </section>

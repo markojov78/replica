@@ -33,22 +33,55 @@
     return userID ? `replica_admin_user_${userID}_${name}` : "";
   }
 
+  function applyListFilters(scope) {
+    const deleteToggle = document.querySelector(`[data-hide-deleted="${scope}"]`);
+    const filters = [...document.querySelectorAll(`[data-list-filter="${scope}"]`)];
+    for (const item of document.querySelectorAll(`[data-filter-item="${scope}"]`)) {
+      let hidden = deleteToggle?.checked && item.dataset.status === "deleted";
+      for (const filter of filters) {
+        if (hidden) {
+          break;
+        }
+        const value = filter.value;
+        const field = filter.dataset.filterField;
+        if (value && field && item.dataset[field] !== value) {
+          hidden = true;
+        }
+      }
+      item.hidden = hidden;
+    }
+  }
+
   function bindDeletedFilters() {
     for (const toggle of document.querySelectorAll("[data-hide-deleted]")) {
       const key = preferenceKey(toggle.dataset.hideDeleted);
       toggle.checked = key !== "" && localStorage.getItem(key) === "true";
-      const apply = () => {
-        for (const item of document.querySelectorAll(`[data-filter-item="${toggle.dataset.hideDeleted}"]`)) {
-          item.hidden = toggle.checked && item.dataset.status === "deleted";
-        }
-      };
       toggle.addEventListener("change", () => {
         if (key) {
           localStorage.setItem(key, String(toggle.checked));
         }
-        apply();
+        applyListFilters(toggle.dataset.hideDeleted);
       });
-      apply();
+      applyListFilters(toggle.dataset.hideDeleted);
+    }
+  }
+
+  function bindChoiceFilters() {
+    for (const filter of document.querySelectorAll("[data-list-filter]")) {
+      const key = preferenceKey(`${filter.dataset.listFilter}_${filter.dataset.filterField}`);
+      if (key) {
+        const value = localStorage.getItem(key) || "";
+        if ([...filter.options].some((option) => option.value === value)) {
+          filter.value = value;
+        }
+      }
+      filter.addEventListener("change", () => {
+        if (key) {
+          localStorage.setItem(key, filter.value);
+        }
+        applyListFilters(filter.dataset.listFilter);
+      });
+      applyListFilters(filter.dataset.listFilter);
     }
   }
 
@@ -190,6 +223,7 @@
       element.textContent = localStorage.getItem(usernameKey) || "";
     }
     bindDeletedFilters();
+    bindChoiceFilters();
     bindShareForms();
     document.addEventListener("click", (event) => {
       const link = event.target.closest("a[href]");

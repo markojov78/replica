@@ -93,12 +93,13 @@ type shareView struct {
 }
 
 type inventory struct {
-	ID         uint      `json:"id"`
-	Name       string    `json:"name"`
-	Status     string    `json:"status"`
-	Type       string    `json:"type"`
-	Replicas   []replica `json:"replicas"`
-	ShareCount int
+	ID              uint                  `json:"id"`
+	Name            string                `json:"name"`
+	Status          string                `json:"status"`
+	Type            string                `json:"type"`
+	Replicas        []replica             `json:"replicas"`
+	UserPermissions []shareUserPermission `json:"user_permissions"`
+	ShareCount      int
 }
 
 type inventoryList struct {
@@ -211,6 +212,8 @@ func Register(mux *http.ServeMux, api http.Handler) error {
 		"expirationValue":        expirationValue,
 		"anonymousEnabled":       anonymousEnabled,
 		"shareNodeIDs":           shareNodeIDs,
+		"shareFilterNodes":       shareFilterNodes,
+		"shareFilterInventories": shareFilterInventories,
 	}).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		return err
@@ -381,8 +384,13 @@ func (h *Handler) newInventoryPage(w http.ResponseWriter, r *http.Request, sess 
 	if !ok {
 		return
 	}
+	users, ok := h.loadUsers(w, r, sess)
+	if !ok {
+		return
+	}
+	users = activeUsers(users)
 	h.render(w, "inventory_form", pageData{
-		Title: "New inventory", Subtitle: "Create an inventory and its first replica.", Active: "inventories", Nodes: nodes,
+		Title: "New inventory", Subtitle: "Create an inventory and its first replica.", Active: "inventories", Nodes: nodes, Users: users,
 	})
 }
 
@@ -391,9 +399,16 @@ func (h *Handler) createInventory(w http.ResponseWriter, r *http.Request, sess a
 		h.inventoryFormError(w, r, sess, false, inventory{}, "Invalid form submission.")
 		return
 	}
+	users, ok := h.loadUsers(w, r, sess)
+	if !ok {
+		return
+	}
+	users = activeUsers(users)
+	userPermissions := userPermissionsFromForm(r.Form, users)
 	input := map[string]any{
-		"name":    strings.TrimSpace(r.FormValue("name")),
-		"node_id": r.FormValue("node_id"),
+		"name":             strings.TrimSpace(r.FormValue("name")),
+		"node_id":          r.FormValue("node_id"),
+		"user_permissions": userPermissions,
 	}
 	if folderURI := strings.TrimSpace(r.FormValue("folder_uri")); folderURI != "" {
 		input["folder_uri"] = folderURI
@@ -407,7 +422,7 @@ func (h *Handler) createInventory(w http.ResponseWriter, r *http.Request, sess a
 			h.renderError(w, r, sess, err)
 			return
 		}
-		h.inventoryFormError(w, r, sess, false, inventory{Name: r.FormValue("name")}, apiMessage(err))
+		h.inventoryFormError(w, r, sess, false, inventory{Name: r.FormValue("name"), UserPermissions: userPermissions}, apiMessage(err))
 		return
 	}
 	http.Redirect(w, r, fmt.Sprintf("/dashboard/inventories/%d", created.ID), http.StatusSeeOther)
@@ -458,9 +473,14 @@ func (h *Handler) editInventoryPage(w http.ResponseWriter, r *http.Request, sess
 	if !h.load(w, r, sess, "/api/admin/inventories/"+r.PathValue("id"), &item) {
 		return
 	}
+	users, ok := h.loadUsers(w, r, sess)
+	if !ok {
+		return
+	}
+	users = activeUsers(users)
 	h.render(w, "inventory_form", pageData{
 		Title: "Edit inventory", Subtitle: fmt.Sprintf("Update inventory #%d.", item.ID),
-		Active: "inventories", Inventory: item, IsEdit: true,
+		Active: "inventories", Inventory: item, Users: users, IsEdit: true,
 	})
 }
 
@@ -469,10 +489,20 @@ func (h *Handler) updateInventory(w http.ResponseWriter, r *http.Request, sess a
 		h.inventoryFormError(w, r, sess, true, inventory{}, "Invalid form submission.")
 		return
 	}
+	users, ok := h.loadUsers(w, r, sess)
+	if !ok {
+		return
+	}
+	users = activeUsers(users)
 	id, _ := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	item := inventory{ID: uint(id), Name: r.FormValue("name"), Status: r.FormValue("status")}
+	var current inventory
+	if !h.load(w, r, sess, "/api/admin/inventories/"+r.PathValue("id"), &current) {
+		return
+	}
+	userPermissions := mergeHiddenUserPermissions(current.UserPermissions, userPermissionsFromForm(r.Form, users), users)
+	item := inventory{ID: uint(id), Name: r.FormValue("name"), Status: r.FormValue("status"), UserPermissions: userPermissions}
 	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/admin/inventories/"+r.PathValue("id"), map[string]any{
-		"name": item.Name, "status": item.Status,
+		"name": item.Name, "status": item.Status, "user_permissions": item.UserPermissions,
 	}, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
 			h.renderError(w, r, sess, err)
@@ -609,10 +639,16 @@ func (h *Handler) newSharePage(w http.ResponseWriter, r *http.Request, sess auth
 	if !ok {
 		return
 	}
+	nodes, ok := h.loadNodes(w, r, sess)
+	if !ok {
+		return
+	}
+	inventories = shareSelectableInventories(inventories, nodes)
 	users, ok := h.loadUsers(w, r, sess)
 	if !ok {
 		return
 	}
+	users = activeUsers(users)
 	h.render(w, "share_form", pageData{
 		Title: "New share", Subtitle: "Create a share for an existing replica.",
 		Active: "shares", Inventories: inventories, Users: users,
@@ -628,6 +664,7 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request, sess authC
 	if !ok {
 		return
 	}
+	users = activeUsers(users)
 	replicaID, _ := strconv.ParseUint(r.FormValue("replica_id"), 10, 64)
 	item := share{
 		ReplicaID:            uint(replicaID),
@@ -674,6 +711,7 @@ func (h *Handler) editSharePage(w http.ResponseWriter, r *http.Request, sess aut
 	if !ok {
 		return
 	}
+	users = activeUsers(users)
 	h.render(w, "share_form", pageData{
 		Title: "Edit share", Subtitle: fmt.Sprintf("Update share #%d.", item.ID),
 		Active: "shares", Share: item, Users: users, IsEdit: true,
@@ -690,6 +728,7 @@ func (h *Handler) updateShare(w http.ResponseWriter, r *http.Request, sess authC
 	if !ok {
 		return
 	}
+	users = activeUsers(users)
 	id, _ := strconv.ParseUint(r.PathValue("id"), 10, 64)
 	var current share
 	if !h.load(w, r, sess, "/api/admin/shares/"+r.PathValue("id"), &current) {
@@ -702,7 +741,7 @@ func (h *Handler) updateShare(w http.ResponseWriter, r *http.Request, sess authC
 		Name:                 r.FormValue("name"),
 		Status:               r.FormValue("status"),
 		LinkHash:             current.LinkHash,
-		UserPermissions:      shareUserPermissionsFromForm(r.Form, users),
+		UserPermissions:      mergeHiddenUserPermissions(current.UserPermissions, shareUserPermissionsFromForm(r.Form, users), users),
 		AnonymousPermissions: sharePermissionsFromForm(r.Form["anonymous_permissions"], []string{"read", "update"}),
 	}
 	input := map[string]any{
@@ -978,6 +1017,16 @@ func (h *Handler) loadUsers(w http.ResponseWriter, r *http.Request, sess authCon
 	return list.Items, true
 }
 
+func activeUsers(users []user) []user {
+	result := make([]user, 0, len(users))
+	for _, item := range users {
+		if item.Status == "active" {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
 func (h *Handler) loadAllShares(w http.ResponseWriter, r *http.Request, sess authContext) ([]share, bool) {
 	const count = 100
 	var result []share
@@ -1024,12 +1073,17 @@ func (h *Handler) inventoryFormError(w http.ResponseWriter, r *http.Request, ses
 			nodes = list.Items
 		}
 	}
+	users, ok := h.loadUsers(w, r, sess)
+	if !ok {
+		return
+	}
+	users = activeUsers(users)
 	title := "New inventory"
 	if edit {
 		title = "Edit inventory"
 	}
 	h.render(w, "inventory_form", pageData{
-		Title: title, Active: "inventories", Inventory: item, Nodes: nodes, IsEdit: edit, Error: message,
+		Title: title, Active: "inventories", Inventory: item, Nodes: nodes, Users: users, IsEdit: edit, Error: message,
 		FolderURI: r.FormValue("folder_uri"), FileURIs: r.FormValue("file_uris"),
 	})
 }
@@ -1068,11 +1122,17 @@ func (h *Handler) shareFormError(w http.ResponseWriter, r *http.Request, sess au
 		if !ok {
 			return
 		}
+		nodes, ok := h.loadNodes(w, r, sess)
+		if !ok {
+			return
+		}
+		inventories = shareSelectableInventories(inventories, nodes)
 	}
 	users, ok := h.loadUsers(w, r, sess)
 	if !ok {
 		return
 	}
+	users = activeUsers(users)
 	title := "New share"
 	if edit {
 		title = "Edit share"
@@ -1291,6 +1351,10 @@ func hasPermission(resource, action string, permissions []permission) bool {
 }
 
 func shareUserPermissionsFromForm(values url.Values, users []user) []shareUserPermission {
+	return userPermissionsFromForm(values, users)
+}
+
+func userPermissionsFromForm(values url.Values, users []user) []shareUserPermission {
 	result := make([]shareUserPermission, 0, len(users))
 	for _, item := range users {
 		permissions := sharePermissionsFromForm(values["user_permissions_"+strconv.FormatUint(uint64(item.ID), 10)], []string{"read", "update", "delete"})
@@ -1302,6 +1366,23 @@ func shareUserPermissionsFromForm(values url.Values, users []user) []shareUserPe
 			Permissions: permissions,
 		})
 	}
+	return result
+}
+
+func mergeHiddenUserPermissions(existing, submitted []shareUserPermission, visibleUsers []user) []shareUserPermission {
+	visible := make(map[uint]struct{}, len(visibleUsers))
+	for _, item := range visibleUsers {
+		visible[item.ID] = struct{}{}
+	}
+
+	result := make([]shareUserPermission, 0, len(existing)+len(submitted))
+	for _, item := range existing {
+		if _, ok := visible[item.UserID]; ok {
+			continue
+		}
+		result = append(result, item)
+	}
+	result = append(result, submitted...)
 	return result
 }
 
@@ -1426,6 +1507,50 @@ func shareViews(shares []share, inventories []inventory) []shareView {
 	return result
 }
 
+func shareFilterNodes(shares []shareView) []string {
+	seen := make(map[string]struct{})
+	for _, item := range shares {
+		nodeID := strings.TrimSpace(item.NodeID)
+		if nodeID == "" {
+			continue
+		}
+		seen[nodeID] = struct{}{}
+	}
+
+	result := make([]string, 0, len(seen))
+	for nodeID := range seen {
+		result = append(result, nodeID)
+	}
+	sort.Strings(result)
+	return result
+}
+
+type shareInventoryFilterOption struct {
+	ID   uint
+	Name string
+}
+
+func shareFilterInventories(shares []shareView) []shareInventoryFilterOption {
+	seen := make(map[uint]string)
+	for _, item := range shares {
+		if item.InventoryID == 0 {
+			continue
+		}
+		if _, ok := seen[item.InventoryID]; !ok {
+			seen[item.InventoryID] = item.InventoryName
+		}
+	}
+
+	result := make([]shareInventoryFilterOption, 0, len(seen))
+	for inventoryID, name := range seen {
+		result = append(result, shareInventoryFilterOption{ID: inventoryID, Name: name})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID < result[j].ID
+	})
+	return result
+}
+
 func withInventoryShareCounts(inventories []inventory, shares []share) []inventory {
 	replicaInventoryIDs := make(map[uint]uint)
 	for _, inv := range inventories {
@@ -1447,6 +1572,36 @@ func withInventoryShareCounts(inventories []inventory, shares []share) []invento
 	copy(result, inventories)
 	for i := range result {
 		result[i].ShareCount = shareCounts[result[i].ID]
+	}
+	return result
+}
+
+func shareSelectableInventories(inventories []inventory, nodes []node) []inventory {
+	selectableNodes := make(map[string]struct{}, len(nodes))
+	for _, item := range nodes {
+		if item.Status == "disabled" {
+			continue
+		}
+		selectableNodes[item.ID] = struct{}{}
+	}
+
+	result := make([]inventory, 0, len(inventories))
+	for _, inv := range inventories {
+		filtered := inv
+		filtered.Replicas = nil
+		for _, rep := range inv.Replicas {
+			if rep.Status != "active" {
+				continue
+			}
+			if _, ok := selectableNodes[rep.NodeID]; !ok {
+				continue
+			}
+			filtered.Replicas = append(filtered.Replicas, rep)
+		}
+		if len(filtered.Replicas) == 0 {
+			continue
+		}
+		result = append(result, filtered)
 	}
 	return result
 }

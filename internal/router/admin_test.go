@@ -110,6 +110,10 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("decode login response error = %v", err)
 	}
 	accessToken := pair.AccessToken
+	var adminUser model.User
+	if err := database.First(&adminUser, "name = ?", "admin").Error; err != nil {
+		t.Fatalf("First(admin user) error = %v", err)
+	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/users", nil, accessToken)
 	if response.Code != http.StatusOK ||
@@ -230,7 +234,9 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/new", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), `name="folder_uri"`) ||
-		!strings.Contains(response.Body.String(), `name="file_uris"`) {
+		!strings.Contains(response.Body.String(), `name="file_uris"`) ||
+		!strings.Contains(response.Body.String(), `name="user_permissions_`+strconv.FormatUint(uint64(adminUser.ID), 10)+`"`) ||
+		strings.Contains(response.Body.String(), `name="user_permissions_2"`) {
 		t.Fatalf("new inventory form response = %d body=%q", response.Code, response.Body.String())
 	}
 
@@ -238,9 +244,21 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		"name":       {"Documents"},
 		"node_id":    {"node-a"},
 		"folder_uri": {"/srv/documents"},
+		"user_permissions_" + strconv.FormatUint(uint64(adminUser.ID), 10): {"read", "update"},
 	}, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/inventories/1" {
 		t.Fatalf("create inventory response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	var inventoryUser model.InventoryUser
+	if err := database.First(&inventoryUser, "inventory_id = ? AND user_id = ?", 1, adminUser.ID).Error; err != nil {
+		t.Fatalf("First(inventory user) error = %v", err)
+	}
+	var inventoryPermissionCount int64
+	if err := database.Model(&model.InventoryPermission{}).Where("inventory_user_id = ?", inventoryUser.ID).Count(&inventoryPermissionCount).Error; err != nil {
+		t.Fatalf("Count(inventory permissions) error = %v", err)
+	}
+	if inventoryPermissionCount != 2 {
+		t.Fatalf("inventoryPermissionCount = %d, want 2", inventoryPermissionCount)
 	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories", nil, accessToken)
@@ -248,6 +266,31 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), `data-filter-item="inventories"`) ||
 		!strings.Contains(response.Body.String(), `folder · Inventory #1 · 1 replicas - 0 shares`) {
 		t.Fatalf("inventories filtering markup response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1/edit", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "Edit inventory") ||
+		!strings.Contains(response.Body.String(), `name="user_permissions_`+strconv.FormatUint(uint64(adminUser.ID), 10)+`" value="read" checked`) ||
+		!strings.Contains(response.Body.String(), `name="user_permissions_`+strconv.FormatUint(uint64(adminUser.ID), 10)+`" value="update" checked`) ||
+		strings.Contains(response.Body.String(), `name="user_permissions_2"`) {
+		t.Fatalf("edit inventory response = %d body=%q", response.Code, response.Body.String())
+	}
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/inventories/1", url.Values{
+		"name":   {"Documents"},
+		"status": {"active"},
+		"user_permissions_" + strconv.FormatUint(uint64(adminUser.ID), 10): {"read", "delete"},
+	}, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/inventories/1" {
+		t.Fatalf("update inventory response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	inventoryUser = model.InventoryUser{}
+	if err := database.First(&inventoryUser, "inventory_id = ? AND user_id = ?", 1, adminUser.ID).Error; err != nil {
+		t.Fatalf("First(updated inventory user) error = %v", err)
+	}
+	var deletePermission model.InventoryPermission
+	if err := database.First(&deletePermission, "inventory_user_id = ? AND permission = ?", inventoryUser.ID, "delete").Error; err != nil {
+		t.Fatalf("First(delete inventory permission) error = %v", err)
 	}
 
 	now := time.Now().UTC()
@@ -323,10 +366,33 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if updatedReplica.UpstreamReplicaID != nil {
 		t.Fatalf("updatedReplica.UpstreamReplicaID = %v, want nil", updatedReplica.UpstreamReplicaID)
 	}
+	if err := database.Create(&model.Node{ID: "node-disabled", Status: model.NodeStatusDisabled, Secret: "ignored"}).Error; err != nil {
+		t.Fatalf("Create(disabled node) error = %v", err)
+	}
+	if err := database.Create(&model.Replica{
+		InventoryID: 1,
+		NodeID:      "node-disabled",
+		URI:         "/disabled/documents",
+		Status:      model.ReplicaStatusActive,
+		Type:        model.ReplicaTypeFilesystem,
+	}).Error; err != nil {
+		t.Fatalf("Create(disabled node replica) error = %v", err)
+	}
+	if err := database.Create(&model.Replica{
+		InventoryID: 1,
+		NodeID:      "node-a",
+		URI:         "/deleted/documents",
+		Status:      model.ReplicaStatusDeleted,
+		Type:        model.ReplicaTypeFilesystem,
+	}).Error; err != nil {
+		t.Fatalf("Create(deleted replica) error = %v", err)
+	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/shares", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "Shares") ||
+		!strings.Contains(response.Body.String(), `data-list-filter="shares" data-filter-field="nodeId"`) ||
+		!strings.Contains(response.Body.String(), `data-list-filter="shares" data-filter-field="inventoryId"`) ||
 		!strings.Contains(response.Body.String(), `data-hide-deleted="shares"`) ||
 		!strings.Contains(response.Body.String(), `href="/dashboard/shares/new"`) {
 		t.Fatalf("shares response = %d body=%q", response.Code, response.Body.String())
@@ -342,14 +408,14 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), `name="enable_expiration"`) ||
 		!strings.Contains(response.Body.String(), `#1 Documents - Replica #1`) ||
 		!strings.Contains(response.Body.String(), `Documents`) ||
-		!strings.Contains(response.Body.String(), `value="node-a"`) {
+		!strings.Contains(response.Body.String(), `value="node-a"`) ||
+		strings.Contains(response.Body.String(), `value="node-disabled"`) ||
+		strings.Contains(response.Body.String(), `Replica #3`) ||
+		strings.Contains(response.Body.String(), `Replica #4`) ||
+		strings.Contains(response.Body.String(), `name="user_permissions_2"`) {
 		t.Fatalf("new share response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	var adminUser model.User
-	if err := database.First(&adminUser, "name = ?", "admin").Error; err != nil {
-		t.Fatalf("First(admin user) error = %v", err)
-	}
 	expiresAt := "2026-03-17"
 	response = adminRequest(t, handler, http.MethodPost, "/dashboard/shares", url.Values{
 		"replica_id": {"1"},
@@ -378,7 +444,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories", nil, accessToken)
 	if response.Code != http.StatusOK ||
-		!strings.Contains(response.Body.String(), `folder · Inventory #1 · 2 replicas - 1 shares`) {
+		!strings.Contains(response.Body.String(), `folder · Inventory #1 · 4 replicas - 1 shares`) {
 		t.Fatalf("inventories share count response = %d body=%q", response.Code, response.Body.String())
 	}
 	var shareUser model.ShareUser
@@ -407,6 +473,10 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/shares", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), `data-filter-item="shares"`) ||
+		!strings.Contains(response.Body.String(), `data-node-id="node-a"`) ||
+		!strings.Contains(response.Body.String(), `data-inventory-id="1"`) ||
+		!strings.Contains(response.Body.String(), `<option value="node-a">node-a</option>`) ||
+		!strings.Contains(response.Body.String(), `<option value="1">#1 · Documents</option>`) ||
 		!strings.Contains(response.Body.String(), `Share #1`) ||
 		!strings.Contains(response.Body.String(), `Inventory #1`) ||
 		!strings.Contains(response.Body.String(), `Documents`) ||
@@ -420,7 +490,8 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), `value="Documents"`) ||
 		!strings.Contains(response.Body.String(), `name="status"`) ||
 		!strings.Contains(response.Body.String(), `Anonymous access is enabled.`) ||
-		!strings.Contains(response.Body.String(), `value="2026-03-17"`) {
+		!strings.Contains(response.Body.String(), `value="2026-03-17"`) ||
+		strings.Contains(response.Body.String(), `name="user_permissions_2"`) {
 		t.Fatalf("edit share response = %d body=%q", response.Code, response.Body.String())
 	}
 
@@ -464,7 +535,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("delete active inventory response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	for _, replicaID := range []string{"2", "1"} {
+	for _, replicaID := range []string{"3", "2", "1"} {
 		response = adminRequest(t, handler, http.MethodPost, "/dashboard/inventories/1/replicas/"+replicaID+"/delete", nil, accessToken)
 		if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/inventories/1" {
 			t.Fatalf("delete replica %s response = %d location=%q body=%q", replicaID, response.Code, response.Header().Get("Location"), response.Body.String())
