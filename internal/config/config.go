@@ -16,6 +16,7 @@ import (
 
 type Config struct {
 	App      AppConfig
+	Sharing  SharingConfig
 	Auth     AuthConfig
 	HTTP     HTTPConfig
 	Database DatabaseConfig
@@ -31,6 +32,15 @@ type AppConfig struct {
 	HeartbeatInterval   time.Duration
 	APIRequestTimeout   time.Duration
 	FileTransferTimeout time.Duration
+}
+
+type SharingConfig struct {
+	ThumbnailSizes             []int
+	ThumbnailDefaultSize       int
+	ThumbnailsGenerateForVideo bool
+	FfmpegPath                 string
+	VideoInlineMaxSize         string
+	VideoPlaybackEnabled       bool
 }
 
 type AuthConfig struct {
@@ -58,6 +68,7 @@ type SeedConfig struct {
 
 type rawConfig struct {
 	App      rawAppConfig      `json:"app" yaml:"app" toml:"app"`
+	Sharing  rawSharingConfig  `json:"sharing" yaml:"sharing" toml:"sharing"`
 	Auth     rawAuthConfig     `json:"auth" yaml:"auth" toml:"auth"`
 	HTTP     rawHTTPConfig     `json:"http" yaml:"http" toml:"http"`
 	Database rawDatabaseConfig `json:"database" yaml:"database" toml:"database"`
@@ -73,6 +84,15 @@ type rawAppConfig struct {
 	HeartbeatInterval   *string `json:"heartbeat_interval" yaml:"heartbeat_interval" toml:"heartbeat_interval"`
 	APIRequestTimeout   *string `json:"api_request_timeout" yaml:"api_request_timeout" toml:"api_request_timeout"`
 	FileTransferTimeout *string `json:"file_transfer_timeout" yaml:"file_transfer_timeout" toml:"file_transfer_timeout"`
+}
+
+type rawSharingConfig struct {
+	ThumbnailSizes             *[]int  `json:"thumbnail_sizes" yaml:"thumbnail_sizes" toml:"thumbnail_sizes"`
+	ThumbnailDefaultSize       *int    `json:"thumbnail_default_size" yaml:"thumbnail_default_size" toml:"thumbnail_default_size"`
+	ThumbnailsGenerateForVideo *bool   `json:"thumbnails_generate_for_video" yaml:"thumbnails_generate_for_video" toml:"thumbnails_generate_for_video"`
+	FfmpegPath                 *string `json:"ffmpeg_path" yaml:"ffmpeg_path" toml:"ffmpeg_path"`
+	VideoInlineMaxSize         *string `json:"video_inline_max_size" yaml:"video_inline_max_size" toml:"video_inline_max_size"`
+	VideoPlaybackEnabled       *bool   `json:"video_playback_enabled" yaml:"video_playback_enabled" toml:"video_playback_enabled"`
 }
 
 type rawAuthConfig struct {
@@ -123,6 +143,14 @@ func Load() (Config, error) {
 			HeartbeatInterval:   resolveDuration("APP_HEARTBEAT_INTERVAL", fileCfg.App.HeartbeatInterval, 10*time.Minute),
 			APIRequestTimeout:   resolveDuration("APP_API_REQUEST_TIMEOUT", fileCfg.App.APIRequestTimeout, 15*time.Second),
 			FileTransferTimeout: resolveDuration("APP_FILE_TRANSFER_TIMEOUT", fileCfg.App.FileTransferTimeout, 30*time.Minute),
+		},
+		Sharing: SharingConfig{
+			ThumbnailSizes:             resolveIntSlice("SHARING_THUMBNAIL_SIZES", fileCfg.Sharing.ThumbnailSizes, []int{256, 384, 512, 768, 1024}),
+			ThumbnailDefaultSize:       resolveInt("SHARING_THUMBNAIL_DEFAULT_SIZE", fileCfg.Sharing.ThumbnailDefaultSize, 256),
+			ThumbnailsGenerateForVideo: resolveBool("SHARING_THUMBNAILS_GENERATE_FOR_VIDEO", fileCfg.Sharing.ThumbnailsGenerateForVideo, true),
+			FfmpegPath:                 resolveString("SHARING_FFMPEG_PATH", fileCfg.Sharing.FfmpegPath, "ffmpeg"),
+			VideoInlineMaxSize:         resolveString("SHARING_VIDEO_INLINE_MAX_SIZE", fileCfg.Sharing.VideoInlineMaxSize, "25mb"),
+			VideoPlaybackEnabled:       resolveBool("SHARING_VIDEO_PLAYBACK_ENABLED", fileCfg.Sharing.VideoPlaybackEnabled, true),
 		},
 		Auth: AuthConfig{
 			JWTSecret:                  resolveString("AUTH_JWT_SECRET", fileCfg.Auth.JWTSecret, "change-me"),
@@ -247,6 +275,51 @@ func resolveBool(key string, fileValue *bool, fallback bool) bool {
 			return *fileValue
 		}
 		return fallback
+	}
+
+	return parsed
+}
+
+func resolveInt(key string, fileValue *int, fallback int) int {
+	value, ok := os.LookupEnv(key)
+	if !ok || value == "" {
+		if fileValue != nil {
+			return *fileValue
+		}
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		if fileValue != nil {
+			return *fileValue
+		}
+		return fallback
+	}
+
+	return parsed
+}
+
+func resolveIntSlice(key string, fileValue *[]int, fallback []int) []int {
+	value, ok := os.LookupEnv(key)
+	if !ok || value == "" {
+		if fileValue != nil {
+			return append([]int(nil), (*fileValue)...)
+		}
+		return append([]int(nil), fallback...)
+	}
+
+	parts := strings.Split(value, ",")
+	parsed := make([]int, 0, len(parts))
+	for _, part := range parts {
+		item, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil {
+			if fileValue != nil {
+				return append([]int(nil), (*fileValue)...)
+			}
+			return append([]int(nil), fallback...)
+		}
+		parsed = append(parsed, item)
 	}
 
 	return parsed

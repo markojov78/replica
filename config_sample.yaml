@@ -8,6 +8,14 @@ app:
   api_request_timeout: "15s"
   file_transfer_timeout: "30m"
 
+sharing:
+  thumbnail_sizes: [256, 384, 512, 768, 1024]
+  thumbnail_default_size: 256
+  thumbnails_generate_for_video: true
+  ffmpeg_path: "ffmpeg"
+  video_inline_max_size: "25mb"
+  video_playback_enabled: true
+
 auth:
   jwt_secret: "change-me"
   node_secret: "change-me-node-secret"

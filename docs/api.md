@@ -1276,7 +1276,7 @@ Errors:
 
 ### /shares/{id}/files/{file_id}/content endpoint
 #### GET /shares/{id}/files/{file_id}/content
-Streams file content from the local replica storage. Content is not proxied through the coordinator and is not fetched from other storage nodes in v1.
+Streams file content from the local replica storage.
 
 The request identifies files by numeric `file_id`; raw filesystem paths are not accepted.
 If a known active inventory file is not synchronized locally, direct content access returns `409`.
@@ -1319,6 +1319,41 @@ Errors:
 - `400` malformed If-Match
 - `503` coordinator unavailable for uncached token validation
 - `500` local storage write/delete failed
+
+### /shares/{id}/files/{file_id}/thumbnail endpoint
+#### GET /shares/{id}/files/{file_id}/thumbnail
+Streams thumbnail content from the server.
+
+Query parameters:
+- `size` optional
+  - if omitted, the configured default thumbnail size is used
+  - if provided, the value must match one of the configured allowed thumbnail sizes
+
+Example:
+`GET /shares/17/files/125/thumbnail?size=256`
+
+Behavior:
+- Thumbnail response format is `image/jpeg` for generated thumbnail or `image/svg+xml` for generic thumbnail.
+- Thumbnail size must be one of the configured allowed thumbnail sizes.
+- If `size` is omitted, the configured default thumbnail size is used.
+
+Response:
+```
+200 OK
+Content-Type: image/jpeg
+Cache-Control: public, max-age=31536000, immutable
+ETag: "file-125-v4-s256"
+```
+
+Errors:
+- `400` invalid thumbnail size requested
+- `401` missing, invalid or expired user access token
+- `403` authenticated user does not have share permission read
+- `404` share or file not found / unavailable / inactive / expired on this storage node
+- `409` file not synchronized
+- `415` thumbnail generation unsupported for this file type
+- `503` coordinator unavailable for uncached token validation
+- `500` thumbnail generation or local cache error
 
 ### Anonymous access
 
@@ -1418,7 +1453,7 @@ Errors:
 
 #### /s/{link_hash}/files/{file_id}/content endpoint
 ##### GET /s/{link_hash}/files/{file_id}/content
-Streams synchronized local file content for public anonymous read access.
+Streams file content from the local replica storage.
 
 ##### PUT /s/{link_hash}/files/{file_id}/content
 Content-Type: application/octet-stream
@@ -1455,6 +1490,39 @@ Errors:
 - `428` missing If-Match
 - `400` malformed If-Match
 - `500` local storage write/delete failed
+
+#### /s/{link_hash}/files/{file_id}/thumbnail endpoint
+##### GET /s/{link_hash}/files/{file_id}/thumbnail
+Streams thumbnail content from the server.
+
+Query parameters:
+- `size` optional
+  - if omitted, the configured default thumbnail size is used
+  - if provided, the value must match one of the configured allowed thumbnail sizes
+
+Example:
+`GET /shares/17/files/125/thumbnail?size=256`
+
+Behavior:
+- Thumbnail response format is `image/jpeg` for generated thumbnail or `image/svg+xml` for generic thumbnail.
+- Thumbnail size must be one of the configured allowed thumbnail sizes.
+- If `size` is omitted, the configured default thumbnail size is used.
+
+Response:
+```
+200 OK
+Content-Type: image/jpeg
+Cache-Control: public, max-age=31536000, immutable
+ETag: "file-125-v4-s256"
+```
+
+Errors:
+- `400` invalid thumbnail size requested
+- `404` share or file not found / unavailable / inactive / expired on this storage node
+- `409` file not synchronized
+- `415` thumbnail generation unsupported for this file type
+- `503` coordinator unavailable for uncached token validation
+- `500` thumbnail generation or local cache error
 
 ## Coordinator Node Control API
 This API is exposed on the coordinator and used by the storage nodes to get data from the coordinator.
