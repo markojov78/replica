@@ -419,7 +419,7 @@ Example response:
 {
   "items": [
     {
-      "key": "sharing.thumbnails.sizes",
+      "key": "sharing.thumbnail_sizes",
       "value": [128, 256, 512]
     },
     {
@@ -477,7 +477,7 @@ Example response:
 {
   "items": [
     {
-      "key": "sharing.thumbnails.sizes",
+      "key": "sharing.thumbnail_sizes",
       "value": [128, 256, 512]
     },
     {
@@ -500,8 +500,8 @@ Example response:
 }
 ```
 Validation rules:
-- `sharing.thumbnails.sizes` must be a non-empty list of unique positive integers
-- `sharing.thumbnail_default_size` must be a positive integer and must exist in `sharing.thumbnails.sizes`
+- `sharing.thumbnail_sizes` must be a non-empty list of unique positive integers
+- `sharing.thumbnail_default_size` must be a positive integer and must exist in `sharing.thumbnail_sizes`
 - `sharing.thumbnails_generate_for_video` must be boolean
 - `sharing.video_inline_max_size_mb` must be a positive integer size in megabytes
 - `sharing.video_playback_enabled` must be boolean
@@ -2355,7 +2355,7 @@ Example response:
 ```json
 [
   {
-    "key": "sharing.thumbnails.sizes",
+    "key": "sharing.thumbnail_sizes",
     "value": [128, 256, 512]
   },
   {

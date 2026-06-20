@@ -28,6 +28,8 @@ var configKeys = []string{
 	config.SettingSharingVideoPlaybackEnabled,
 }
 
+const legacySettingSharingThumbnailSizes = "sharing.thumbnails.sizes"
+
 var configCommandNodeStatuses = []model.NodeStatus{
 	model.NodeStatusOffline,
 	model.NodeStatusUnreachable,
@@ -65,6 +67,9 @@ func NewConfigService(configs *repository.ConfigRepository, base config.Config) 
 }
 
 func (s *ConfigService) Load(logf ...func(string, ...any)) error {
+	if err := s.configs.RenameSettingKey(legacySettingSharingThumbnailSizes, config.SettingSharingThumbnailSizes); err != nil {
+		return err
+	}
 	settings, err := s.configs.FindSettings(configKeys...)
 	if err != nil {
 		return err

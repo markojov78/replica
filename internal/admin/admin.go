@@ -90,6 +90,7 @@ type shareView struct {
 	Name          string
 	Status        string
 	HasAnonymous  bool
+	LinkHash      string
 }
 
 type inventory struct {
@@ -1681,7 +1682,7 @@ func parseConfigIntList(value string) ([]int, error) {
 func configDefinitions() []configView {
 	return []configView{
 		{
-			Key:         "sharing.thumbnails.sizes",
+			Key:         "sharing.thumbnail_sizes",
 			Label:       "Thumbnail sizes",
 			Description: "Allowed thumbnail widths in pixels.",
 			Kind:        "int_list",
@@ -1736,6 +1737,9 @@ func shareViews(shares []share, inventories []inventory) []shareView {
 			Name:         item.Name,
 			Status:       item.Status,
 			HasAnonymous: len(item.AnonymousPermissions) > 0,
+		}
+		if item.LinkHash != nil {
+			view.LinkHash = *item.LinkHash
 		}
 		if rep, ok := replicas[item.ReplicaID]; ok {
 			view.InventoryName = rep.inventoryName

@@ -167,10 +167,11 @@
     <div>
       <span class="inventory-title">{{.Name}}</span>
       <p>Share #{{.ID}} · Inventory #{{.InventoryID}}{{if .InventoryName}} · {{.InventoryName}}{{end}} · Replica #{{.ReplicaID}}</p>
-      <div class="chips"><span>node: {{if .NodeID}}{{.NodeID}}{{else}}unknown{{end}}</span>{{if .HasAnonymous}}<span class="anon-label">anonymous access enabled</span>{{end}}</div>
+      <div class="chips"><span>node: {{if .NodeID}}{{.NodeID}}{{else}}unknown{{end}}</span>{{if .HasAnonymous}}<span class="anon-label">anonymous access enabled{{if .LinkHash}} at {{.LinkHash}}{{end}}</span>{{end}}</div>
     </div>
     <div class="inventory-actions">
       <span class="pill {{statusClass .Status}}">{{.Status}}</span>
+      <a class="btn" href="/dashboard/inventories/{{.InventoryID}}">Open inventory</a>
       <a class="btn" href="/dashboard/shares/{{.ID}}/edit">Edit</a>
       {{if ne .Status "deleted"}}<form action="/dashboard/shares/{{.ID}}/delete" method="post"><button class="danger" type="submit">Delete</button></form>{{end}}
     </div>

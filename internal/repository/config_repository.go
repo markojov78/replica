@@ -31,6 +31,29 @@ func (r *ConfigRepository) FindSettings(keys ...string) (map[string]model.Settin
 	return result, nil
 }
 
+func (r *ConfigRepository) RenameSettingKey(oldKey string, newKey string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var oldSetting model.Setting
+		err := tx.First(&oldSetting, "key = ?", oldKey).Error
+		if err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return nil
+			}
+			return err
+		}
+
+		var newSetting model.Setting
+		err = tx.First(&newSetting, "key = ?", newKey).Error
+		if err != nil && err != gorm.ErrRecordNotFound {
+			return err
+		}
+		if err == nil {
+			return tx.Delete(&oldSetting).Error
+		}
+		return tx.Model(&oldSetting).Update("key", newKey).Error
+	})
+}
+
 func (r *ConfigRepository) UpdateSettings(values map[string]string, commandStatuses []model.NodeStatus) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		for key, value := range values {

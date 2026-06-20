@@ -44,6 +44,9 @@ func TestAdminConfigRoutesRequireSettingsPermissionsAndUpdateConfig(t *testing.T
 	if len(listed.Items) != 5 {
 		t.Fatalf("items = %d, want 5", len(listed.Items))
 	}
+	if got := configItemNumberSlice(t, listed.Items, config.SettingSharingThumbnailSizes); len(got) != 3 || got[0] != 128 || got[1] != 256 || got[2] != 512 {
+		t.Fatalf("GET thumbnail sizes = %+v, want [128 256 512]", got)
+	}
 
 	req = httptest.NewRequest(http.MethodPatch, "/api/admin/config", strings.NewReader(`{"items":[{"key":"sharing.video_inline_max_size_mb","value":50}]}`))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -144,6 +147,9 @@ func TestNodeConfigRouteRequiresNodeTokenAndReturnsArray(t *testing.T) {
 	if len(items) != 5 {
 		t.Fatalf("items = %d, want 5", len(items))
 	}
+	if items[0].Key != config.SettingSharingThumbnailSizes {
+		t.Fatalf("first key = %q, want %q", items[0].Key, config.SettingSharingThumbnailSizes)
+	}
 }
 
 func newConfigRouteHandler(database *gorm.DB) http.Handler {
@@ -229,4 +235,28 @@ func configItemNumber(t *testing.T, items []service.ConfigItem, key string) int 
 	}
 	t.Fatalf("missing item %s", key)
 	return 0
+}
+
+func configItemNumberSlice(t *testing.T, items []service.ConfigItem, key string) []int {
+	t.Helper()
+	for _, item := range items {
+		if item.Key != key {
+			continue
+		}
+		values, ok := item.Value.([]any)
+		if !ok {
+			t.Fatalf("item %s has type %T", key, item.Value)
+		}
+		result := make([]int, 0, len(values))
+		for _, value := range values {
+			number, ok := value.(float64)
+			if !ok {
+				t.Fatalf("item %s contains type %T", key, value)
+			}
+			result = append(result, int(number))
+		}
+		return result
+	}
+	t.Fatalf("missing item %s", key)
+	return nil
 }

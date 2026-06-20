@@ -130,7 +130,7 @@ var defaultConfigFiles = []string{
 }
 
 const (
-	SettingSharingThumbnailSizes             = "sharing.thumbnails.sizes"
+	SettingSharingThumbnailSizes             = "sharing.thumbnail_sizes"
 	SettingSharingThumbnailDefaultSize       = "sharing.thumbnail_default_size"
 	SettingSharingThumbnailsGenerateForVideo = "sharing.thumbnails_generate_for_video"
 	SettingSharingVideoInlineMaxSizeMB       = "sharing.video_inline_max_size_mb"

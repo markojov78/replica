@@ -495,8 +495,10 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), `<option value="1">#1 · Documents</option>`) ||
 		!strings.Contains(response.Body.String(), `Share #1`) ||
 		!strings.Contains(response.Body.String(), `Inventory #1`) ||
+		!strings.Contains(response.Body.String(), `href="/dashboard/inventories/1">Open inventory</a>`) ||
 		!strings.Contains(response.Body.String(), `Documents`) ||
-		!strings.Contains(response.Body.String(), `node: node-a`) {
+		!strings.Contains(response.Body.String(), `node: node-a`) ||
+		!strings.Contains(response.Body.String(), `anonymous access enabled at `+*createdShare.LinkHash) {
 		t.Fatalf("created share response = %d body=%q", response.Code, response.Body.String())
 	}
 
@@ -579,7 +581,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "Settings") ||
 		!strings.Contains(response.Body.String(), `href="/dashboard/settings" class="active"`) ||
-		!strings.Contains(response.Body.String(), `name="sharing.thumbnails.sizes"`) ||
+		!strings.Contains(response.Body.String(), `name="sharing.thumbnail_sizes"`) ||
 		!strings.Contains(response.Body.String(), `name="sharing.thumbnail_default_size"`) ||
 		!strings.Contains(response.Body.String(), `name="sharing.thumbnails_generate_for_video"`) ||
 		!strings.Contains(response.Body.String(), `name="sharing.video_inline_max_size_mb"`) ||
@@ -588,7 +590,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}
 
 	response = adminRequest(t, handler, http.MethodPost, "/dashboard/settings", url.Values{
-		"sharing.thumbnails.sizes":              {"128, 512"},
+		"sharing.thumbnail_sizes":               {"128, 512"},
 		"sharing.thumbnail_default_size":        {"512"},
 		"sharing.thumbnails_generate_for_video": {"false"},
 		"sharing.video_inline_max_size_mb":      {"50"},
