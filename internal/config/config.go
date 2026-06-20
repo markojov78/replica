@@ -41,6 +41,8 @@ type SharingConfig struct {
 	FfmpegPath                 string
 	VideoInlineMaxSizeMB       int
 	VideoPlaybackEnabled       bool
+	ThumbnailStorage           string
+	ThumbnailStorageLimitMB    int
 }
 
 type AuthConfig struct {
@@ -93,6 +95,8 @@ type rawSharingConfig struct {
 	FfmpegPath                 *string `json:"ffmpeg_path" yaml:"ffmpeg_path" toml:"ffmpeg_path"`
 	VideoInlineMaxSizeMB       *int    `json:"video_inline_max_size_mb" yaml:"video_inline_max_size_mb" toml:"video_inline_max_size_mb"`
 	VideoPlaybackEnabled       *bool   `json:"video_playback_enabled" yaml:"video_playback_enabled" toml:"video_playback_enabled"`
+	ThumbnailStorage           *string `json:"thumbnail_storage" yaml:"thumbnail_storage" toml:"thumbnail_storage"`
+	ThumbnailStorageLimitMB    *int    `json:"thumbnail_storage_limit_mb" yaml:"thumbnail_storage_limit_mb" toml:"thumbnail_storage_limit_mb"`
 }
 
 type rawAuthConfig struct {
@@ -159,6 +163,8 @@ func Load() (Config, error) {
 			FfmpegPath:                 resolveString("SHARING_FFMPEG_PATH", fileCfg.Sharing.FfmpegPath, "ffmpeg"),
 			VideoInlineMaxSizeMB:       resolveInt("SHARING_VIDEO_INLINE_MAX_SIZE_MB", fileCfg.Sharing.VideoInlineMaxSizeMB, 25),
 			VideoPlaybackEnabled:       resolveBool("SHARING_VIDEO_PLAYBACK_ENABLED", fileCfg.Sharing.VideoPlaybackEnabled, true),
+			ThumbnailStorage:           resolveString("SHARING_THUMBNAIL_STORAGE", fileCfg.Sharing.ThumbnailStorage, "/tmp/replica_thumbnails"),
+			ThumbnailStorageLimitMB:    resolveInt("SHARING_THUMBNAIL_STORAGE_LIMIT_MB", fileCfg.Sharing.ThumbnailStorageLimitMB, 500),
 		},
 		Auth: AuthConfig{
 			JWTSecret:                  resolveString("AUTH_JWT_SECRET", fileCfg.Auth.JWTSecret, "change-me"),

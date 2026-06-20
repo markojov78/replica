@@ -15,6 +15,8 @@ sharing:
   ffmpeg_path: "ffmpeg"
   video_inline_max_size_mb: 25
   video_playback_enabled: true
+  thumbnail_storage: "/tmp/replica_thumbnails"
+  thumbnail_storage_limit_mb: 500
 
 auth:
   jwt_secret: "change-me"

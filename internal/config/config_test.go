@@ -27,6 +27,8 @@ func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
 	t.Setenv("SEED_ADMIN_NAME", "")
 	t.Setenv("SEED_ADMIN_PASSWORD", "")
 	t.Setenv("SHARING_VIDEO_INLINE_MAX_SIZE_MB", "")
+	t.Setenv("SHARING_THUMBNAIL_STORAGE", "")
+	t.Setenv("SHARING_THUMBNAIL_STORAGE_LIMIT_MB", "")
 
 	wd := t.TempDir()
 	prev, err := os.Getwd()
@@ -63,6 +65,12 @@ func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
 	if cfg.Sharing.VideoInlineMaxSizeMB != 25 {
 		t.Fatalf("Sharing.VideoInlineMaxSizeMB = %d, want 25", cfg.Sharing.VideoInlineMaxSizeMB)
 	}
+	if cfg.Sharing.ThumbnailStorage != "/tmp/replica_thumbnails" {
+		t.Fatalf("Sharing.ThumbnailStorage = %q, want %q", cfg.Sharing.ThumbnailStorage, "/tmp/replica_thumbnails")
+	}
+	if cfg.Sharing.ThumbnailStorageLimitMB != 500 {
+		t.Fatalf("Sharing.ThumbnailStorageLimitMB = %d, want 500", cfg.Sharing.ThumbnailStorageLimitMB)
+	}
 }
 
 func TestLoadYAMLConfigWithEnvOverride(t *testing.T) {
@@ -95,6 +103,8 @@ auth:
   refresh_token_duration: "10h"
 sharing:
   video_inline_max_size_mb: 20
+  thumbnail_storage: "/var/cache/replica/thumbs"
+  thumbnail_storage_limit_mb: 250
 http:
   address: ":9090"
 database:
@@ -113,6 +123,8 @@ seed:
 	t.Setenv("DB_AUTO_MIGRATE", "true")
 	t.Setenv("APP_API_REQUEST_TIMEOUT", "25s")
 	t.Setenv("SHARING_VIDEO_INLINE_MAX_SIZE_MB", "30")
+	t.Setenv("SHARING_THUMBNAIL_STORAGE", "/env/replica/thumbs")
+	t.Setenv("SHARING_THUMBNAIL_STORAGE_LIMIT_MB", "750")
 
 	cfg, err := Load()
 	if err != nil {
@@ -145,6 +157,12 @@ seed:
 	}
 	if cfg.Sharing.VideoInlineMaxSizeMB != 30 {
 		t.Fatalf("Sharing.VideoInlineMaxSizeMB = %d, want 30 from env override", cfg.Sharing.VideoInlineMaxSizeMB)
+	}
+	if cfg.Sharing.ThumbnailStorage != "/env/replica/thumbs" {
+		t.Fatalf("Sharing.ThumbnailStorage = %q, want env override", cfg.Sharing.ThumbnailStorage)
+	}
+	if cfg.Sharing.ThumbnailStorageLimitMB != 750 {
+		t.Fatalf("Sharing.ThumbnailStorageLimitMB = %d, want 750 from env override", cfg.Sharing.ThumbnailStorageLimitMB)
 	}
 	if cfg.Database.Driver != "postgres" {
 		t.Fatalf("Database.Driver = %q, want %q", cfg.Database.Driver, "postgres")
