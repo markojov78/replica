@@ -41,11 +41,11 @@ var (
 )
 
 type ThumbnailRequest struct {
-	FileID       uint
-	FileVersion  uint
-	Size         int
-	AbsolutePath string
-	RelativeURI  string
+	FileID      uint
+	FileVersion uint
+	Size        int
+	RelativeURI string
+	Source      ThumbnailSource
 }
 
 type ThumbnailResult struct {
@@ -92,22 +92,22 @@ func (s *ThumbnailService) GetOrCreateThumbnail(ctx context.Context, req Thumbna
 		return ThumbnailResult{}, err
 	}
 
-	kind, label := thumbnailFileKind(req.AbsolutePath, req.RelativeURI)
+	kind, label := thumbnailFileKind(req.RelativeURI, thumbnailSourceName(req.Source))
 	switch kind {
 	case thumbnailKindImage:
 		if result, ok := s.cachedJPG(req); ok {
 			return result, nil
 		}
-		if err := validateThumbnailSource(req.AbsolutePath); err != nil {
-			return ThumbnailResult{}, err
+		if s.sourceExceedsImageLimit(req.Source) {
+			return s.getOrCreateGenericSVG(req, label)
 		}
 		return s.getOrCreateJPG(ctx, req, s.generateImageThumbnail)
 	case thumbnailKindVideo:
 		if result, ok := s.cachedJPG(req); ok {
 			return result, nil
 		}
-		if err := validateThumbnailSource(req.AbsolutePath); err != nil {
-			return ThumbnailResult{}, err
+		if req.Source == nil || !req.Source.IsLocalFile() {
+			return s.getOrCreateGenericSVG(req, label)
 		}
 		if !s.cfg.Sharing.ThumbnailsGenerateForVideo {
 			return s.getOrCreateGenericSVG(req, label)
@@ -172,11 +172,11 @@ func (s *ThumbnailService) validateStorage() error {
 	return nil
 }
 
-func validateThumbnailSource(path string) error {
-	if strings.TrimSpace(path) == "" {
+func validateLocalThumbnailSource(source ThumbnailSource) error {
+	if source == nil || strings.TrimSpace(source.LocalPath()) == "" {
 		return ErrThumbnailSourceMissing
 	}
-	info, err := os.Stat(path)
+	info, err := os.Stat(source.LocalPath())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return ErrThumbnailSourceMissing
@@ -187,6 +187,18 @@ func validateThumbnailSource(path string) error {
 		return ErrThumbnailSourceMissing
 	}
 	return nil
+}
+
+func (s *ThumbnailService) sourceExceedsImageLimit(source ThumbnailSource) bool {
+	if source == nil {
+		return false
+	}
+	limitMB := s.cfg.Sharing.ThumbnailStorageLimitMB
+	if limitMB <= 0 {
+		return false
+	}
+	size := source.Size()
+	return size > int64(limitMB)*1024*1024
 }
 
 func (s *ThumbnailService) getOrCreateJPG(ctx context.Context, req ThumbnailRequest, generate func(context.Context, ThumbnailRequest, string) error) (ThumbnailResult, error) {
@@ -218,7 +230,7 @@ func (s *ThumbnailService) getOrCreateVideoThumbnail(ctx context.Context, req Th
 		return ThumbnailResult{Path: path, ContentType: ThumbnailContentTypeJPEG}, nil
 	}
 	if err := s.generateVideoThumbnail(ctx, req, path); err != nil {
-		log.Printf("thumbnail video generation failed file_id=%d version=%d path=%s: %v", req.FileID, req.FileVersion, req.AbsolutePath, err)
+		log.Printf("thumbnail video generation failed file_id=%d version=%d source=%s: %v", req.FileID, req.FileVersion, thumbnailSourceName(req.Source), err)
 		return s.getOrCreateGenericSVG(req, label)
 	}
 	return ThumbnailResult{Path: path, ContentType: ThumbnailContentTypeJPEG}, nil
@@ -265,7 +277,10 @@ func (s *ThumbnailService) generateImageThumbnail(ctx context.Context, req Thumb
 	default:
 	}
 
-	source, err := os.Open(req.AbsolutePath)
+	if req.Source == nil {
+		return ErrThumbnailSourceMissing
+	}
+	source, err := req.Source.Open(ctx)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return ErrThumbnailSourceMissing
@@ -286,6 +301,9 @@ func (s *ThumbnailService) generateImageThumbnail(ctx context.Context, req Thumb
 }
 
 func (s *ThumbnailService) generateVideoThumbnail(ctx context.Context, req ThumbnailRequest, finalPath string) error {
+	if err := validateLocalThumbnailSource(req.Source); err != nil {
+		return err
+	}
 	ffmpegPath := strings.TrimSpace(s.cfg.Sharing.FfmpegPath)
 	if ffmpegPath == "" {
 		return errors.New("ffmpeg path is not configured")
@@ -315,7 +333,7 @@ func (s *ThumbnailService) generateVideoThumbnail(ctx context.Context, req Thumb
 		"-loglevel", "error",
 		"-y",
 		"-ss", "00:00:01",
-		"-i", req.AbsolutePath,
+		"-i", req.Source.LocalPath(),
 		"-frames:v", "1",
 		"-vf", fmt.Sprintf("scale='min(%d,iw)':-1:force_original_aspect_ratio=decrease", req.Size),
 		"-q:v", "3",
@@ -429,10 +447,10 @@ const (
 	thumbnailKindVideo   thumbnailKind = "video"
 )
 
-func thumbnailFileKind(absolutePath string, relativeURI string) (thumbnailKind, string) {
+func thumbnailFileKind(relativeURI string, sourceName string) (thumbnailKind, string) {
 	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(relativeURI)), ".")
 	if ext == "" {
-		ext = strings.TrimPrefix(strings.ToLower(filepath.Ext(absolutePath)), ".")
+		ext = strings.TrimPrefix(strings.ToLower(filepath.Ext(sourceName)), ".")
 	}
 	if ext == "" {
 		return thumbnailKindUnknown, "FILE"
@@ -444,6 +462,13 @@ func thumbnailFileKind(absolutePath string, relativeURI string) (thumbnailKind, 
 		return thumbnailKindVideo, strings.ToUpper(ext)
 	}
 	return thumbnailKindGeneric, genericLabel(ext)
+}
+
+func thumbnailSourceName(source ThumbnailSource) string {
+	if source == nil {
+		return ""
+	}
+	return source.Name()
 }
 
 func genericLabel(ext string) string {
