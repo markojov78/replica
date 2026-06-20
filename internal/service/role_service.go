@@ -170,7 +170,7 @@ func validatePermissions(inputs []RolePermissionInput) ([]model.Permission, erro
 	for _, input := range inputs {
 		resource := model.PermissionResource(input.Resource)
 		action := model.PermissionAction(input.Action)
-		if !resource.Valid() || !action.Valid() {
+		if !validRolePermission(resource, action) {
 			return nil, ErrInvalidPermissions
 		}
 
@@ -187,4 +187,14 @@ func validatePermissions(inputs []RolePermissionInput) ([]model.Permission, erro
 	}
 
 	return result, nil
+}
+
+func validRolePermission(resource model.PermissionResource, action model.PermissionAction) bool {
+	if !resource.Valid() || !action.Valid() {
+		return false
+	}
+	if resource == model.PermissionResourceSettings {
+		return action == model.PermissionActionRead || action == model.PermissionActionUpdate
+	}
+	return true
 }

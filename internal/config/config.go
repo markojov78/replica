@@ -125,6 +125,14 @@ var defaultConfigFiles = []string{
 	"config.toml",
 }
 
+const (
+	SettingSharingThumbnailSizes             = "sharing.thumbnail_sizes"
+	SettingSharingThumbnailDefaultSize       = "sharing.thumbnail_default_size"
+	SettingSharingThumbnailsGenerateForVideo = "sharing.thumbnails_generate_for_video"
+	SettingSharingVideoInlineMaxSize         = "sharing.video_inline_max_size"
+	SettingSharingVideoPlaybackEnabled       = "sharing.video_playback_enabled"
+)
+
 func Load() (Config, error) {
 	fileCfg, err := loadFileConfig()
 	if err != nil {
@@ -178,6 +186,65 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func DatabaseSettingKeys() []string {
+	return []string{
+		SettingSharingThumbnailSizes,
+		SettingSharingThumbnailDefaultSize,
+		SettingSharingThumbnailsGenerateForVideo,
+		SettingSharingVideoInlineMaxSize,
+		SettingSharingVideoPlaybackEnabled,
+	}
+}
+
+func (c *Config) ApplyDatabaseSettings(settings map[string]string, logf func(string, ...any)) {
+	for key, value := range settings {
+		switch key {
+		case SettingSharingThumbnailSizes:
+			parsed, err := parseIntSlice(value)
+			if err != nil {
+				logInvalidDatabaseSetting(logf, key, value, err)
+				continue
+			}
+			c.Sharing.ThumbnailSizes = parsed
+		case SettingSharingThumbnailDefaultSize:
+			parsed, err := parsePositiveInt(value)
+			if err != nil {
+				logInvalidDatabaseSetting(logf, key, value, err)
+				continue
+			}
+			c.Sharing.ThumbnailDefaultSize = parsed
+		case SettingSharingThumbnailsGenerateForVideo:
+			parsed, err := strconv.ParseBool(strings.TrimSpace(value))
+			if err != nil {
+				logInvalidDatabaseSetting(logf, key, value, err)
+				continue
+			}
+			c.Sharing.ThumbnailsGenerateForVideo = parsed
+		case SettingSharingVideoInlineMaxSize:
+			parsed := strings.TrimSpace(value)
+			if parsed == "" {
+				logInvalidDatabaseSetting(logf, key, value, errors.New("must not be empty"))
+				continue
+			}
+			c.Sharing.VideoInlineMaxSize = parsed
+		case SettingSharingVideoPlaybackEnabled:
+			parsed, err := strconv.ParseBool(strings.TrimSpace(value))
+			if err != nil {
+				logInvalidDatabaseSetting(logf, key, value, err)
+				continue
+			}
+			c.Sharing.VideoPlaybackEnabled = parsed
+		}
+	}
+}
+
+func logInvalidDatabaseSetting(logf func(string, ...any), key string, value string, err error) {
+	if logf == nil {
+		return
+	}
+	logf("ignore invalid database setting %s=%q: %v", key, value, err)
 }
 
 func defaultDSN(driver string) string {
@@ -309,19 +376,13 @@ func resolveIntSlice(key string, fileValue *[]int, fallback []int) []int {
 		return append([]int(nil), fallback...)
 	}
 
-	parts := strings.Split(value, ",")
-	parsed := make([]int, 0, len(parts))
-	for _, part := range parts {
-		item, err := strconv.Atoi(strings.TrimSpace(part))
-		if err != nil {
-			if fileValue != nil {
-				return append([]int(nil), (*fileValue)...)
-			}
-			return append([]int(nil), fallback...)
+	parsed, err := parseIntSlice(value)
+	if err != nil {
+		if fileValue != nil {
+			return append([]int(nil), (*fileValue)...)
 		}
-		parsed = append(parsed, item)
+		return append([]int(nil), fallback...)
 	}
-
 	return parsed
 }
 
@@ -345,6 +406,50 @@ func resolveDuration(key string, fileValue *string, fallback time.Duration) time
 	}
 
 	return fallback
+}
+
+func parseIntSlice(value string) ([]int, error) {
+	trimmed := strings.TrimSpace(value)
+	if strings.HasPrefix(trimmed, "[") {
+		var parsed []int
+		if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+			return nil, err
+		}
+		if len(parsed) == 0 {
+			return nil, errors.New("must contain at least one value")
+		}
+		for _, item := range parsed {
+			if item <= 0 {
+				return nil, errors.New("values must be greater than 0")
+			}
+		}
+		return parsed, nil
+	}
+
+	parts := strings.Split(value, ",")
+	parsed := make([]int, 0, len(parts))
+	for _, part := range parts {
+		item, err := parsePositiveInt(part)
+		if err != nil {
+			return nil, err
+		}
+		parsed = append(parsed, item)
+	}
+	if len(parsed) == 0 {
+		return nil, errors.New("must contain at least one value")
+	}
+	return parsed, nil
+}
+
+func parsePositiveInt(value string) (int, error) {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return 0, err
+	}
+	if parsed <= 0 {
+		return 0, errors.New("must be greater than 0")
+	}
+	return parsed, nil
 }
 
 func (c Config) Validate() error {

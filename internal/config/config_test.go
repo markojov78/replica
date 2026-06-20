@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -261,5 +263,93 @@ func TestLoadAllowsMinimalStorageOnlyMode(t *testing.T) {
 	}
 	if cfg.App.FileTransferTimeout != 2*time.Hour {
 		t.Fatalf("App.FileTransferTimeout = %s, want %s", cfg.App.FileTransferTimeout, 2*time.Hour)
+	}
+}
+
+func TestApplyDatabaseSettingsOverridesAllowedSharingValues(t *testing.T) {
+	cfg := Config{
+		Sharing: SharingConfig{
+			ThumbnailSizes:             []int{128},
+			ThumbnailDefaultSize:       128,
+			ThumbnailsGenerateForVideo: false,
+			FfmpegPath:                 "ffmpeg-custom",
+			VideoInlineMaxSize:         "10mb",
+			VideoPlaybackEnabled:       false,
+		},
+	}
+
+	cfg.ApplyDatabaseSettings(map[string]string{
+		SettingSharingThumbnailSizes:             "[256,384,512]",
+		SettingSharingThumbnailDefaultSize:       "384",
+		SettingSharingThumbnailsGenerateForVideo: "true",
+		"sharing.ffmpeg_path":                    "ignored",
+		SettingSharingVideoInlineMaxSize:         "25mb",
+		SettingSharingVideoPlaybackEnabled:       "true",
+	}, nil)
+
+	if !slices.Equal(cfg.Sharing.ThumbnailSizes, []int{256, 384, 512}) {
+		t.Fatalf("Sharing.ThumbnailSizes = %v", cfg.Sharing.ThumbnailSizes)
+	}
+	if cfg.Sharing.ThumbnailDefaultSize != 384 {
+		t.Fatalf("Sharing.ThumbnailDefaultSize = %d, want 384", cfg.Sharing.ThumbnailDefaultSize)
+	}
+	if !cfg.Sharing.ThumbnailsGenerateForVideo {
+		t.Fatal("Sharing.ThumbnailsGenerateForVideo = false, want true")
+	}
+	if cfg.Sharing.FfmpegPath != "ffmpeg-custom" {
+		t.Fatalf("Sharing.FfmpegPath = %q, want unchanged", cfg.Sharing.FfmpegPath)
+	}
+	if cfg.Sharing.VideoInlineMaxSize != "25mb" {
+		t.Fatalf("Sharing.VideoInlineMaxSize = %q, want 25mb", cfg.Sharing.VideoInlineMaxSize)
+	}
+	if !cfg.Sharing.VideoPlaybackEnabled {
+		t.Fatal("Sharing.VideoPlaybackEnabled = false, want true")
+	}
+}
+
+func TestApplyDatabaseSettingsIgnoresInvalidValues(t *testing.T) {
+	cfg := Config{
+		Sharing: SharingConfig{
+			ThumbnailSizes:             []int{256},
+			ThumbnailDefaultSize:       256,
+			ThumbnailsGenerateForVideo: true,
+			VideoInlineMaxSize:         "25mb",
+			VideoPlaybackEnabled:       true,
+		},
+	}
+	var logs []string
+
+	cfg.ApplyDatabaseSettings(map[string]string{
+		SettingSharingThumbnailSizes:             "256,nope",
+		SettingSharingThumbnailDefaultSize:       "-1",
+		SettingSharingThumbnailsGenerateForVideo: "sometimes",
+		SettingSharingVideoInlineMaxSize:         "",
+		SettingSharingVideoPlaybackEnabled:       "maybe",
+	}, func(format string, args ...any) {
+		logs = append(logs, format)
+	})
+
+	if !slices.Equal(cfg.Sharing.ThumbnailSizes, []int{256}) {
+		t.Fatalf("Sharing.ThumbnailSizes = %v, want unchanged", cfg.Sharing.ThumbnailSizes)
+	}
+	if cfg.Sharing.ThumbnailDefaultSize != 256 {
+		t.Fatalf("Sharing.ThumbnailDefaultSize = %d, want unchanged", cfg.Sharing.ThumbnailDefaultSize)
+	}
+	if !cfg.Sharing.ThumbnailsGenerateForVideo {
+		t.Fatal("Sharing.ThumbnailsGenerateForVideo = false, want unchanged")
+	}
+	if cfg.Sharing.VideoInlineMaxSize != "25mb" {
+		t.Fatalf("Sharing.VideoInlineMaxSize = %q, want unchanged", cfg.Sharing.VideoInlineMaxSize)
+	}
+	if !cfg.Sharing.VideoPlaybackEnabled {
+		t.Fatal("Sharing.VideoPlaybackEnabled = false, want unchanged")
+	}
+	if len(logs) != 5 {
+		t.Fatalf("logged %d invalid settings, want 5", len(logs))
+	}
+	for _, entry := range logs {
+		if !strings.Contains(entry, "ignore invalid database setting") {
+			t.Fatalf("log entry = %q, want invalid setting message", entry)
+		}
 	}
 }

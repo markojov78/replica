@@ -20,6 +20,7 @@ func TestDocumentedEnumsAreValid(t *testing.T) {
 		{name: string(NodeCommandStatusPending), valid: NodeCommandStatusPending.Valid()},
 		{name: string(NodeCommandTypeRefreshState), valid: NodeCommandTypeRefreshState.Valid()},
 		{name: string(PermissionResourceNodes), valid: PermissionResourceNodes.Valid()},
+		{name: string(PermissionResourceSettings), valid: PermissionResourceSettings.Valid()},
 	}
 
 	for _, test := range tests {

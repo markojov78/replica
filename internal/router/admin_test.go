@@ -182,6 +182,10 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), `value="shares:update"`) ||
 		!strings.Contains(response.Body.String(), `value="inventories:create"`) ||
 		!strings.Contains(response.Body.String(), `value="nodes:delete"`) ||
+		!strings.Contains(response.Body.String(), `value="settings:read"`) ||
+		!strings.Contains(response.Body.String(), `value="settings:update"`) ||
+		strings.Contains(response.Body.String(), `value="settings:create"`) ||
+		strings.Contains(response.Body.String(), `value="settings:delete"`) ||
 		strings.Contains(response.Body.String(), `name="status"`) {
 		t.Fatalf("new role response = %d body=%q", response.Code, response.Body.String())
 	}
@@ -189,7 +193,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	response = adminRequest(t, handler, http.MethodPost, "/dashboard/roles", url.Values{
 		"name":        {"operators"},
 		"description": {"Operations team"},
-		"permissions": {"users:read", "inventories:read", "nodes:update"},
+		"permissions": {"users:read", "inventories:read", "nodes:update", "settings:read"},
 	}, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/roles" {
 		t.Fatalf("create role response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
@@ -201,7 +205,8 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), `value="operators"`) ||
 		!strings.Contains(response.Body.String(), `name="status"`) ||
 		!strings.Contains(response.Body.String(), `value="users:read" checked`) ||
-		!strings.Contains(response.Body.String(), `value="nodes:update" checked`) {
+		!strings.Contains(response.Body.String(), `value="nodes:update" checked`) ||
+		!strings.Contains(response.Body.String(), `value="settings:read" checked`) {
 		t.Fatalf("edit role response = %d body=%q", response.Code, response.Body.String())
 	}
 
@@ -209,7 +214,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		"name":        {"operators-updated"},
 		"description": {"Updated operations team"},
 		"status":      {"deleted"},
-		"permissions": {"shares:read", "nodes:delete"},
+		"permissions": {"shares:read", "nodes:delete", "settings:update"},
 	}, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/roles" {
 		t.Fatalf("update role response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
@@ -220,6 +225,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), "operators-updated") ||
 		!strings.Contains(response.Body.String(), "shares: read") ||
 		!strings.Contains(response.Body.String(), "nodes: delete") ||
+		!strings.Contains(response.Body.String(), "settings: update") ||
 		!strings.Contains(response.Body.String(), `data-filter-item="roles" data-status="deleted"`) {
 		t.Fatalf("updated roles response = %d body=%q", response.Code, response.Body.String())
 	}

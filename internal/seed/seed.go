@@ -72,6 +72,8 @@ func Run(db *gorm.DB, cfg config.SeedConfig) error {
 			{RoleID: role.ID, Resource: model.PermissionResourceNodes, Action: model.PermissionActionCreate},
 			{RoleID: role.ID, Resource: model.PermissionResourceNodes, Action: model.PermissionActionUpdate},
 			{RoleID: role.ID, Resource: model.PermissionResourceNodes, Action: model.PermissionActionDelete},
+			{RoleID: role.ID, Resource: model.PermissionResourceSettings, Action: model.PermissionActionRead},
+			{RoleID: role.ID, Resource: model.PermissionResourceSettings, Action: model.PermissionActionUpdate},
 		}
 		if err := tx.Create(&permissions).Error; err != nil {
 			return err

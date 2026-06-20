@@ -53,4 +53,19 @@ func TestRunAddsAdminNodePermissions(t *testing.T) {
 			t.Fatalf("missing admin nodes permission for action %q", action)
 		}
 	}
+
+	settingsRequired := map[model.PermissionAction]bool{
+		model.PermissionActionRead:   false,
+		model.PermissionActionUpdate: false,
+	}
+	for _, permission := range permissions {
+		if permission.Resource == model.PermissionResourceSettings {
+			settingsRequired[permission.Action] = true
+		}
+	}
+	for action, found := range settingsRequired {
+		if !found {
+			t.Fatalf("missing admin settings permission for action %q", action)
+		}
+	}
 }

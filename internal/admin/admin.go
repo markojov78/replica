@@ -125,6 +125,11 @@ type permissionInput struct {
 	Action   string `json:"action"`
 }
 
+type rolePermissionResource struct {
+	Name    string
+	Actions []string
+}
+
 type roleList struct {
 	Items []role `json:"items"`
 	Total int64  `json:"total"`
@@ -191,7 +196,7 @@ type pageData struct {
 	User                user
 	Roles               []role
 	Role                role
-	PermissionResources []string
+	PermissionResources []rolePermissionResource
 	IsEdit              bool
 	FolderURI           string
 	FileURIs            string
@@ -1470,8 +1475,14 @@ func expirationValue(share share) string {
 	return value
 }
 
-func rolePermissionResources() []string {
-	return []string{"users", "shares", "inventories", "nodes"}
+func rolePermissionResources() []rolePermissionResource {
+	return []rolePermissionResource{
+		{Name: "users", Actions: []string{"read", "update", "create", "delete"}},
+		{Name: "shares", Actions: []string{"read", "update", "create", "delete"}},
+		{Name: "inventories", Actions: []string{"read", "update", "create", "delete"}},
+		{Name: "nodes", Actions: []string{"read", "update", "create", "delete"}},
+		{Name: "settings", Actions: []string{"read", "update"}},
+	}
 }
 
 func shareViews(shares []share, inventories []inventory) []shareView {

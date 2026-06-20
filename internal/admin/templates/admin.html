@@ -269,11 +269,11 @@
           {{$role := .Role}}
           {{range .PermissionResources}}
           <tr>
-            <td>{{.}}</td>
-            <td><label class="filter-toggle"><input type="checkbox" name="permissions" value="{{.}}:read" {{if hasPermission . "read" $role.Permissions}}checked{{end}}> Read</label></td>
-            <td><label class="filter-toggle"><input type="checkbox" name="permissions" value="{{.}}:update" {{if hasPermission . "update" $role.Permissions}}checked{{end}}> Update</label></td>
-            <td><label class="filter-toggle"><input type="checkbox" name="permissions" value="{{.}}:create" {{if hasPermission . "create" $role.Permissions}}checked{{end}}> Create</label></td>
-            <td><label class="filter-toggle"><input type="checkbox" name="permissions" value="{{.}}:delete" {{if hasPermission . "delete" $role.Permissions}}checked{{end}}> Delete</label></td>
+            <td>{{.Name}}</td>
+            <td>{{if hasStringPermission "read" .Actions}}<label class="filter-toggle"><input type="checkbox" name="permissions" value="{{.Name}}:read" {{if hasPermission .Name "read" $role.Permissions}}checked{{end}}> Read</label>{{end}}</td>
+            <td>{{if hasStringPermission "update" .Actions}}<label class="filter-toggle"><input type="checkbox" name="permissions" value="{{.Name}}:update" {{if hasPermission .Name "update" $role.Permissions}}checked{{end}}> Update</label>{{end}}</td>
+            <td>{{if hasStringPermission "create" .Actions}}<label class="filter-toggle"><input type="checkbox" name="permissions" value="{{.Name}}:create" {{if hasPermission .Name "create" $role.Permissions}}checked{{end}}> Create</label>{{end}}</td>
+            <td>{{if hasStringPermission "delete" .Actions}}<label class="filter-toggle"><input type="checkbox" name="permissions" value="{{.Name}}:delete" {{if hasPermission .Name "delete" $role.Permissions}}checked{{end}}> Delete</label>{{end}}</td>
           </tr>
           {{end}}
         </tbody>

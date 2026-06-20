@@ -305,7 +305,8 @@ Possible errors:
 ### /roles endpoint
 
 All `/roles` endpoints currently use the `users` permission resource for authorization.
-Role permissions may include the `nodes` resource with `read`, `create`, `update`, and `delete` actions.
+Role permissions may include the `users`, `shares`, `inventories`, `nodes`, and `settings` resources. The `settings`
+resource supports `read` and `update`; the other resources support `read`, `create`, `update`, and `delete`.
 
 #### GET /roles
 Returns a paginated list of roles.
@@ -396,8 +397,176 @@ Possible errors:
 - `400` invalid permissions
 - `409` role already exists
 
-### /nodes endpoint
+### /config endpoint
+All `/config` endpoints require the matching `settings` permission for the requested action.
+The config endpoint manages user-changeable configuration overrides persisted in the coordinator database.
+This endpoint does not expose or modify bootstrap configuration required for application startup, such as database connection settings, node secrets, JWT secrets, coordinator URLs, node IDs, or HTTP listen addresses.
+Only user-changeable configuration keys are accepted, other keys are rejected.
 
+Effective configuration is resolved in this order:
+
+1. built-in defaults
+2. local config file and environment values
+3. database-persisted user overrides
+
+Database-persisted overrides affect coordinator runtime configuration and are propagated to storage nodes through the coordinator node-control API.
+
+#### GET /config
+Returns all known user-changeable configuration values.
+
+Example response:
+```json
+{
+  "items": [
+    {
+      "key": "sharing.thumbnails.sizes",
+      "value": [128, 256, 512]
+    },
+    {
+      "key": "sharing.thumbnails.default_size",
+      "value": 256
+    },
+    {
+      "key": "sharing.thumbnails.generate_video_thumbnails",
+      "value": true
+    },
+    {
+      "key": "sharing.video.inline_max_size",
+      "value": "25mb"
+    },
+    {
+      "key": "sharing.video.playback_enabled",
+      "value": true
+    }
+  ]
+}
+```
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+
+#### PATCH /config
+Creates or updates one or more database-persisted configuration overrides.
+```json
+{
+  "items": [
+    {
+      "key": "sharing.thumbnails.default_size",
+      "value": 512
+    },
+    {
+      "key": "sharing.video.inline_max_size",
+      "value": "50mb"
+    }
+  ]
+}
+```
+Behavior:
+- request must contain at least one item
+- every key must be a known user-changeable configuration key
+- every value is validated according to the key-specific type and validation rules
+- all provided updates are applied atomically
+- omitted keys remain unchanged
+- updated values are persisted in the coordinator database
+- coordinator runtime configuration is refreshed after persistence
+- a durable `refresh_config` command is created for all storage nodes
+
+Example response:
+```json
+{
+  "items": [
+    {
+      "key": "sharing.thumbnails.sizes",
+      "value": [128, 256, 512],
+      "source": "database"
+    },
+    {
+      "key": "sharing.thumbnails.default_size",
+      "value": 512,
+      "source": "database"
+    },
+    {
+      "key": "sharing.thumbnails.generate_video_thumbnails",
+      "value": true,
+      "source": "database"
+    },
+    {
+      "key": "sharing.video.inline_max_size",
+      "value": "50mb",
+      "source": "database"
+    },
+    {
+      "key": "sharing.video.playback_enabled",
+      "value": true,
+      "source": "default"
+    }
+  ]
+}
+```
+Validation rules:
+- `sharing.thumbnails.sizes` must be a non-empty list of unique positive integers
+- `sharing.thumbnails.default_size` must be a positive integer and must exist in `sharing.thumbnails.sizes`
+- `sharing.thumbnails.generate_video_thumbnails` must be boolean
+- `sharing.video.inline_max_size` must be a valid size string
+- `sharing.video.playback_enabled` must be boolean
+
+Possible errors:
+- `400` invalid JSON payload
+- `400` empty config update
+- `400` unknown configuration key
+- `400` invalid configuration value
+- `401` missing authenticated user
+- `403` missing required permission
+
+#### DELETE /config
+Deletes all database-persisted configuration overrides.  
+After deletion, effective configuration falls back to local config file, environment values, and built-in defaults.
+
+Behavior:
+- deletes only database-persisted user-changeable configuration overrides
+- does not modify local config files
+- does not modify environment variables
+- does not modify bootstrap configuration
+- coordinator runtime configuration is refreshed after deletion
+- a durable `refresh_config` command is created for all storage nodes
+
+Successful response:
+`204 No Content`
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+
+#### DELETE /config/{key}
+Deletes one database-persisted configuration override.
+
+After deletion, the selected key falls back to local config file, environment value, or built-in default.
+
+Example request:
+```http request
+DELETE /api/admin/config/sharing.thumbnails.default_size
+Authorization: Bearer access-token-value
+X-API-Version: 1
+```
+
+Behavior:
+- key must be a known user-changeable configuration key
+- deletes only the database-persisted override for the selected key
+- operation is idempotent
+- local config files and environment variables are not modified
+- coordinator runtime configuration is refreshed after deletion
+- a durable `refresh_config` command is created for all storage nodes
+
+Successful response:
+`204 No Content`
+
+Possible errors:
+- `400` unknown configuration key
+- `401` missing authenticated user
+- `403` missing required permission
+
+### /nodes endpoint
 All `/nodes` endpoints require the matching `nodes` permission for the requested action.
 
 Node management is user-facing and intended for administrative workflows such as creating and maintaining nodes from the admin panel.
@@ -1889,7 +2058,6 @@ Behavior:
 - does not support user-style filtering or pagination
 
 Example response:
-
 ```json
 [
   {
@@ -2183,6 +2351,37 @@ Possible errors:
 - `403` replica does not belong to authenticated node
 - `404` replica not found
 - `404` replica file not found
+
+### /config endpoint
+Returns all known user-changeable configuration values.
+
+Example response:
+```json
+{
+  "items": [
+    {
+      "key": "sharing.thumbnails.sizes",
+      "value": [128, 256, 512]
+    },
+    {
+      "key": "sharing.thumbnails.default_size",
+      "value": 256
+    },
+    {
+      "key": "sharing.thumbnails.generate_video_thumbnails",
+      "value": true
+    },
+    {
+      "key": "sharing.video.inline_max_size",
+      "value": "25mb"
+    },
+    {
+      "key": "sharing.video.playback_enabled",
+      "value": true
+    }
+  ]
+}
+```
 
 ## Storage Transfer API
 This API is exposed on the storage nodes and used for ndoe-to-node file transfer.

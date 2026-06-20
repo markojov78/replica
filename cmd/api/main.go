@@ -8,6 +8,7 @@ import (
 	"replica/internal/buildinfo"
 	"replica/internal/config"
 	"replica/internal/db"
+	"replica/internal/model"
 	"replica/internal/repository"
 	"replica/internal/router"
 	"replica/internal/service"
@@ -21,15 +22,6 @@ func main() {
 	}
 
 	ctx := context.Background()
-
-	var storageRuntime *storage.Runtime
-	if cfg.App.Storage {
-		storageRuntime, err = storage.NewRuntime(cfg)
-		if err != nil {
-			log.Fatalf("init storage runtime: %v", err)
-		}
-		storageRuntime.Start(ctx)
-	}
 
 	var authService *service.AuthService
 	var userService *service.UserService
@@ -63,6 +55,12 @@ func main() {
 		settingRepo := repository.NewSettingRepository(database)
 		settingService := service.NewSettingService(settingRepo)
 
+		settings, err := settingRepo.FindExisting(config.DatabaseSettingKeys()...)
+		if err != nil {
+			log.Fatalf("load database config settings: %v", err)
+		}
+		cfg.ApplyDatabaseSettings(settingValues(settings), log.Printf)
+
 		authService = service.NewAuthService(
 			userRepo,
 			userTokenRepo,
@@ -80,6 +78,15 @@ func main() {
 		inventoryService = service.NewInventoryService(inventoryRepo, nodeService)
 		replicaService = service.NewReplicaService(replicaRepo, inventoryRepo, nodeService, settingService)
 		shareService = service.NewShareService(shareRepo, nodeService)
+	}
+
+	var storageRuntime *storage.Runtime
+	if cfg.App.Storage {
+		storageRuntime, err = storage.NewRuntime(cfg)
+		if err != nil {
+			log.Fatalf("init storage runtime: %v", err)
+		}
+		storageRuntime.Start(ctx)
 	}
 
 	handler := router.New(
@@ -113,4 +120,12 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("run api: %v", err)
 	}
+}
+
+func settingValues(settings map[string]model.Setting) map[string]string {
+	values := make(map[string]string, len(settings))
+	for key, setting := range settings {
+		values[key] = setting.Value
+	}
+	return values
 }

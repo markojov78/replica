@@ -106,6 +106,7 @@ const (
 	PermissionResourceShares      PermissionResource = "shares"
 	PermissionResourceInventories PermissionResource = "inventories"
 	PermissionResourceNodes       PermissionResource = "nodes"
+	PermissionResourceSettings    PermissionResource = "settings"
 )
 
 const (
@@ -234,7 +235,7 @@ func (t CommandType) Valid() bool {
 
 func (r PermissionResource) Valid() bool {
 	switch r {
-	case PermissionResourceUsers, PermissionResourceShares, PermissionResourceInventories, PermissionResourceNodes:
+	case PermissionResourceUsers, PermissionResourceShares, PermissionResourceInventories, PermissionResourceNodes, PermissionResourceSettings:
 		return true
 	default:
 		return false
