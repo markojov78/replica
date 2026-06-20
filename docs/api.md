@@ -431,8 +431,8 @@ Example response:
       "value": true
     },
     {
-      "key": "sharing.video.inline_max_size",
-      "value": "25mb"
+      "key": "sharing.video.inline_max_size_mb",
+      "value": 25
     },
     {
       "key": "sharing.video.playback_enabled",
@@ -456,8 +456,8 @@ Creates or updates one or more database-persisted configuration overrides.
       "value": 512
     },
     {
-      "key": "sharing.video.inline_max_size",
-      "value": "50mb"
+      "key": "sharing.video.inline_max_size_mb",
+      "value": 50
     }
   ]
 }
@@ -492,8 +492,8 @@ Example response:
       "source": "database"
     },
     {
-      "key": "sharing.video.inline_max_size",
-      "value": "50mb",
+      "key": "sharing.video.inline_max_size_mb",
+      "value": 50,
       "source": "database"
     },
     {
@@ -508,7 +508,7 @@ Validation rules:
 - `sharing.thumbnails.sizes` must be a non-empty list of unique positive integers
 - `sharing.thumbnails.default_size` must be a positive integer and must exist in `sharing.thumbnails.sizes`
 - `sharing.thumbnails.generate_video_thumbnails` must be boolean
-- `sharing.video.inline_max_size` must be a valid size string
+- `sharing.video.inline_max_size_mb` must be a positive integer size in megabytes
 - `sharing.video.playback_enabled` must be boolean
 
 Possible errors:
@@ -2372,8 +2372,8 @@ Example response:
       "value": true
     },
     {
-      "key": "sharing.video.inline_max_size",
-      "value": "25mb"
+      "key": "sharing.video.inline_max_size_mb",
+      "value": 25
     },
     {
       "key": "sharing.video.playback_enabled",

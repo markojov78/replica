@@ -184,18 +184,6 @@ action - read, create, update, delete; settings supports read and update only
 key - application-managed setting key
 value - application-managed setting value
 
-The coordinator may override selected runtime configuration from this table after opening the database. Only these
-configuration keys are loaded this way:
-
-- `sharing.thumbnail_sizes`
-- `sharing.thumbnail_default_size`
-- `sharing.thumbnails_generate_for_video`
-- `sharing.video_inline_max_size`
-- `sharing.video_playback_enabled`
-
-Invalid setting values are ignored and logged; the value loaded from file, environment, or default configuration remains
-active.
-
 ## Operation
 ### Communication between nodes
 

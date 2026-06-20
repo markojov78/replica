@@ -26,6 +26,7 @@ func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
 	t.Setenv("DB_AUTO_MIGRATE", "")
 	t.Setenv("SEED_ADMIN_NAME", "")
 	t.Setenv("SEED_ADMIN_PASSWORD", "")
+	t.Setenv("SHARING_VIDEO_INLINE_MAX_SIZE_MB", "")
 
 	wd := t.TempDir()
 	prev, err := os.Getwd()
@@ -59,6 +60,9 @@ func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
 	if cfg.App.FileTransferTimeout != 30*time.Minute {
 		t.Fatalf("App.FileTransferTimeout = %s, want %s", cfg.App.FileTransferTimeout, 30*time.Minute)
 	}
+	if cfg.Sharing.VideoInlineMaxSizeMB != 25 {
+		t.Fatalf("Sharing.VideoInlineMaxSizeMB = %d, want 25", cfg.Sharing.VideoInlineMaxSizeMB)
+	}
 }
 
 func TestLoadYAMLConfigWithEnvOverride(t *testing.T) {
@@ -89,6 +93,8 @@ auth:
   node_secret: "node-file-secret"
   access_token_duration: "45m"
   refresh_token_duration: "10h"
+sharing:
+  video_inline_max_size_mb: 20
 http:
   address: ":9090"
 database:
@@ -106,6 +112,7 @@ seed:
 	t.Setenv("HTTP_ADDR", ":8088")
 	t.Setenv("DB_AUTO_MIGRATE", "true")
 	t.Setenv("APP_API_REQUEST_TIMEOUT", "25s")
+	t.Setenv("SHARING_VIDEO_INLINE_MAX_SIZE_MB", "30")
 
 	cfg, err := Load()
 	if err != nil {
@@ -135,6 +142,9 @@ seed:
 	}
 	if cfg.App.FileTransferTimeout != 45*time.Minute {
 		t.Fatalf("App.FileTransferTimeout = %s, want %s", cfg.App.FileTransferTimeout, 45*time.Minute)
+	}
+	if cfg.Sharing.VideoInlineMaxSizeMB != 30 {
+		t.Fatalf("Sharing.VideoInlineMaxSizeMB = %d, want 30 from env override", cfg.Sharing.VideoInlineMaxSizeMB)
 	}
 	if cfg.Database.Driver != "postgres" {
 		t.Fatalf("Database.Driver = %q, want %q", cfg.Database.Driver, "postgres")
@@ -273,7 +283,7 @@ func TestApplyDatabaseSettingsOverridesAllowedSharingValues(t *testing.T) {
 			ThumbnailDefaultSize:       128,
 			ThumbnailsGenerateForVideo: false,
 			FfmpegPath:                 "ffmpeg-custom",
-			VideoInlineMaxSize:         "10mb",
+			VideoInlineMaxSizeMB:       10,
 			VideoPlaybackEnabled:       false,
 		},
 	}
@@ -283,7 +293,7 @@ func TestApplyDatabaseSettingsOverridesAllowedSharingValues(t *testing.T) {
 		SettingSharingThumbnailDefaultSize:       "384",
 		SettingSharingThumbnailsGenerateForVideo: "true",
 		"sharing.ffmpeg_path":                    "ignored",
-		SettingSharingVideoInlineMaxSize:         "25mb",
+		SettingSharingVideoInlineMaxSizeMB:       "25",
 		SettingSharingVideoPlaybackEnabled:       "true",
 	}, nil)
 
@@ -299,8 +309,8 @@ func TestApplyDatabaseSettingsOverridesAllowedSharingValues(t *testing.T) {
 	if cfg.Sharing.FfmpegPath != "ffmpeg-custom" {
 		t.Fatalf("Sharing.FfmpegPath = %q, want unchanged", cfg.Sharing.FfmpegPath)
 	}
-	if cfg.Sharing.VideoInlineMaxSize != "25mb" {
-		t.Fatalf("Sharing.VideoInlineMaxSize = %q, want 25mb", cfg.Sharing.VideoInlineMaxSize)
+	if cfg.Sharing.VideoInlineMaxSizeMB != 25 {
+		t.Fatalf("Sharing.VideoInlineMaxSizeMB = %d, want 25", cfg.Sharing.VideoInlineMaxSizeMB)
 	}
 	if !cfg.Sharing.VideoPlaybackEnabled {
 		t.Fatal("Sharing.VideoPlaybackEnabled = false, want true")
@@ -313,7 +323,7 @@ func TestApplyDatabaseSettingsIgnoresInvalidValues(t *testing.T) {
 			ThumbnailSizes:             []int{256},
 			ThumbnailDefaultSize:       256,
 			ThumbnailsGenerateForVideo: true,
-			VideoInlineMaxSize:         "25mb",
+			VideoInlineMaxSizeMB:       25,
 			VideoPlaybackEnabled:       true,
 		},
 	}
@@ -323,7 +333,7 @@ func TestApplyDatabaseSettingsIgnoresInvalidValues(t *testing.T) {
 		SettingSharingThumbnailSizes:             "256,nope",
 		SettingSharingThumbnailDefaultSize:       "-1",
 		SettingSharingThumbnailsGenerateForVideo: "sometimes",
-		SettingSharingVideoInlineMaxSize:         "",
+		SettingSharingVideoInlineMaxSizeMB:       "nope",
 		SettingSharingVideoPlaybackEnabled:       "maybe",
 	}, func(format string, args ...any) {
 		logs = append(logs, format)
@@ -338,8 +348,8 @@ func TestApplyDatabaseSettingsIgnoresInvalidValues(t *testing.T) {
 	if !cfg.Sharing.ThumbnailsGenerateForVideo {
 		t.Fatal("Sharing.ThumbnailsGenerateForVideo = false, want unchanged")
 	}
-	if cfg.Sharing.VideoInlineMaxSize != "25mb" {
-		t.Fatalf("Sharing.VideoInlineMaxSize = %q, want unchanged", cfg.Sharing.VideoInlineMaxSize)
+	if cfg.Sharing.VideoInlineMaxSizeMB != 25 {
+		t.Fatalf("Sharing.VideoInlineMaxSizeMB = %d, want unchanged", cfg.Sharing.VideoInlineMaxSizeMB)
 	}
 	if !cfg.Sharing.VideoPlaybackEnabled {
 		t.Fatal("Sharing.VideoPlaybackEnabled = false, want unchanged")

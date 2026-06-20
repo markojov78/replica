@@ -39,7 +39,7 @@ type SharingConfig struct {
 	ThumbnailDefaultSize       int
 	ThumbnailsGenerateForVideo bool
 	FfmpegPath                 string
-	VideoInlineMaxSize         string
+	VideoInlineMaxSizeMB       int
 	VideoPlaybackEnabled       bool
 }
 
@@ -91,7 +91,7 @@ type rawSharingConfig struct {
 	ThumbnailDefaultSize       *int    `json:"thumbnail_default_size" yaml:"thumbnail_default_size" toml:"thumbnail_default_size"`
 	ThumbnailsGenerateForVideo *bool   `json:"thumbnails_generate_for_video" yaml:"thumbnails_generate_for_video" toml:"thumbnails_generate_for_video"`
 	FfmpegPath                 *string `json:"ffmpeg_path" yaml:"ffmpeg_path" toml:"ffmpeg_path"`
-	VideoInlineMaxSize         *string `json:"video_inline_max_size" yaml:"video_inline_max_size" toml:"video_inline_max_size"`
+	VideoInlineMaxSizeMB       *int    `json:"video_inline_max_size_mb" yaml:"video_inline_max_size_mb" toml:"video_inline_max_size_mb"`
 	VideoPlaybackEnabled       *bool   `json:"video_playback_enabled" yaml:"video_playback_enabled" toml:"video_playback_enabled"`
 }
 
@@ -129,7 +129,7 @@ const (
 	SettingSharingThumbnailSizes             = "sharing.thumbnail_sizes"
 	SettingSharingThumbnailDefaultSize       = "sharing.thumbnail_default_size"
 	SettingSharingThumbnailsGenerateForVideo = "sharing.thumbnails_generate_for_video"
-	SettingSharingVideoInlineMaxSize         = "sharing.video_inline_max_size"
+	SettingSharingVideoInlineMaxSizeMB       = "sharing.video_inline_max_size_mb"
 	SettingSharingVideoPlaybackEnabled       = "sharing.video_playback_enabled"
 )
 
@@ -157,7 +157,7 @@ func Load() (Config, error) {
 			ThumbnailDefaultSize:       resolveInt("SHARING_THUMBNAIL_DEFAULT_SIZE", fileCfg.Sharing.ThumbnailDefaultSize, 256),
 			ThumbnailsGenerateForVideo: resolveBool("SHARING_THUMBNAILS_GENERATE_FOR_VIDEO", fileCfg.Sharing.ThumbnailsGenerateForVideo, true),
 			FfmpegPath:                 resolveString("SHARING_FFMPEG_PATH", fileCfg.Sharing.FfmpegPath, "ffmpeg"),
-			VideoInlineMaxSize:         resolveString("SHARING_VIDEO_INLINE_MAX_SIZE", fileCfg.Sharing.VideoInlineMaxSize, "25mb"),
+			VideoInlineMaxSizeMB:       resolveInt("SHARING_VIDEO_INLINE_MAX_SIZE_MB", fileCfg.Sharing.VideoInlineMaxSizeMB, 25),
 			VideoPlaybackEnabled:       resolveBool("SHARING_VIDEO_PLAYBACK_ENABLED", fileCfg.Sharing.VideoPlaybackEnabled, true),
 		},
 		Auth: AuthConfig{
@@ -193,7 +193,7 @@ func DatabaseSettingKeys() []string {
 		SettingSharingThumbnailSizes,
 		SettingSharingThumbnailDefaultSize,
 		SettingSharingThumbnailsGenerateForVideo,
-		SettingSharingVideoInlineMaxSize,
+		SettingSharingVideoInlineMaxSizeMB,
 		SettingSharingVideoPlaybackEnabled,
 	}
 }
@@ -222,13 +222,13 @@ func (c *Config) ApplyDatabaseSettings(settings map[string]string, logf func(str
 				continue
 			}
 			c.Sharing.ThumbnailsGenerateForVideo = parsed
-		case SettingSharingVideoInlineMaxSize:
-			parsed := strings.TrimSpace(value)
-			if parsed == "" {
-				logInvalidDatabaseSetting(logf, key, value, errors.New("must not be empty"))
+		case SettingSharingVideoInlineMaxSizeMB:
+			parsed, err := parsePositiveInt(value)
+			if err != nil {
+				logInvalidDatabaseSetting(logf, key, value, err)
 				continue
 			}
-			c.Sharing.VideoInlineMaxSize = parsed
+			c.Sharing.VideoInlineMaxSizeMB = parsed
 		case SettingSharingVideoPlaybackEnabled:
 			parsed, err := strconv.ParseBool(strings.TrimSpace(value))
 			if err != nil {

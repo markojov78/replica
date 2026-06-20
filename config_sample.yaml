@@ -13,7 +13,7 @@ sharing:
   thumbnail_default_size: 256
   thumbnails_generate_for_video: true
   ffmpeg_path: "ffmpeg"
-  video_inline_max_size: "25mb"
+  video_inline_max_size_mb: 25
   video_playback_enabled: true
 
 auth:
