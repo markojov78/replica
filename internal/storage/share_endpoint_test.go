@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/jpeg"
+	"image/png"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -326,6 +330,157 @@ func TestServeShareFilesListsOnlySynchronizedActiveFilesAndStreamsLocalContent(t
 	runtime.ServePublicShares(rec, req)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusConflict)
+	}
+}
+
+func TestServeAuthenticatedShareFileThumbnailStreamsGeneratedLocalImage(t *testing.T) {
+	root := t.TempDir()
+	writeSharePNG(t, filepath.Join(root, "photo.png"), 64, 32)
+
+	runtime := newShareEndpointRuntime(t, validationServer(t, 15, http.StatusOK))
+	runtime.setLocalState(
+		[]apiclient.Replica{{ID: 3, NodeID: "node-a", URI: root, Status: "active"}},
+		[]apiclient.Share{{
+			ID:          1,
+			InventoryID: 1,
+			ReplicaID:   3,
+			Status:      "active",
+			UserPermissions: []apiclient.UserPermission{{
+				UserID:      15,
+				Permissions: []string{"read"},
+			}},
+		}},
+		map[uint][]apiclient.ReplicaInventoryFile{
+			3: {
+				{
+					FileID:           10,
+					ReplicaID:        3,
+					InventoryID:      1,
+					RelativeURI:      "photo.png",
+					Size:             1024,
+					InventoryStatus:  "active",
+					InventoryVersion: 4,
+					ReplicaStatus:    "synchronized",
+					ReplicaVersion:   4,
+				},
+			},
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/share/shares/1/files/10/thumbnail?size=256", nil)
+	req.SetPathValue("id", "1")
+	req.SetPathValue("file_id", "10")
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+
+	runtime.ServeAuthenticatedShares(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
+	}
+	if rec.Header().Get("Content-Type") != "image/jpeg" {
+		t.Fatalf("Content-Type = %q, want image/jpeg", rec.Header().Get("Content-Type"))
+	}
+	if rec.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Fatalf("Cache-Control = %q, want immutable public cache", rec.Header().Get("Cache-Control"))
+	}
+	if rec.Header().Get("ETag") != `"file-10-v4-s256"` {
+		t.Fatalf("ETag = %q, want file/version/size ETag", rec.Header().Get("ETag"))
+	}
+	img, err := jpeg.Decode(bytes.NewReader(rec.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("jpeg.Decode(response) error = %v", err)
+	}
+	if img.Bounds().Dx() != 64 || img.Bounds().Dy() != 32 {
+		t.Fatalf("thumbnail size = %dx%d, want no upscale 64x32", img.Bounds().Dx(), img.Bounds().Dy())
+	}
+}
+
+func TestServePublicShareFileThumbnailReturnsGenericSVG(t *testing.T) {
+	linkHash := "public-link"
+	runtime := newShareEndpointRuntime(t, "http://coordinator")
+	runtime.setLocalState(
+		[]apiclient.Replica{{ID: 3, NodeID: "node-a", URI: t.TempDir(), Status: "active"}},
+		[]apiclient.Share{{
+			ID:                   1,
+			InventoryID:          1,
+			ReplicaID:            3,
+			Status:               "active",
+			LinkHash:             &linkHash,
+			AnonymousPermissions: []string{"read"},
+		}},
+		map[uint][]apiclient.ReplicaInventoryFile{
+			3: {
+				{
+					FileID:           10,
+					ReplicaID:        3,
+					InventoryID:      1,
+					RelativeURI:      "document.pdf",
+					Size:             100,
+					InventoryStatus:  "active",
+					InventoryVersion: 4,
+					ReplicaStatus:    "synchronized",
+					ReplicaVersion:   4,
+				},
+			},
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/s/public-link/files/10/thumbnail", nil)
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "10")
+	rec := httptest.NewRecorder()
+
+	runtime.ServePublicShares(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
+	}
+	if rec.Header().Get("Content-Type") != "image/svg+xml" {
+		t.Fatalf("Content-Type = %q, want image/svg+xml", rec.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(rec.Body.String(), "PDF") {
+		t.Fatalf("body = %s, want PDF generic thumbnail", rec.Body.String())
+	}
+}
+
+func TestServeShareFileThumbnailErrors(t *testing.T) {
+	linkHash := "public-link"
+	runtime := newShareEndpointRuntime(t, "http://coordinator")
+	runtime.setLocalState(
+		[]apiclient.Replica{{ID: 3, NodeID: "node-a", URI: t.TempDir(), Status: "active"}},
+		[]apiclient.Share{{
+			ID:                   1,
+			InventoryID:          1,
+			ReplicaID:            3,
+			Status:               "active",
+			LinkHash:             &linkHash,
+			AnonymousPermissions: []string{"read"},
+		}},
+		map[uint][]apiclient.ReplicaInventoryFile{
+			3: {
+				{FileID: 10, ReplicaID: 3, InventoryID: 1, RelativeURI: "photo.png", InventoryStatus: "active", InventoryVersion: 4, ReplicaStatus: "synchronized", ReplicaVersion: 4},
+				{FileID: 11, ReplicaID: 3, InventoryID: 1, RelativeURI: "pending.png", InventoryStatus: "active", InventoryVersion: 4, ReplicaStatus: "pending", ReplicaVersion: 3},
+			},
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/s/public-link/files/10/thumbnail?size=999", nil)
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "10")
+	rec := httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid size status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusBadRequest)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/s/public-link/files/11/thumbnail", nil)
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "11")
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("unsynchronized status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusConflict)
 	}
 }
 
@@ -697,11 +852,37 @@ func newShareEndpointRuntime(t *testing.T, coordinatorURL string) *Runtime {
 			NodeSecret:                 "secret",
 			ShareAPITokenCacheDuration: 5 * time.Minute,
 		},
+		Sharing: config.SharingConfig{
+			ThumbnailSizes:             []int{128, 256},
+			ThumbnailDefaultSize:       128,
+			ThumbnailsGenerateForVideo: false,
+			FfmpegPath:                 "ffmpeg",
+			ThumbnailStorage:           t.TempDir(),
+			ThumbnailStorageLimitMB:    500,
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 	return runtime
+}
+
+func writeSharePNG(t *testing.T, path string, width int, height int) {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: 180, A: 255})
+		}
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("Create(png) error = %v", err)
+	}
+	defer file.Close()
+	if err := png.Encode(file, img); err != nil {
+		t.Fatalf("png.Encode() error = %v", err)
+	}
 }
 
 func validationServer(t *testing.T, userID uint, validateStatus int) string {

@@ -17,6 +17,7 @@ import (
 
 	"replica/internal/apiclient"
 	"replica/internal/config"
+	"replica/internal/service"
 
 	"github.com/gorilla/websocket"
 )
@@ -47,6 +48,9 @@ type Runtime struct {
 	watchers  map[uint]*runningReplicaWatcher
 
 	commandCh chan apiclient.Command
+
+	cfg       config.Config
+	thumbnail *service.ThumbnailService
 }
 
 type runningReplicaWatcher struct {
@@ -80,6 +84,8 @@ func NewRuntime(cfg config.Config) (*Runtime, error) {
 		shareAPITokenCacheDuration: cfg.Auth.ShareAPITokenCacheDuration,
 		watchers:                   make(map[uint]*runningReplicaWatcher),
 		commandCh:                  make(chan apiclient.Command, 128),
+		cfg:                        cfg,
+		thumbnail:                  service.NewThumbnailService(cfg),
 	}, nil
 }
 
@@ -282,12 +288,20 @@ func (r *Runtime) setLocalConfig(items []apiclient.ConfigItem) {
 	defer r.stateMu.Unlock()
 
 	r.config = append([]apiclient.ConfigItem(nil), items...)
+	r.cfg = configFromNodeItems(r.cfg, items)
+	r.thumbnail = service.NewThumbnailService(r.cfg)
 }
 
 func (r *Runtime) configSnapshot() []apiclient.ConfigItem {
 	r.stateMu.RLock()
 	defer r.stateMu.RUnlock()
 	return append([]apiclient.ConfigItem(nil), r.config...)
+}
+
+func (r *Runtime) thumbnailSnapshot() (*service.ThumbnailService, config.Config) {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+	return r.thumbnail, r.cfg
 }
 
 func (r *Runtime) sharesSnapshot() []apiclient.Share {
@@ -358,6 +372,39 @@ func (r *Runtime) setReplicaFiles(replicaID uint, files []apiclient.ReplicaInven
 		r.replicaFiles = make(map[uint][]apiclient.ReplicaInventoryFile)
 	}
 	r.replicaFiles[replicaID] = append([]apiclient.ReplicaInventoryFile(nil), files...)
+}
+
+func configFromNodeItems(cfg config.Config, items []apiclient.ConfigItem) config.Config {
+	for _, item := range items {
+		switch item.Key {
+		case config.SettingSharingThumbnailSizes:
+			var value []int
+			if err := json.Unmarshal(item.Value, &value); err == nil && len(value) > 0 {
+				cfg.Sharing.ThumbnailSizes = append([]int(nil), value...)
+			}
+		case config.SettingSharingThumbnailDefaultSize:
+			var value int
+			if err := json.Unmarshal(item.Value, &value); err == nil && value > 0 {
+				cfg.Sharing.ThumbnailDefaultSize = value
+			}
+		case config.SettingSharingThumbnailsGenerateForVideo:
+			var value bool
+			if err := json.Unmarshal(item.Value, &value); err == nil {
+				cfg.Sharing.ThumbnailsGenerateForVideo = value
+			}
+		case config.SettingSharingVideoInlineMaxSizeMB:
+			var value int
+			if err := json.Unmarshal(item.Value, &value); err == nil && value > 0 {
+				cfg.Sharing.VideoInlineMaxSizeMB = value
+			}
+		case config.SettingSharingVideoPlaybackEnabled:
+			var value bool
+			if err := json.Unmarshal(item.Value, &value); err == nil {
+				cfg.Sharing.VideoPlaybackEnabled = value
+			}
+		}
+	}
+	return cfg
 }
 
 func (r *Runtime) setTransferTokenPublicKey(publicKey string) {

@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"replica/internal/apiclient"
+	"replica/internal/service"
 )
 
 const shareReadPermission = "read"
@@ -168,6 +170,21 @@ func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Requ
 			return
 		}
 		r.createShareFile(w, req, share, replica)
+	case req.Method == http.MethodGet && req.PathValue("id") != "" && req.PathValue("file_id") != "" && strings.HasSuffix(req.URL.Path, "/thumbnail"):
+		shareID, ok := parseSharePathUint(w, req, "id")
+		if !ok {
+			return
+		}
+		fileID, ok := parseSharePathUint(w, req, "file_id")
+		if !ok {
+			return
+		}
+		_, replica, err := r.authorizedUserShare(userID, shareID)
+		if err != nil {
+			writeStorageShareError(w, storageShareStatus(err), err.Error())
+			return
+		}
+		r.serveShareFileThumbnail(w, req, replica, fileID)
 	case req.Method == http.MethodGet && req.PathValue("id") != "" && req.PathValue("file_id") != "":
 		shareID, ok := parseSharePathUint(w, req, "id")
 		if !ok {
@@ -252,6 +269,17 @@ func (r *Runtime) ServePublicShares(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		r.createShareFile(w, req, share, replica)
+	case req.Method == http.MethodGet && req.PathValue("file_id") != "" && strings.HasSuffix(req.URL.Path, "/thumbnail"):
+		fileID, ok := parseSharePathUint(w, req, "file_id")
+		if !ok {
+			return
+		}
+		_, replica, err := r.authorizedPublicShare(linkHash)
+		if err != nil {
+			writeStorageShareError(w, storageShareStatus(err), err.Error())
+			return
+		}
+		r.serveShareFileThumbnail(w, req, replica, fileID)
 	case req.Method == http.MethodGet && req.PathValue("file_id") != "":
 		fileID, ok := parseSharePathUint(w, req, "file_id")
 		if !ok {
@@ -673,6 +701,98 @@ func (r *Runtime) openShareFileContent(req *http.Request, replica apiclient.Repl
 	return reader.Open(req.Context(), replica.URI, file.RelativeURI)
 }
 
+func (r *Runtime) serveShareFileThumbnail(w http.ResponseWriter, req *http.Request, replica apiclient.Replica, fileID uint) {
+	thumbnail, cfg := r.thumbnailSnapshot()
+	if thumbnail == nil {
+		writeStorageShareError(w, http.StatusInternalServerError, "thumbnail service unavailable")
+		return
+	}
+
+	file, err := r.shareFileForRead(replica.ID, fileID)
+	if err != nil {
+		writeStorageShareError(w, storageShareStatus(err), err.Error())
+		return
+	}
+
+	size, err := service.ParseThumbnailSize(req.URL.Query().Get("size"), cfg.Sharing.ThumbnailDefaultSize, cfg.Sharing.ThumbnailSizes)
+	if err != nil {
+		writeStorageShareError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	source, err := r.thumbnailSource(req.Context(), replica, file)
+	if err != nil {
+		writeStorageShareError(w, storageShareStatus(err), err.Error())
+		return
+	}
+
+	result, err := thumbnail.GetOrCreateThumbnail(req.Context(), service.ThumbnailRequest{
+		FileID:      file.FileID,
+		FileVersion: file.InventoryVersion,
+		Size:        size,
+		RelativeURI: file.RelativeURI,
+		Source:      source,
+	})
+	if err != nil {
+		writeStorageShareError(w, thumbnailStatus(err), err.Error())
+		return
+	}
+
+	thumbnailFile, err := os.Open(result.Path)
+	if err != nil {
+		writeStorageShareError(w, http.StatusInternalServerError, errShareLocalStorageFailed.Error())
+		return
+	}
+	defer thumbnailFile.Close()
+
+	info, err := thumbnailFile.Stat()
+	if err != nil || info.IsDir() {
+		writeStorageShareError(w, http.StatusInternalServerError, errShareLocalStorageFailed.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", result.ContentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Header().Set("ETag", fmt.Sprintf(`"file-%d-v%d-s%d"`, file.FileID, file.InventoryVersion, size))
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, thumbnailFile)
+}
+
+func (r *Runtime) shareFileForRead(replicaID, fileID uint) (apiclient.ReplicaInventoryFile, error) {
+	_, file, ok := r.findReplicaFile(replicaID, fileID)
+	if !ok || file.InventoryStatus != "active" {
+		return apiclient.ReplicaInventoryFile{}, errShareFileNotFound
+	}
+	if file.ReplicaStatus != "synchronized" {
+		return apiclient.ReplicaInventoryFile{}, errShareFileUnsynchronized
+	}
+	if file.InventoryVersion == 0 {
+		return apiclient.ReplicaInventoryFile{}, errShareFileNotFound
+	}
+	return file, nil
+}
+
+func (r *Runtime) thumbnailSource(ctx context.Context, replica apiclient.Replica, file apiclient.ReplicaInventoryFile) (service.ThumbnailSource, error) {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(replica.URI)), "s3://") {
+		location, key, err := resolveS3ReadKey(replica.URI, file.RelativeURI)
+		if err != nil {
+			return nil, err
+		}
+		client, err := s3Provider.Client(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return service.NewS3ThumbnailSource(client, location.Bucket, key, file.RelativeURI, file.Size), nil
+	}
+
+	localPath, err := resolveReplicaFilePath(replica.URI, file.RelativeURI)
+	if err != nil {
+		return nil, err
+	}
+	return service.NewLocalFileThumbnailSource(localPath, file.RelativeURI), nil
+}
+
 func shareAvailableOnReplica(share apiclient.Share, replica apiclient.Replica, nodeID string) bool {
 	if share.Status != "active" || replica.Status != "active" {
 		return false
@@ -756,6 +876,19 @@ func storageShareStatus(err error) int {
 		return http.StatusBadRequest
 	case errors.Is(err, errTransferUnsupportedURI):
 		return http.StatusNotImplemented
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func thumbnailStatus(err error) int {
+	switch {
+	case errors.Is(err, service.ErrInvalidThumbnailSize):
+		return http.StatusBadRequest
+	case errors.Is(err, service.ErrThumbnailSourceMissing):
+		return http.StatusNotFound
+	case errors.Is(err, errShareCoordinatorOffline):
+		return http.StatusServiceUnavailable
 	default:
 		return http.StatusInternalServerError
 	}

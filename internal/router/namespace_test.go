@@ -39,6 +39,7 @@ func TestCoordinatorStorageNamespacesCoexistAndOldRoutesAreRemoved(t *testing.T)
 		{http.MethodGet, "/node/auth/me"},
 		{http.MethodGet, "/transfer/replicas/1/files/1/content?version=1"},
 		{http.MethodGet, "/api/share/shares"},
+		{http.MethodGet, "/api/share/shares/1/files/1/thumbnail"},
 		{http.MethodPost, "/s/missing-link"},
 		{http.MethodGet, "/dashboard"},
 	} {
