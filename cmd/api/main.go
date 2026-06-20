@@ -8,7 +8,6 @@ import (
 	"replica/internal/buildinfo"
 	"replica/internal/config"
 	"replica/internal/db"
-	"replica/internal/model"
 	"replica/internal/repository"
 	"replica/internal/router"
 	"replica/internal/service"
@@ -30,6 +29,7 @@ func main() {
 	var inventoryService *service.InventoryService
 	var replicaService *service.ReplicaService
 	var shareService *service.ShareService
+	var configService *service.ConfigService
 
 	if cfg.App.Coordinator {
 		database, err := db.Open(cfg.Database)
@@ -53,13 +53,14 @@ func main() {
 		replicaRepo := repository.NewReplicaRepository(database)
 		shareRepo := repository.NewShareRepository(database)
 		settingRepo := repository.NewSettingRepository(database)
+		configRepo := repository.NewConfigRepository(database)
 		settingService := service.NewSettingService(settingRepo)
 
-		settings, err := settingRepo.FindExisting(config.DatabaseSettingKeys()...)
-		if err != nil {
+		configService = service.NewConfigService(configRepo, cfg)
+		if err := configService.Load(log.Printf); err != nil {
 			log.Fatalf("load database config settings: %v", err)
 		}
-		cfg.ApplyDatabaseSettings(settingValues(settings), log.Printf)
+		cfg = configService.EffectiveConfig()
 
 		authService = service.NewAuthService(
 			userRepo,
@@ -100,6 +101,7 @@ func main() {
 		replicaService,
 		shareService,
 		storageRuntime,
+		configService,
 	)
 
 	server := &http.Server{
@@ -120,12 +122,4 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("run api: %v", err)
 	}
-}
-
-func settingValues(settings map[string]model.Setting) map[string]string {
-	values := make(map[string]string, len(settings))
-	for key, setting := range settings {
-		values[key] = setting.Value
-	}
-	return values
 }

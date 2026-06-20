@@ -157,6 +157,11 @@ type Share struct {
 	AnonymousPermissions []string         `json:"anonymous_permissions"`
 }
 
+type ConfigItem struct {
+	Key   string          `json:"key"`
+	Value json.RawMessage `json:"value"`
+}
+
 type ValidatedUserToken struct {
 	UserID               uint      `json:"user_id"`
 	Status               string    `json:"status"`
@@ -382,6 +387,30 @@ func (c *Client) ListOwnShares(ctx context.Context) ([]Share, error) {
 	}
 
 	return shares, nil
+}
+
+func (c *Client) GetConfig(ctx context.Context) ([]ConfigItem, error) {
+	accessToken, err := c.ensureAccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var items []ConfigItem
+	if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/node/config", nil, accessToken, &items); err != nil {
+		if apiErr, ok := err.(*APIError); ok && apiErr.StatusCode == http.StatusUnauthorized {
+			accessToken, err = c.refreshOrAuthenticate(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/node/config", nil, accessToken, &items); err != nil {
+				return nil, err
+			}
+			return items, nil
+		}
+		return nil, err
+	}
+
+	return items, nil
 }
 
 func (c *Client) ValidateUserToken(ctx context.Context, accessToken string) (*ValidatedUserToken, error) {

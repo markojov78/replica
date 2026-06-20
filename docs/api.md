@@ -412,7 +412,7 @@ Effective configuration is resolved in this order:
 Database-persisted overrides affect coordinator runtime configuration and are propagated to storage nodes through the coordinator node-control API.
 
 #### GET /config
-Returns all known user-changeable configuration values.
+Returns all known user-changeable configuration values as key-value pairs.
 
 Example response:
 ```json
@@ -423,19 +423,19 @@ Example response:
       "value": [128, 256, 512]
     },
     {
-      "key": "sharing.thumbnails.default_size",
+      "key": "sharing.thumbnail_default_size",
       "value": 256
     },
     {
-      "key": "sharing.thumbnails.generate_video_thumbnails",
+      "key": "sharing.thumbnails_generate_for_video",
       "value": true
     },
     {
-      "key": "sharing.video.inline_max_size_mb",
+      "key": "sharing.video_inline_max_size_mb",
       "value": 25
     },
     {
-      "key": "sharing.video.playback_enabled",
+      "key": "sharing.video_playback_enabled",
       "value": true
     }
   ]
@@ -452,11 +452,11 @@ Creates or updates one or more database-persisted configuration overrides.
 {
   "items": [
     {
-      "key": "sharing.thumbnails.default_size",
+      "key": "sharing.thumbnail_default_size",
       "value": 512
     },
     {
-      "key": "sharing.video.inline_max_size_mb",
+      "key": "sharing.video_inline_max_size_mb",
       "value": 50
     }
   ]
@@ -478,38 +478,33 @@ Example response:
   "items": [
     {
       "key": "sharing.thumbnails.sizes",
-      "value": [128, 256, 512],
-      "source": "database"
+      "value": [128, 256, 512]
     },
     {
-      "key": "sharing.thumbnails.default_size",
-      "value": 512,
-      "source": "database"
+      "key": "sharing.thumbnail_default_size",
+      "value": 512
     },
     {
-      "key": "sharing.thumbnails.generate_video_thumbnails",
-      "value": true,
-      "source": "database"
+      "key": "sharing.thumbnails_generate_for_video",
+      "value": true
     },
     {
-      "key": "sharing.video.inline_max_size_mb",
-      "value": 50,
-      "source": "database"
+      "key": "sharing.video_inline_max_size_mb",
+      "value": 50
     },
     {
-      "key": "sharing.video.playback_enabled",
-      "value": true,
-      "source": "default"
+      "key": "sharing.video_playback_enabled",
+      "value": true
     }
   ]
 }
 ```
 Validation rules:
 - `sharing.thumbnails.sizes` must be a non-empty list of unique positive integers
-- `sharing.thumbnails.default_size` must be a positive integer and must exist in `sharing.thumbnails.sizes`
-- `sharing.thumbnails.generate_video_thumbnails` must be boolean
-- `sharing.video.inline_max_size_mb` must be a positive integer size in megabytes
-- `sharing.video.playback_enabled` must be boolean
+- `sharing.thumbnail_default_size` must be a positive integer and must exist in `sharing.thumbnails.sizes`
+- `sharing.thumbnails_generate_for_video` must be boolean
+- `sharing.video_inline_max_size_mb` must be a positive integer size in megabytes
+- `sharing.video_playback_enabled` must be boolean
 
 Possible errors:
 - `400` invalid JSON payload
@@ -545,7 +540,7 @@ After deletion, the selected key falls back to local config file, environment va
 
 Example request:
 ```http request
-DELETE /api/admin/config/sharing.thumbnails.default_size
+DELETE /api/admin/config/sharing.thumbnail_default_size
 Authorization: Bearer access-token-value
 X-API-Version: 1
 ```
@@ -2353,35 +2348,39 @@ Possible errors:
 - `404` replica file not found
 
 ### /config endpoint
-Returns all known user-changeable configuration values.
+#### GET /config
+Returns list with all known user-changeable configuration values as key-value pairs.
 
 Example response:
 ```json
-{
-  "items": [
-    {
-      "key": "sharing.thumbnails.sizes",
-      "value": [128, 256, 512]
-    },
-    {
-      "key": "sharing.thumbnails.default_size",
-      "value": 256
-    },
-    {
-      "key": "sharing.thumbnails.generate_video_thumbnails",
-      "value": true
-    },
-    {
-      "key": "sharing.video.inline_max_size_mb",
-      "value": 25
-    },
-    {
-      "key": "sharing.video.playback_enabled",
-      "value": true
-    }
-  ]
-}
+[
+  {
+    "key": "sharing.thumbnails.sizes",
+    "value": [128, 256, 512]
+  },
+  {
+    "key": "sharing.thumbnail_default_size",
+    "value": 256
+  },
+  {
+    "key": "sharing.thumbnails_generate_for_video",
+    "value": true
+  },
+  {
+    "key": "sharing.video_inline_max_size_mb",
+    "value": 25
+  },
+  {
+    "key": "sharing.video_playback_enabled",
+    "value": true
+  }
+]
 ```
+
+Possible errors:
+- `401` missing authenticated node
+- `403` disabled node
+- `403` revoked node
 
 ## Storage Transfer API
 This API is exposed on the storage nodes and used for ndoe-to-node file transfer.

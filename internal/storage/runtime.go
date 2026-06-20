@@ -34,6 +34,7 @@ type Runtime struct {
 	stateMu        sync.RWMutex
 	replicas       []apiclient.Replica
 	shares         []apiclient.Share
+	config         []apiclient.ConfigItem
 	replicaFiles   map[uint][]apiclient.ReplicaInventoryFile
 	transferKey    string
 	transferTokens map[uint]string
@@ -131,6 +132,13 @@ func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []ap
 			log.Printf("storage runtime state bootstrap failed: %v", err)
 			continue
 		}
+		if err := r.refreshLocalConfig(ctx); err != nil {
+			if !sleepContext(ctx, bootstrapRetryInterval) {
+				return nil, nil, nil, false
+			}
+			log.Printf("storage runtime config bootstrap failed: %v", err)
+			continue
+		}
 		if err := r.reportStartupLocalChanges(ctx); err != nil {
 			if !sleepContext(ctx, bootstrapRetryInterval) {
 				return nil, nil, nil, false
@@ -167,6 +175,16 @@ func (r *Runtime) refreshLocalState(ctx context.Context) error {
 
 	r.setLocalState(replicas, shares, replicaFiles)
 	log.Printf("storage runtime refreshed local state replicas=%d shares=%d", len(replicas), len(shares))
+	return nil
+}
+
+func (r *Runtime) refreshLocalConfig(ctx context.Context) error {
+	items, err := r.client.GetConfig(ctx)
+	if err != nil {
+		return err
+	}
+	r.setLocalConfig(items)
+	log.Printf("storage runtime refreshed config items=%d", len(items))
 	return nil
 }
 
@@ -257,6 +275,19 @@ func (r *Runtime) setLocalState(replicas []apiclient.Replica, shares []apiclient
 	for replicaID, files := range replicaFiles {
 		r.replicaFiles[replicaID] = append([]apiclient.ReplicaInventoryFile(nil), files...)
 	}
+}
+
+func (r *Runtime) setLocalConfig(items []apiclient.ConfigItem) {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+
+	r.config = append([]apiclient.ConfigItem(nil), items...)
+}
+
+func (r *Runtime) configSnapshot() []apiclient.ConfigItem {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+	return append([]apiclient.ConfigItem(nil), r.config...)
 }
 
 func (r *Runtime) sharesSnapshot() []apiclient.Share {
@@ -756,6 +787,12 @@ func (r *Runtime) handleCommand(ctx context.Context, command apiclient.Command) 
 			return false
 		}
 		r.stopDeletedReplicaWatchers()
+		return r.markCommandCompleted(ctx, command.ID)
+	case "refresh_config":
+		if err := r.refreshLocalConfig(ctx); err != nil {
+			r.markCommandFailed(ctx, command.ID, err)
+			return false
+		}
 		return r.markCommandCompleted(ctx, command.ID)
 	case "scan_replica":
 		if err := r.scanReplica(ctx, command); err != nil {

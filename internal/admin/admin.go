@@ -147,6 +147,29 @@ type userList struct {
 	Total int64  `json:"total"`
 }
 
+type configItem struct {
+	Key   string          `json:"key"`
+	Value json.RawMessage `json:"value"`
+}
+
+type configList struct {
+	Items []configItem `json:"items"`
+}
+
+type configUpdateItem struct {
+	Key   string `json:"key"`
+	Value any    `json:"value"`
+}
+
+type configView struct {
+	Key         string
+	Label       string
+	Description string
+	Kind        string
+	Value       string
+	BoolValue   bool
+}
+
 type inventoryFile struct {
 	ID          uint      `json:"id"`
 	InventoryID uint      `json:"inventory_id"`
@@ -197,6 +220,7 @@ type pageData struct {
 	Roles               []role
 	Role                role
 	PermissionResources []rolePermissionResource
+	Settings            []configView
 	IsEdit              bool
 	FolderURI           string
 	FileURIs            string
@@ -266,6 +290,10 @@ func Register(mux *http.ServeMux, api http.Handler) error {
 	mux.HandleFunc("POST /dashboard/roles", handler.protected(handler.createRole))
 	mux.HandleFunc("GET /dashboard/roles/{id}/edit", handler.protected(handler.editRolePage))
 	mux.HandleFunc("POST /dashboard/roles/{id}", handler.protected(handler.updateRole))
+	mux.HandleFunc("GET /dashboard/settings", handler.protected(handler.settingsPage))
+	mux.HandleFunc("POST /dashboard/settings", handler.protected(handler.updateSettings))
+	mux.HandleFunc("POST /dashboard/settings/reset", handler.protected(handler.resetSettings))
+	mux.HandleFunc("POST /dashboard/settings/{key}/reset", handler.protected(handler.resetSetting))
 	return nil
 }
 
@@ -962,6 +990,69 @@ func (h *Handler) updateRole(w http.ResponseWriter, r *http.Request, sess authCo
 	http.Redirect(w, r, "/dashboard/roles", http.StatusSeeOther)
 }
 
+func (h *Handler) settingsPage(w http.ResponseWriter, r *http.Request, sess authContext) {
+	h.renderSettingsPage(w, r, sess, "")
+}
+
+func (h *Handler) renderSettingsPage(w http.ResponseWriter, r *http.Request, sess authContext, message string) {
+	var list configList
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, "/api/admin/config", nil, &list); err != nil {
+		h.renderError(w, r, sess, err)
+		return
+	}
+	h.render(w, "settings", pageData{
+		Title: "Settings", Subtitle: "Update coordinator-managed sharing configuration.",
+		Active: "settings", Settings: configViews(list.Items), Error: message,
+	})
+}
+
+func (h *Handler) updateSettings(w http.ResponseWriter, r *http.Request, sess authContext) {
+	if err := r.ParseForm(); err != nil {
+		h.settingsFormError(w, configViewsFromForm(r.Form), "Invalid form submission.")
+		return
+	}
+	updates, err := configUpdatesFromForm(r.Form)
+	if err != nil {
+		h.settingsFormError(w, configViewsFromForm(r.Form), err.Error())
+		return
+	}
+	input := map[string]any{"items": updates}
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/admin/config", input, nil); err != nil {
+		if errors.Is(err, errUnauthorized) {
+			h.renderError(w, r, sess, err)
+			return
+		}
+		h.settingsFormError(w, configViewsFromForm(r.Form), apiMessage(err))
+		return
+	}
+	http.Redirect(w, r, "/dashboard/settings", http.StatusSeeOther)
+}
+
+func (h *Handler) resetSettings(w http.ResponseWriter, r *http.Request, sess authContext) {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodDelete, "/api/admin/config", nil, nil); err != nil {
+		if errors.Is(err, errUnauthorized) {
+			h.renderError(w, r, sess, err)
+			return
+		}
+		h.renderSettingsPage(w, r, sess, apiMessage(err))
+		return
+	}
+	http.Redirect(w, r, "/dashboard/settings", http.StatusSeeOther)
+}
+
+func (h *Handler) resetSetting(w http.ResponseWriter, r *http.Request, sess authContext) {
+	key := r.PathValue("key")
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodDelete, "/api/admin/config/"+url.PathEscape(key), nil, nil); err != nil {
+		if errors.Is(err, errUnauthorized) {
+			h.renderError(w, r, sess, err)
+			return
+		}
+		h.renderSettingsPage(w, r, sess, apiMessage(err))
+		return
+	}
+	http.Redirect(w, r, "/dashboard/settings", http.StatusSeeOther)
+}
+
 func (h *Handler) protected(next func(http.ResponseWriter, *http.Request, authContext)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		accessToken, ok := bearerToken(r.Header.Get("Authorization"))
@@ -1189,6 +1280,13 @@ func (h *Handler) roleFormError(w http.ResponseWriter, edit bool, item role, per
 	}
 	h.render(w, "role_form", pageData{
 		Title: title, Active: "roles", Role: item, PermissionResources: rolePermissionResources(), IsEdit: edit, Error: message,
+	})
+}
+
+func (h *Handler) settingsFormError(w http.ResponseWriter, settings []configView, message string) {
+	h.render(w, "settings", pageData{
+		Title: "Settings", Subtitle: "Update coordinator-managed sharing configuration.",
+		Active: "settings", Settings: settings, Error: message,
 	})
 }
 
@@ -1482,6 +1580,136 @@ func rolePermissionResources() []rolePermissionResource {
 		{Name: "inventories", Actions: []string{"read", "update", "create", "delete"}},
 		{Name: "nodes", Actions: []string{"read", "update", "create", "delete"}},
 		{Name: "settings", Actions: []string{"read", "update"}},
+	}
+}
+
+func configViews(items []configItem) []configView {
+	byKey := make(map[string]json.RawMessage, len(items))
+	for _, item := range items {
+		byKey[item.Key] = item.Value
+	}
+	result := make([]configView, 0, len(configDefinitions()))
+	for _, def := range configDefinitions() {
+		view := def
+		value := byKey[def.Key]
+		switch def.Kind {
+		case "bool":
+			var parsed bool
+			_ = json.Unmarshal(value, &parsed)
+			view.BoolValue = parsed
+			view.Value = strconv.FormatBool(parsed)
+		case "int":
+			var parsed int
+			_ = json.Unmarshal(value, &parsed)
+			view.Value = strconv.Itoa(parsed)
+		case "int_list":
+			var parsed []int
+			_ = json.Unmarshal(value, &parsed)
+			parts := make([]string, 0, len(parsed))
+			for _, item := range parsed {
+				parts = append(parts, strconv.Itoa(item))
+			}
+			view.Value = strings.Join(parts, ", ")
+		}
+		result = append(result, view)
+	}
+	return result
+}
+
+func configViewsFromForm(values url.Values) []configView {
+	result := make([]configView, 0, len(configDefinitions()))
+	for _, def := range configDefinitions() {
+		view := def
+		switch def.Kind {
+		case "bool":
+			view.BoolValue = values.Get(def.Key) == "true"
+			view.Value = strconv.FormatBool(view.BoolValue)
+		default:
+			view.Value = strings.TrimSpace(values.Get(def.Key))
+		}
+		result = append(result, view)
+	}
+	return result
+}
+
+func configUpdatesFromForm(values url.Values) ([]configUpdateItem, error) {
+	result := make([]configUpdateItem, 0, len(configDefinitions()))
+	for _, def := range configDefinitions() {
+		switch def.Kind {
+		case "bool":
+			result = append(result, configUpdateItem{Key: def.Key, Value: values.Get(def.Key) == "true"})
+		case "int":
+			value, err := strconv.Atoi(strings.TrimSpace(values.Get(def.Key)))
+			if err != nil || value <= 0 {
+				return nil, fmt.Errorf("%s must be a positive integer", def.Label)
+			}
+			result = append(result, configUpdateItem{Key: def.Key, Value: value})
+		case "int_list":
+			parsed, err := parseConfigIntList(values.Get(def.Key))
+			if err != nil {
+				return nil, fmt.Errorf("%s must be a non-empty list of unique positive integers", def.Label)
+			}
+			result = append(result, configUpdateItem{Key: def.Key, Value: parsed})
+		}
+	}
+	return result, nil
+}
+
+func parseConfigIntList(value string) ([]int, error) {
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\n' || r == '\r' || r == '\t'
+	})
+	if len(fields) == 0 {
+		return nil, errors.New("empty integer list")
+	}
+	result := make([]int, 0, len(fields))
+	seen := make(map[int]struct{}, len(fields))
+	for _, field := range fields {
+		parsed, err := strconv.Atoi(strings.TrimSpace(field))
+		if err != nil || parsed <= 0 {
+			return nil, errors.New("invalid integer")
+		}
+		if _, ok := seen[parsed]; ok {
+			return nil, errors.New("duplicate integer")
+		}
+		seen[parsed] = struct{}{}
+		result = append(result, parsed)
+	}
+	return result, nil
+}
+
+func configDefinitions() []configView {
+	return []configView{
+		{
+			Key:         "sharing.thumbnails.sizes",
+			Label:       "Thumbnail sizes",
+			Description: "Allowed thumbnail widths in pixels.",
+			Kind:        "int_list",
+		},
+		{
+			Key:         "sharing.thumbnail_default_size",
+			Label:       "Default thumbnail size",
+			Description: "Default thumbnail width; it must be one of the configured thumbnail sizes.",
+			Kind:        "int",
+		},
+		{
+			Key:         "sharing.thumbnails_generate_for_video",
+			Label:       "Generate video thumbnails",
+			Description: "Generate thumbnails for video shares.",
+			Kind:        "bool",
+		},
+		{
+			Key:         "sharing.video_inline_max_size_mb",
+			Label:       "Inline video limit",
+			Description: "Maximum inline video size in megabytes.",
+			Kind:        "int",
+		},
+		{
+			Key:         "sharing.video_playback_enabled",
+			Label:       "Video playback",
+			Description: "Enable video playback in sharing views.",
+			Kind:        "bool",
+		},
 	}
 }
 

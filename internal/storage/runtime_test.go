@@ -68,6 +68,8 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 			})
 		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			replicaCalls++
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
@@ -191,6 +193,8 @@ func TestRuntimeProcessesFallbackCommandsWhenWebSocketUnavailable(t *testing.T) 
 			})
 		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		default:
@@ -257,6 +261,8 @@ func TestRuntimeDeduplicatesCompletedRefreshStateCommand(t *testing.T) {
 				"commands":  []any{},
 			})
 		case "/node/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			mu.Lock()
@@ -454,6 +460,8 @@ func TestRuntimeScanReplicaReportsCreatedAndChangedFiles(t *testing.T) {
 			})
 		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
@@ -648,6 +656,8 @@ func TestRuntimeScanReplicaRefreshesLocalStateBeforeScan(t *testing.T) {
 			})
 		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
@@ -839,6 +849,8 @@ func TestRuntimeRefreshLocalStateSkipsDeletedReplicaFiles(t *testing.T) {
 			})
 		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
@@ -920,6 +932,77 @@ func TestRuntimeRefreshLocalStateSkipsDeletedReplicaFiles(t *testing.T) {
 	}
 	if cancelCalls != 1 || runtime.replicaWatcherExists(8) {
 		t.Fatalf("deleted watcher cancelCalls = %d exists = %t, want 1 and false", cancelCalls, runtime.replicaWatcherExists(8))
+	}
+}
+
+func TestRuntimeRefreshConfigCommandReloadsConfigAndCompletes(t *testing.T) {
+	commandCompleted := false
+	configCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/node/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":                   "node-a",
+				"access_token":              "access-token",
+				"refresh_token":             "refresh-token",
+				"access_token_expires_at":   time.Now().Add(time.Hour).Format(time.RFC3339Nano),
+				"refresh_token_expires_at":  time.Now().Add(2 * time.Hour).Format(time.RFC3339Nano),
+				"transfer_token_public_key": "",
+			})
+		case "/node/config":
+			if r.Method != http.MethodGet {
+				t.Fatalf("config method = %s, want GET", r.Method)
+			}
+			configCalls++
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{"key": "sharing.video_inline_max_size_mb", "value": 50},
+			})
+		case "/node/commands/121":
+			var body struct {
+				Status string `json:"status"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("Decode(command update) error = %v", err)
+			}
+			if body.Status != "completed" {
+				t.Fatalf("command status = %q, want completed", body.Status)
+			}
+			commandCompleted = true
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":         121,
+				"node_id":    "node-a",
+				"type":       "refresh_config",
+				"status":     body.Status,
+				"payload":    map[string]any{},
+				"created_at": time.Now().Format(time.RFC3339Nano),
+				"updated_at": time.Now().Format(time.RFC3339Nano),
+			})
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	runtime := newRuntimeForTest(t, server.URL)
+	ok := runtime.handleCommand(context.Background(), apiclient.Command{
+		ID:      121,
+		NodeID:  "node-a",
+		Type:    "refresh_config",
+		Status:  "pending",
+		Payload: []byte(`{}`),
+	})
+	if !ok {
+		t.Fatal("handleCommand() = false, want true")
+	}
+	if !commandCompleted {
+		t.Fatal("command was not marked completed")
+	}
+	if configCalls != 1 {
+		t.Fatalf("configCalls = %d, want 1", configCalls)
+	}
+	items := runtime.configSnapshot()
+	if len(items) != 1 || items[0].Key != "sharing.video_inline_max_size_mb" || string(items[0].Value) != "50" {
+		t.Fatalf("configSnapshot() = %+v, want stored config item", items)
 	}
 }
 
@@ -1071,6 +1154,8 @@ func TestRuntimeReconcileReplicaTransfersPendingFiles(t *testing.T) {
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
 		case "/node/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
@@ -1235,6 +1320,8 @@ func TestRuntimeReconcileReplicaDeletesPendingDeletedFiles(t *testing.T) {
 			})
 		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": 4, "inventory_id": 2, "node_id": "node-a", "uri": destinationRoot, "status": "active", "type": "filesystem"},
@@ -1336,6 +1423,8 @@ func TestRuntimeReconcileReplicaDeletesUnknownDownstreamFiles(t *testing.T) {
 			})
 		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": 4, "inventory_id": 2, "node_id": "node-a", "uri": destinationRoot, "status": "active", "type": "filesystem", "upstream_replica_id": 3},
@@ -1401,6 +1490,8 @@ func TestRuntimeReconcileReplicaMarksTerminalFileErrorAndContinues(t *testing.T)
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
 		case "/node/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
@@ -1499,6 +1590,8 @@ func TestRuntimeReconcileReplicaAuthErrorStopsWithoutFileStatusUpdates(t *testin
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
 		case "/node/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
@@ -1742,6 +1835,8 @@ func TestRuntimeStartsReplicaWatcherAndLogsChanges(t *testing.T) {
 				"commands":  []any{},
 			})
 		case "/node/shares":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{

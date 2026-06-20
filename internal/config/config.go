@@ -126,7 +126,7 @@ var defaultConfigFiles = []string{
 }
 
 const (
-	SettingSharingThumbnailSizes             = "sharing.thumbnail_sizes"
+	SettingSharingThumbnailSizes             = "sharing.thumbnails.sizes"
 	SettingSharingThumbnailDefaultSize       = "sharing.thumbnail_default_size"
 	SettingSharingThumbnailsGenerateForVideo = "sharing.thumbnails_generate_for_video"
 	SettingSharingVideoInlineMaxSizeMB       = "sharing.video_inline_max_size_mb"
@@ -153,7 +153,7 @@ func Load() (Config, error) {
 			FileTransferTimeout: resolveDuration("APP_FILE_TRANSFER_TIMEOUT", fileCfg.App.FileTransferTimeout, 30*time.Minute),
 		},
 		Sharing: SharingConfig{
-			ThumbnailSizes:             resolveIntSlice("SHARING_THUMBNAIL_SIZES", fileCfg.Sharing.ThumbnailSizes, []int{256, 384, 512, 768, 1024}),
+			ThumbnailSizes:             resolveIntSlice("SHARING_THUMBNAIL_SIZES", fileCfg.Sharing.ThumbnailSizes, []int{256, 512, 1024}),
 			ThumbnailDefaultSize:       resolveInt("SHARING_THUMBNAIL_DEFAULT_SIZE", fileCfg.Sharing.ThumbnailDefaultSize, 256),
 			ThumbnailsGenerateForVideo: resolveBool("SHARING_THUMBNAILS_GENERATE_FOR_VIDEO", fileCfg.Sharing.ThumbnailsGenerateForVideo, true),
 			FfmpegPath:                 resolveString("SHARING_FFMPEG_PATH", fileCfg.Sharing.FfmpegPath, "ffmpeg"),

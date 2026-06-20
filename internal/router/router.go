@@ -28,6 +28,7 @@ type services struct {
 	inventories *service.InventoryService
 	replicas    *service.ReplicaService
 	shares      *service.ShareService
+	configs     *service.ConfigService
 	storage     *storage.Runtime
 }
 
@@ -42,11 +43,16 @@ func New(
 	replicaService *service.ReplicaService,
 	shareService *service.ShareService,
 	storageRuntime *storage.Runtime,
+	configServices ...*service.ConfigService,
 ) http.Handler {
 	mux := http.NewServeMux()
 	api := humago.New(mux, huma.DefaultConfig(ServiceName, info.Version))
 	adminGroup := huma.NewGroup(api, "/api/admin")
 	nodeGroup := huma.NewGroup(api, "/node")
+	var configService *service.ConfigService
+	if len(configServices) > 0 {
+		configService = configServices[0]
+	}
 
 	svc := services{
 		auth:        authService,
@@ -56,6 +62,7 @@ func New(
 		inventories: inventoryService,
 		replicas:    replicaService,
 		shares:      shareService,
+		configs:     configService,
 		storage:     storageRuntime,
 	}
 
@@ -72,12 +79,14 @@ func New(
 		registerInternalCommandRoutes(nodeGroup, svc)
 		registerInternalReplicaRoutes(nodeGroup, svc)
 		registerInternalShareRoutes(nodeGroup, svc)
+		registerInternalConfigRoutes(nodeGroup, svc)
 		registerUserRoutes(adminGroup, svc)
 		registerRoleRoutes(adminGroup, svc)
 		registerNodeRoutes(adminGroup, svc)
 		registerInventoryRoutes(adminGroup, svc)
 		registerReplicaRoutes(adminGroup, svc)
 		registerShareRoutes(adminGroup, svc)
+		registerConfigRoutes(adminGroup, svc)
 		if err := admin.Register(mux, mux); err != nil {
 			panic(err)
 		}

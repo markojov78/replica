@@ -47,6 +47,15 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	inventoryRepo := repository.NewInventoryRepository(database)
 	nodeService := service.NewNodeService(nodeRepo, commandRepo)
 	settingService := service.NewSettingService(repository.NewSettingRepository(database))
+	configService := service.NewConfigService(repository.NewConfigRepository(database), config.Config{
+		Sharing: config.SharingConfig{
+			ThumbnailSizes:             []int{128, 256, 512},
+			ThumbnailDefaultSize:       256,
+			ThumbnailsGenerateForVideo: true,
+			VideoInlineMaxSizeMB:       25,
+			VideoPlaybackEnabled:       true,
+		},
+	})
 	handler := New(
 		config.Config{App: config.AppConfig{Coordinator: true}},
 		buildinfo.Info{Version: "test"},
@@ -66,6 +75,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService, settingService),
 		service.NewShareService(repository.NewShareRepository(database), nil),
 		nil,
+		configService,
 	)
 
 	response := adminRequest(t, handler, http.MethodGet, "/dashboard/nodes", nil, "")
@@ -563,6 +573,48 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/nodes", nil, accessToken)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "node-a") {
 		t.Fatalf("nodes response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/settings", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "Settings") ||
+		!strings.Contains(response.Body.String(), `href="/dashboard/settings" class="active"`) ||
+		!strings.Contains(response.Body.String(), `name="sharing.thumbnails.sizes"`) ||
+		!strings.Contains(response.Body.String(), `name="sharing.thumbnail_default_size"`) ||
+		!strings.Contains(response.Body.String(), `name="sharing.thumbnails_generate_for_video"`) ||
+		!strings.Contains(response.Body.String(), `name="sharing.video_inline_max_size_mb"`) ||
+		!strings.Contains(response.Body.String(), `name="sharing.video_playback_enabled"`) {
+		t.Fatalf("settings response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/settings", url.Values{
+		"sharing.thumbnails.sizes":              {"128, 512"},
+		"sharing.thumbnail_default_size":        {"512"},
+		"sharing.thumbnails_generate_for_video": {"false"},
+		"sharing.video_inline_max_size_mb":      {"50"},
+		"sharing.video_playback_enabled":        {"true"},
+	}, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/settings" {
+		t.Fatalf("update settings response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	var setting model.Setting
+	if err := database.First(&setting, "key = ?", "sharing.video_inline_max_size_mb").Error; err != nil {
+		t.Fatalf("First(video setting) error = %v", err)
+	}
+	if setting.Value != "50" {
+		t.Fatalf("video setting = %q, want 50", setting.Value)
+	}
+
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/settings/sharing.video_inline_max_size_mb/reset", nil, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/settings" {
+		t.Fatalf("reset setting response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	var settingCount int64
+	if err := database.Model(&model.Setting{}).Where("key = ?", "sharing.video_inline_max_size_mb").Count(&settingCount).Error; err != nil {
+		t.Fatalf("Count(video setting) error = %v", err)
+	}
+	if settingCount != 0 {
+		t.Fatalf("video setting count = %d, want 0", settingCount)
 	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/nodes", nil, "invalid")

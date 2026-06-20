@@ -99,6 +99,7 @@ const (
 	NodeCommandTypeReconcileReplica CommandType = "reconcile_replica"
 	NodeCommandTypeScanReplica      CommandType = "scan_replica"
 	NodeCommandTypeRefreshState     CommandType = "refresh_state"
+	NodeCommandTypeRefreshConfig    CommandType = "refresh_config"
 )
 
 const (
@@ -226,7 +227,7 @@ func (s CommandStatus) Valid() bool {
 
 func (t CommandType) Valid() bool {
 	switch t {
-	case NodeCommandTypeReconcileReplica, NodeCommandTypeScanReplica, NodeCommandTypeRefreshState:
+	case NodeCommandTypeReconcileReplica, NodeCommandTypeScanReplica, NodeCommandTypeRefreshState, NodeCommandTypeRefreshConfig:
 		return true
 	default:
 		return false

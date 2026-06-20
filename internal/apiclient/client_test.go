@@ -252,6 +252,43 @@ func newTestClient(t *testing.T, coordinatorURL string) *Client {
 	return client
 }
 
+func TestClientGetConfigUsesNodeConfigEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/node/auth/login":
+			_ = json.NewEncoder(w).Encode(NodeTokenPair{
+				NodeID:                "node-a",
+				AccessToken:           "access-token",
+				RefreshToken:          "refresh-token",
+				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
+				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
+			})
+		case "/node/config":
+			if r.Method != http.MethodGet {
+				t.Fatalf("method = %s, want GET", r.Method)
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
+				t.Fatalf("Authorization = %q, want %q", got, "Bearer access-token")
+			}
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{"key": "sharing.video_inline_max_size_mb", "value": 50},
+			})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	items, err := client.GetConfig(context.Background())
+	if err != nil {
+		t.Fatalf("GetConfig() error = %v", err)
+	}
+	if len(items) != 1 || items[0].Key != "sharing.video_inline_max_size_mb" || string(items[0].Value) != "50" {
+		t.Fatalf("GetConfig() = %+v, want config item", items)
+	}
+}
+
 func TestClientUpdateCommandUsesInternalEndpoint(t *testing.T) {
 	var gotBody struct {
 		Status string `json:"status"`

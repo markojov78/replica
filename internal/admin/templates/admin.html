@@ -26,8 +26,7 @@
       <a href="/dashboard/shares" class="{{if eq .Active "shares"}}active{{end}}">Shares</a>
       <a href="/dashboard/users" class="{{if eq .Active "users"}}active{{end}}">Users</a>
       <a href="/dashboard/roles" class="{{if eq .Active "roles"}}active{{end}}">Roles</a>
-      <span>Replication <b>Later</b></span>
-      <span>Settings <b>Later</b></span>
+      <a href="/dashboard/settings" class="{{if eq .Active "settings"}}active{{end}}">Settings</a>
     </nav>
     <form action="/dashboard/logout" method="post" class="logout">
       <div class="current-user">User: <span data-current-username></span></div>
@@ -280,6 +279,43 @@
       </table>
     </div>
     <div class="footer-actions full"><a class="btn" href="/dashboard/roles">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save role{{else}}Create role{{end}}</button></div>
+  </form>
+</section>
+{{template "layout_end" .}}
+{{end}}
+
+{{define "settings"}}
+{{template "layout_start" .}}
+<div class="actions">
+  <a class="btn ghost" href="/dashboard/settings">Refresh</a>
+  <form action="/dashboard/settings/reset" method="post"><button class="danger" type="submit">Reset all</button></form>
+</div>
+<section class="card form-card">
+  {{template "alert" .}}
+  <form action="/dashboard/settings" method="post" class="form-grid">
+    {{range .Settings}}
+      <div class="setting-field full">
+        <div>
+          <label for="setting-{{.Key}}">{{.Label}}</label>
+          <p>{{.Description}}</p>
+          <code>{{.Key}}</code>
+        </div>
+        <div class="setting-control">
+          {{if eq .Kind "bool"}}
+            <select id="setting-{{.Key}}" name="{{.Key}}">
+              <option value="true" {{if .BoolValue}}selected{{end}}>enabled</option>
+              <option value="false" {{if not .BoolValue}}selected{{end}}>disabled</option>
+            </select>
+          {{else if eq .Kind "int_list"}}
+            <input id="setting-{{.Key}}" name="{{.Key}}" value="{{.Value}}" required>
+          {{else}}
+            <input id="setting-{{.Key}}" name="{{.Key}}" type="number" min="1" step="1" value="{{.Value}}" required>
+          {{end}}
+          <button type="submit" formaction="/dashboard/settings/{{pathEscape .Key}}/reset" formmethod="post">Reset</button>
+        </div>
+      </div>
+    {{end}}
+    <div class="footer-actions full"><button class="primary" type="submit">Save settings</button></div>
   </form>
 </section>
 {{template "layout_end" .}}
