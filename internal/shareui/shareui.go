@@ -48,6 +48,7 @@ type pageData struct {
 	APIBasePath    string
 	ThumbnailSizes []int
 	ThumbnailSize  int
+	ViewMode       string
 	Error          string
 	Message        string
 }
@@ -62,19 +63,7 @@ type fileView struct {
 }
 
 func Register(mux *http.ServeMux, runtime *storage.Runtime) error {
-	pages, err := template.New("shareui").Funcs(template.FuncMap{
-		"formatBytes":      formatBytes,
-		"formatTime":       formatTime,
-		"hasPermission":    storage.PermissionAllowed,
-		"joinPermissions":  strings.Join,
-		"pageCount":        pageCount,
-		"pageStart":        pageStart,
-		"pageEnd":          pageEnd,
-		"add":              func(a, b int) int { return a + b },
-		"sub":              func(a, b int) int { return a - b },
-		"pathEscape":       url.PathEscape,
-		"thumbnailSizeURL": thumbnailSizeURL,
-	}).ParseFS(assets, "templates/*.html")
+	pages, err := template.New("shareui").Funcs(templateFuncs()).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		return err
 	}
@@ -92,6 +81,24 @@ func Register(mux *http.ServeMux, runtime *storage.Runtime) error {
 	mux.HandleFunc("POST /w/{link_hash}/files/{file_id}/replace", handler.replacePublicFile)
 	mux.HandleFunc("POST /w/{link_hash}/files/{file_id}/delete", handler.deletePublicFile)
 	return nil
+}
+
+func templateFuncs() template.FuncMap {
+	return template.FuncMap{
+		"formatBytes":     formatBytes,
+		"formatTime":      formatTime,
+		"hasPermission":   storage.PermissionAllowed,
+		"joinPermissions": strings.Join,
+		"pageCount":       pageCount,
+		"pageStart":       pageStart,
+		"pageEnd":         pageEnd,
+		"add":             func(a, b int) int { return a + b },
+		"sub":             func(a, b int) int { return a - b },
+		"pathEscape":      url.PathEscape,
+		"pageURL":         pageURL,
+		"viewURL":         viewURL,
+		"thumbStyle":      thumbStyle,
+	}
 }
 
 func mustSub(embedded embed.FS, dir string) fs.FS {
@@ -295,6 +302,7 @@ func (h *Handler) renderFilePage(w http.ResponseWriter, r *http.Request, public 
 func (h *Handler) renderFilePageWithMessages(w http.ResponseWriter, r *http.Request, public bool, result storage.ShareFileListResult, errMessage, message string) {
 	cfg := h.runtime.SharingConfig()
 	size := selectedThumbnailSize(r, cfg)
+	viewMode := selectedViewMode(r)
 	basePath := fmt.Sprintf("/share/shares/%d", result.Share.ID)
 	apiBase := fmt.Sprintf("/api/share/shares/%d", result.Share.ID)
 	title := result.Share.Name
@@ -320,6 +328,7 @@ func (h *Handler) renderFilePageWithMessages(w http.ResponseWriter, r *http.Requ
 		APIBasePath:    apiBase,
 		ThumbnailSizes: cfg.ThumbnailSizes,
 		ThumbnailSize:  size,
+		ViewMode:       viewMode,
 		Error:          errMessage,
 		Message:        message,
 	}
@@ -343,7 +352,7 @@ func parsePagination(r *http.Request) (int, int) {
 }
 
 func parseCount(r *http.Request) int {
-	return parsePositiveQuery(r, "count", 20)
+	return parsePositiveRequestValue(r, "count", 20)
 }
 
 func parsePositiveQuery(r *http.Request, name string, fallback int) int {
@@ -357,14 +366,42 @@ func parsePositiveQuery(r *http.Request, name string, fallback int) int {
 	return value
 }
 
+func parsePositiveRequestValue(r *http.Request, name string, fallback int) int {
+	raw := strings.TrimSpace(r.URL.Query().Get(name))
+	if raw == "" {
+		raw = strings.TrimSpace(r.FormValue(name))
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 1 {
+		return fallback
+	}
+	if name == "count" && value > 100 {
+		return 100
+	}
+	return value
+}
+
 func selectedThumbnailSize(r *http.Request, cfg config.SharingConfig) int {
-	size := parsePositiveQuery(r, "thumb", cfg.ThumbnailDefaultSize)
+	size := parsePositiveRequestValue(r, "thumb", cfg.ThumbnailDefaultSize)
 	for _, allowed := range cfg.ThumbnailSizes {
 		if allowed == size {
 			return size
 		}
 	}
 	return cfg.ThumbnailDefaultSize
+}
+
+func selectedViewMode(r *http.Request) string {
+	viewMode := strings.TrimSpace(r.URL.Query().Get("view"))
+	if viewMode == "" {
+		viewMode = strings.TrimSpace(r.FormValue("view"))
+	}
+	switch viewMode {
+	case "grid":
+		return "grid"
+	default:
+		return "list"
+	}
 }
 
 func uploadedFile(w http.ResponseWriter, r *http.Request) (string, multipart.File, int64, bool) {
@@ -461,8 +498,29 @@ func isPlayableVideo(ext string) bool {
 	return ext == "mp4" || ext == "webm"
 }
 
-func thumbnailSizeURL(base string, page, count, thumb int) string {
-	return fmt.Sprintf("%s?page=%d&count=%d&thumb=%d", base, page, count, thumb)
+func pageURL(base string, page, count, thumb int, viewMode string) string {
+	return fmt.Sprintf("%s?page=%d&count=%d&thumb=%d&view=%s", base, page, count, thumb, url.QueryEscape(selectedViewValue(viewMode)))
+}
+
+func viewURL(base string, page, count, thumb int, viewMode string) string {
+	return pageURL(base, page, count, thumb, viewMode)
+}
+
+func selectedViewValue(viewMode string) string {
+	if viewMode == "grid" {
+		return "grid"
+	}
+	return "list"
+}
+
+func thumbStyle(size int) template.CSS {
+	if size < 64 {
+		size = 64
+	}
+	if size > 512 {
+		size = 512
+	}
+	return template.CSS(fmt.Sprintf("--thumb-size:%dpx", size))
 }
 
 func pageCount(total int64, count int) int {

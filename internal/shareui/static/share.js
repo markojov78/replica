@@ -158,6 +158,7 @@
   }
 
   function bindAuthenticatedPage() {
+    applyFileViewPreferences();
     fillCurrentUser();
     request("/api/share/auth/me")
       .then(async (response) => {
@@ -205,6 +206,10 @@
     loadAuthenticatedThumbnails();
   }
 
+  function bindPublicPage() {
+    applyFileViewPreferences();
+  }
+
   async function authenticatedDownload(path, filename) {
     const response = await request(path);
     if (!response?.ok) {
@@ -229,11 +234,54 @@
       }
       const blobURL = URL.createObjectURL(await response.blob());
       const image = document.createElement("img");
-      image.className = "thumb";
+      image.className = target.classList.contains("grid-auth-thumb") ? "grid-thumb" : "thumb";
       image.alt = "";
       image.src = blobURL;
       target.replaceWith(image);
     }
+  }
+
+  function applyFileViewPreferences() {
+    const viewRoot = document.querySelector("[data-share-file-view]");
+    if (!viewRoot) {
+      return;
+    }
+    const viewKey = prefix + "file_view_mode";
+    const thumbKey = prefix + "thumbnail_size";
+    const params = new URLSearchParams(window.location.search);
+    const current = viewRoot.dataset.viewMode === "grid" ? "grid" : "list";
+    const currentThumb = viewRoot.dataset.thumbnailSize || "";
+    if (params.has("view")) {
+      localStorage.setItem(viewKey, current);
+    }
+    if (params.has("thumb") && currentThumb) {
+      localStorage.setItem(thumbKey, currentThumb);
+    }
+
+    const storedView = localStorage.getItem(viewKey);
+    const storedThumb = localStorage.getItem(thumbKey);
+    let changed = false;
+
+    if (storedView !== "grid" && storedView !== "list") {
+      localStorage.setItem(viewKey, current);
+    } else if (!params.has("view") && storedView !== current) {
+      params.set("view", storedView);
+      changed = true;
+    }
+
+    if (!storedThumb || !/^\d+$/.test(storedThumb)) {
+      if (currentThumb) {
+        localStorage.setItem(thumbKey, currentThumb);
+      }
+    } else if (!params.has("thumb") && storedThumb !== currentThumb) {
+      params.set("thumb", storedThumb);
+      changed = true;
+    }
+
+    if (!changed) {
+      return;
+    }
+    window.location.replace(`${window.location.pathname}?${params.toString()}`);
   }
 
   document.body.addEventListener("htmx:configRequest", (event) => {
@@ -247,5 +295,7 @@
     bindAuthenticatedPage();
   } else if (document.querySelector("[data-share-login-form]")) {
     bootstrapLogin();
+  } else {
+    bindPublicPage();
   }
 })();

@@ -89,7 +89,7 @@
 
 {{define "share_files"}}
 {{template "layout_start" .}}
-<section class="panel">
+<section class="panel" data-share-file-view data-view-mode="{{.ViewMode}}" data-thumbnail-size="{{.ThumbnailSize}}">
   <div class="section-head">
     <div>
       {{if .Authenticated}}<a class="back-link" href="/share/shares">My shares</a>{{end}}
@@ -100,22 +100,77 @@
       <form method="get" action="{{.BasePath}}" hx-get="{{.BasePath}}" hx-target="body" hx-swap="outerHTML" class="inline-form">
         <input type="hidden" name="page" value="{{.Page}}">
         <input type="hidden" name="count" value="{{.Count}}">
+        <input type="hidden" name="view" value="{{.ViewMode}}">
         <label>Thumbnail size
           <select name="thumb" onchange="this.form.requestSubmit()">
             {{range .ThumbnailSizes}}<option value="{{.}}" {{if eq . $.ThumbnailSize}}selected{{end}}>{{.}}</option>{{end}}
           </select>
         </label>
       </form>
+      <div class="view-toggle" data-share-view-toggle>
+        <a class="btn {{if eq .ViewMode "list"}}active{{end}}" href="{{viewURL .BasePath .Page .Count .ThumbnailSize "list"}}" hx-get="{{viewURL .BasePath .Page .Count .ThumbnailSize "list"}}" hx-target="body" hx-swap="outerHTML" data-view-mode="list">List</a>
+        <a class="btn {{if eq .ViewMode "grid"}}active{{end}}" href="{{viewURL .BasePath .Page .Count .ThumbnailSize "grid"}}" hx-get="{{viewURL .BasePath .Page .Count .ThumbnailSize "grid"}}" hx-target="body" hx-swap="outerHTML" data-view-mode="grid">Grid</a>
+      </div>
     </div>
   </div>
   {{template "notice" .}}
   {{if hasPermission .Permissions "create"}}
   <form action="{{.BasePath}}/files" method="post" enctype="multipart/form-data" class="upload-form" data-share-form hx-post="{{.BasePath}}/files" hx-target="body" hx-swap="outerHTML">
+    <input type="hidden" name="count" value="{{.Count}}">
+    <input type="hidden" name="thumb" value="{{.ThumbnailSize}}">
+    <input type="hidden" name="view" value="{{.ViewMode}}">
     <input name="relative_uri" placeholder="relative/path/file.ext" required>
     <input name="file" type="file" required>
     <button type="submit" class="primary">Upload</button>
   </form>
   {{end}}
+  {{if eq .ViewMode "grid"}}
+  <section class="file-grid" style="{{thumbStyle .ThumbnailSize}}" data-view-mode="grid">
+    {{range .Files}}
+      <article class="file-card">
+        <div class="card-preview">
+          {{if .ThumbnailURL}}
+            <img class="grid-thumb" src="{{.ThumbnailURL}}" alt="" onerror="this.hidden=true; this.nextElementSibling.hidden=false">
+            <span class="file-fallback" hidden>{{.Type}}</span>
+          {{else}}
+            <span class="file-fallback grid-auth-thumb" data-auth-src="{{$.APIBasePath}}/files/{{.FileID}}/thumbnail?size={{$.ThumbnailSize}}">{{.Type}}</span>
+          {{end}}
+        </div>
+        <div class="card-body">
+          <h2>{{.RelativeURI}}</h2>
+          <p>{{formatBytes .Size}} · {{formatTime .Modified}}</p>
+        </div>
+        <div class="card-actions row-actions">
+          {{if $.Authenticated}}
+            <button type="button" data-auth-download="{{.DownloadPath}}" data-filename="{{.Name}}">Download</button>
+          {{else}}
+            <a class="btn" href="{{.DownloadPath}}">Download</a>
+          {{end}}
+          {{if hasPermission $.Permissions "update"}}
+          <form action="{{$.BasePath}}/files/{{.FileID}}/replace" method="post" enctype="multipart/form-data" data-share-form hx-post="{{$.BasePath}}/files/{{.FileID}}/replace" hx-target="body" hx-swap="outerHTML">
+            <input type="hidden" name="version" value="{{.InventoryVersion}}">
+            <input type="hidden" name="count" value="{{$.Count}}">
+            <input type="hidden" name="thumb" value="{{$.ThumbnailSize}}">
+            <input type="hidden" name="view" value="{{$.ViewMode}}">
+            <label class="file-button">Replace<input name="file" type="file" required onchange="this.form.requestSubmit()"></label>
+          </form>
+          {{end}}
+          {{if hasPermission $.Permissions "delete"}}
+          <form action="{{$.BasePath}}/files/{{.FileID}}/delete" method="post" data-share-form hx-post="{{$.BasePath}}/files/{{.FileID}}/delete" hx-target="body" hx-swap="outerHTML">
+            <input type="hidden" name="version" value="{{.InventoryVersion}}">
+            <input type="hidden" name="count" value="{{$.Count}}">
+            <input type="hidden" name="thumb" value="{{$.ThumbnailSize}}">
+            <input type="hidden" name="view" value="{{$.ViewMode}}">
+            <button type="submit" class="danger" data-confirm="Delete {{.Name}}?">Delete</button>
+          </form>
+          {{end}}
+        </div>
+      </article>
+    {{else}}
+      <div class="empty">No files found.</div>
+    {{end}}
+  </section>
+  {{else}}
   <table>
     <thead><tr><th>Name</th><th>Size</th><th>Type</th><th>Modified</th><th>Actions</th></tr></thead>
     <tbody>
@@ -137,12 +192,18 @@
           {{if hasPermission $.Permissions "update"}}
           <form action="{{$.BasePath}}/files/{{.FileID}}/replace" method="post" enctype="multipart/form-data" data-share-form hx-post="{{$.BasePath}}/files/{{.FileID}}/replace" hx-target="body" hx-swap="outerHTML">
             <input type="hidden" name="version" value="{{.InventoryVersion}}">
+            <input type="hidden" name="count" value="{{$.Count}}">
+            <input type="hidden" name="thumb" value="{{$.ThumbnailSize}}">
+            <input type="hidden" name="view" value="{{$.ViewMode}}">
             <label class="file-button">Replace<input name="file" type="file" required onchange="this.form.requestSubmit()"></label>
           </form>
           {{end}}
           {{if hasPermission $.Permissions "delete"}}
           <form action="{{$.BasePath}}/files/{{.FileID}}/delete" method="post" data-share-form hx-post="{{$.BasePath}}/files/{{.FileID}}/delete" hx-target="body" hx-swap="outerHTML">
             <input type="hidden" name="version" value="{{.InventoryVersion}}">
+            <input type="hidden" name="count" value="{{$.Count}}">
+            <input type="hidden" name="thumb" value="{{$.ThumbnailSize}}">
+            <input type="hidden" name="view" value="{{$.ViewMode}}">
             <button type="submit" class="danger" data-confirm="Delete {{.Name}}?">Delete</button>
           </form>
           {{end}}
@@ -153,6 +214,7 @@
     {{end}}
     </tbody>
   </table>
+  {{end}}
   {{template "pagination" .}}
 </section>
 {{template "layout_end" .}}
@@ -163,15 +225,24 @@
 <div class="pagination">
   <span>Showing {{pageStart .Total .Page .Count}} to {{pageEnd .Total .Page .Count}} of {{.Total}} {{if .Shares}}shares{{else}}files{{end}}</span>
   <div class="pager">
+    {{if .ThumbnailSize}}
+    <a class="btn {{if le .Page 1}}disabled{{end}}" href="{{pageURL .BasePath 1 .Count .ThumbnailSize .ViewMode}}" hx-get="{{pageURL .BasePath 1 .Count .ThumbnailSize .ViewMode}}" hx-target="body" hx-swap="outerHTML">first</a>
+    <a class="btn {{if le .Page 1}}disabled{{end}}" href="{{pageURL .BasePath (sub .Page 1) .Count .ThumbnailSize .ViewMode}}" hx-get="{{pageURL .BasePath (sub .Page 1) .Count .ThumbnailSize .ViewMode}}" hx-target="body" hx-swap="outerHTML">previous</a>
+    <span class="page-current">Page {{.Page}} of {{$pages}}</span>
+    <a class="btn {{if ge .Page $pages}}disabled{{end}}" href="{{pageURL .BasePath (add .Page 1) .Count .ThumbnailSize .ViewMode}}" hx-get="{{pageURL .BasePath (add .Page 1) .Count .ThumbnailSize .ViewMode}}" hx-target="body" hx-swap="outerHTML">next</a>
+    <a class="btn {{if ge .Page $pages}}disabled{{end}}" href="{{pageURL .BasePath $pages .Count .ThumbnailSize .ViewMode}}" hx-get="{{pageURL .BasePath $pages .Count .ThumbnailSize .ViewMode}}" hx-target="body" hx-swap="outerHTML">last</a>
+    {{else}}
     <a class="btn {{if le .Page 1}}disabled{{end}}" href="{{.BasePath}}?page=1&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-get="{{.BasePath}}?page=1&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-target="body" hx-swap="outerHTML">first</a>
     <a class="btn {{if le .Page 1}}disabled{{end}}" href="{{.BasePath}}?page={{sub .Page 1}}&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-get="{{.BasePath}}?page={{sub .Page 1}}&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-target="body" hx-swap="outerHTML">previous</a>
     <span class="page-current">Page {{.Page}} of {{$pages}}</span>
     <a class="btn {{if ge .Page $pages}}disabled{{end}}" href="{{.BasePath}}?page={{add .Page 1}}&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-get="{{.BasePath}}?page={{add .Page 1}}&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-target="body" hx-swap="outerHTML">next</a>
     <a class="btn {{if ge .Page $pages}}disabled{{end}}" href="{{.BasePath}}?page={{$pages}}&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-get="{{.BasePath}}?page={{$pages}}&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-target="body" hx-swap="outerHTML">last</a>
+    {{end}}
   </div>
   <form class="page-size" method="get" action="{{.BasePath}}" hx-get="{{.BasePath}}" hx-target="body" hx-swap="outerHTML">
     <input type="hidden" name="page" value="1">
     {{if .ThumbnailSize}}<input type="hidden" name="thumb" value="{{.ThumbnailSize}}">{{end}}
+    {{if .ThumbnailSize}}<input type="hidden" name="view" value="{{.ViewMode}}">{{end}}
     <select name="count" onchange="this.form.requestSubmit()">
       <option value="20" {{if eq .Count 20}}selected{{end}}>20</option>
       <option value="50" {{if eq .Count 50}}selected{{end}}>50</option>
