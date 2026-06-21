@@ -1,0 +1,187 @@
+{{define "head"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · Replica Share</title>
+  <link rel="stylesheet" href="/share/static/share.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+  <script src="/share/static/share.js" defer></script>
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/share/static/favicon-96x96.png">
+  <link rel="shortcut icon" type="image/x-icon" href="/share/static/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/share/static/apple-touch-icon.png">
+</head>
+{{end}}
+
+{{define "layout_start"}}
+{{template "head" .}}
+<body data-share-authenticated="{{if .Authenticated}}true{{else}}false{{end}}">
+<div class="share-app">
+  <header class="topbar">
+    <a class="brand" href="{{if .Authenticated}}/share/shares{{else if .Public}}{{.BasePath}}{{else}}/share{{end}}"><span class="logo-mark"></span><span>Replica Share</span></a>
+    {{if .Authenticated}}<form action="/share/logout" method="post" data-share-logout><button type="submit">Log out</button></form>{{end}}
+  </header>
+  <main class="page">
+{{end}}
+
+{{define "layout_end"}}
+  </main>
+</div>
+</body>
+</html>
+{{end}}
+
+{{define "notice"}}
+{{if .Error}}<div class="alert">{{.Error}}</div>{{end}}
+{{if .Message}}<div class="notice">{{.Message}}</div>{{end}}
+{{end}}
+
+{{define "login"}}
+{{template "head" .}}
+<body class="login-page">
+  <main class="login-card">
+    <div class="brand login-brand"><span class="logo-mark"></span><span>Replica Share</span></div>
+    <p>Sign in to access your shares</p>
+    <div class="alert login-error" data-share-login-error>{{.Error}}</div>
+    <form action="/api/share/auth/login" method="post" class="stack" data-share-login-form>
+      <label>Username<input name="username" required autofocus autocomplete="username"></label>
+      <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
+      <button type="submit" class="primary">Sign in</button>
+    </form>
+  </main>
+</body>
+</html>
+{{end}}
+
+{{define "share_list"}}
+{{template "layout_start" .}}
+<section class="panel">
+  <div class="section-head">
+    <div><h1>My shares</h1><p>Shares available on this storage node.</p></div>
+    <a class="btn" href="/share/shares" hx-get="/share/shares" hx-target="body" hx-swap="outerHTML">Refresh</a>
+  </div>
+  {{template "notice" .}}
+  <table>
+    <thead><tr><th>Name</th><th>Permissions</th><th>Files</th></tr></thead>
+    <tbody>
+    {{range .Shares}}
+      <tr>
+        <td><a class="name-link" href="/share/shares/{{.ID}}">▦ {{.Name}}</a></td>
+        <td>{{joinPermissions .EffectivePermissions ", "}}</td>
+        <td>{{.FileCount}}</td>
+      </tr>
+    {{else}}
+      <tr><td colspan="3" class="empty">No shares found.</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{template "pagination" .}}
+</section>
+{{template "layout_end" .}}
+{{end}}
+
+{{define "share_files"}}
+{{template "layout_start" .}}
+<section class="panel">
+  <div class="section-head">
+    <div>
+      {{if .Authenticated}}<a class="back-link" href="/share/shares">My shares</a>{{end}}
+      <h1>{{.Share.Name}}</h1>
+      <p>{{joinPermissions .Permissions ", "}}</p>
+    </div>
+    <div class="toolbar">
+      <form method="get" action="{{.BasePath}}" hx-get="{{.BasePath}}" hx-target="body" hx-swap="outerHTML" class="inline-form">
+        <input type="hidden" name="page" value="{{.Page}}">
+        <input type="hidden" name="count" value="{{.Count}}">
+        <label>Thumbnail size
+          <select name="thumb" onchange="this.form.requestSubmit()">
+            {{range .ThumbnailSizes}}<option value="{{.}}" {{if eq . $.ThumbnailSize}}selected{{end}}>{{.}}</option>{{end}}
+          </select>
+        </label>
+      </form>
+    </div>
+  </div>
+  {{template "notice" .}}
+  {{if hasPermission .Permissions "create"}}
+  <form action="{{.BasePath}}/files" method="post" enctype="multipart/form-data" class="upload-form" data-share-form hx-post="{{.BasePath}}/files" hx-target="body" hx-swap="outerHTML">
+    <input name="relative_uri" placeholder="relative/path/file.ext" required>
+    <input name="file" type="file" required>
+    <button type="submit" class="primary">Upload</button>
+  </form>
+  {{end}}
+  <table>
+    <thead><tr><th>Name</th><th>Size</th><th>Type</th><th>Modified</th><th>Actions</th></tr></thead>
+    <tbody>
+    {{range .Files}}
+      <tr>
+        <td>
+          {{if .ThumbnailURL}}<img class="thumb" src="{{.ThumbnailURL}}" alt="">{{else}}<span class="thumb" data-auth-src="{{$.APIBasePath}}/files/{{.FileID}}/thumbnail?size={{$.ThumbnailSize}}"></span>{{end}}
+          <span>{{.RelativeURI}}</span>
+        </td>
+        <td>{{formatBytes .Size}}</td>
+        <td>{{.Type}}</td>
+        <td>{{formatTime .Modified}}</td>
+        <td class="row-actions">
+          {{if $.Authenticated}}
+            <button type="button" data-auth-download="{{.DownloadPath}}" data-filename="{{.Name}}">Download</button>
+          {{else}}
+            <a class="btn" href="{{.DownloadPath}}">Download</a>
+          {{end}}
+          {{if hasPermission $.Permissions "update"}}
+          <form action="{{$.BasePath}}/files/{{.FileID}}/replace" method="post" enctype="multipart/form-data" data-share-form hx-post="{{$.BasePath}}/files/{{.FileID}}/replace" hx-target="body" hx-swap="outerHTML">
+            <input type="hidden" name="version" value="{{.InventoryVersion}}">
+            <label class="file-button">Replace<input name="file" type="file" required onchange="this.form.requestSubmit()"></label>
+          </form>
+          {{end}}
+          {{if hasPermission $.Permissions "delete"}}
+          <form action="{{$.BasePath}}/files/{{.FileID}}/delete" method="post" data-share-form hx-post="{{$.BasePath}}/files/{{.FileID}}/delete" hx-target="body" hx-swap="outerHTML">
+            <input type="hidden" name="version" value="{{.InventoryVersion}}">
+            <button type="submit" class="danger" data-confirm="Delete {{.Name}}?">Delete</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+    {{else}}
+      <tr><td colspan="5" class="empty">No files found.</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{template "pagination" .}}
+</section>
+{{template "layout_end" .}}
+{{end}}
+
+{{define "pagination"}}
+{{$pages := pageCount .Total .Count}}
+<div class="pagination">
+  <span>Showing {{pageStart .Total .Page .Count}} to {{pageEnd .Total .Page .Count}} of {{.Total}} {{if .Shares}}shares{{else}}files{{end}}</span>
+  <div class="pager">
+    <a class="btn {{if le .Page 1}}disabled{{end}}" href="{{.BasePath}}?page=1&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-get="{{.BasePath}}?page=1&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-target="body" hx-swap="outerHTML">first</a>
+    <a class="btn {{if le .Page 1}}disabled{{end}}" href="{{.BasePath}}?page={{sub .Page 1}}&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-get="{{.BasePath}}?page={{sub .Page 1}}&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-target="body" hx-swap="outerHTML">previous</a>
+    <span class="page-current">Page {{.Page}} of {{$pages}}</span>
+    <a class="btn {{if ge .Page $pages}}disabled{{end}}" href="{{.BasePath}}?page={{add .Page 1}}&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-get="{{.BasePath}}?page={{add .Page 1}}&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-target="body" hx-swap="outerHTML">next</a>
+    <a class="btn {{if ge .Page $pages}}disabled{{end}}" href="{{.BasePath}}?page={{$pages}}&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-get="{{.BasePath}}?page={{$pages}}&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-target="body" hx-swap="outerHTML">last</a>
+  </div>
+  <form class="page-size" method="get" action="{{.BasePath}}" hx-get="{{.BasePath}}" hx-target="body" hx-swap="outerHTML">
+    <input type="hidden" name="page" value="1">
+    {{if .ThumbnailSize}}<input type="hidden" name="thumb" value="{{.ThumbnailSize}}">{{end}}
+    <select name="count" onchange="this.form.requestSubmit()">
+      <option value="20" {{if eq .Count 20}}selected{{end}}>20</option>
+      <option value="50" {{if eq .Count 50}}selected{{end}}>50</option>
+      <option value="100" {{if eq .Count 100}}selected{{end}}>100</option>
+    </select>
+    <span>per page</span>
+  </form>
+</div>
+{{end}}
+
+{{define "error"}}
+{{template "layout_start" .}}
+<section class="panel">
+  <h1>{{.Title}}</h1>
+  {{template "notice" .}}
+</section>
+{{template "layout_end" .}}
+{{end}}

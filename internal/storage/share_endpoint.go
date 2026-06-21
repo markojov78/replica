@@ -55,12 +55,6 @@ type shareListBody struct {
 	Total int64             `json:"total"`
 }
 
-type shareListFilter struct {
-	status    string
-	replicaID uint
-	name      string
-}
-
 type shareAuthMeBody struct {
 	UserID uint   `json:"user_id"`
 	Status string `json:"status"`
@@ -128,7 +122,7 @@ func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Requ
 
 	switch {
 	case req.Method == http.MethodGet && req.PathValue("id") == "" && req.PathValue("file_id") == "":
-		list, err := r.readableShareListForUser(req, userID)
+		list, err := r.apiShareListForUser(req, userID)
 		if err != nil {
 			writeStorageShareError(w, http.StatusBadRequest, err.Error())
 			return
@@ -139,7 +133,7 @@ func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Requ
 		if !ok {
 			return
 		}
-		share, _, err := r.authorizedUserShare(userID, shareID)
+		share, _, _, err := r.GetUserShare(userID, shareID)
 		if err != nil {
 			writeStorageShareError(w, storageShareStatus(err), err.Error())
 			return
@@ -150,28 +144,20 @@ func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Requ
 		if !ok {
 			return
 		}
-		_, replica, err := r.authorizedUserShare(userID, shareID)
+		list, err := r.apiUserShareFileList(req, userID, shareID)
 		if err != nil {
-			writeStorageShareError(w, storageShareStatus(err), err.Error())
+			writeStorageShareError(w, shareListErrorStatus(err), err.Error())
 			return
 		}
-		list, err := r.availableShareFileList(req, replica.ID)
-		if err != nil {
-			writeStorageShareError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeStorageShareJSON(w, http.StatusOK, list)
+		writeStorageShareJSON(w, http.StatusOK, apiShareFileList(list))
 	case req.Method == http.MethodPost && req.PathValue("id") != "" && strings.HasSuffix(req.URL.Path, "/files"):
 		shareID, ok := parseSharePathUint(w, req, "id")
 		if !ok {
 			return
 		}
-		share, replica, err := r.availableUserShareWithPermission(userID, shareID, shareCreatePermission)
-		if err != nil {
-			writeStorageShareError(w, storageShareStatus(err), err.Error())
-			return
-		}
-		r.createShareFile(w, req, share, replica)
+		r.createShareFile(w, req, func(relativeURI string, file io.Reader, size int64) error {
+			return r.CreateUserShareFile(req.Context(), userID, shareID, relativeURI, file, size)
+		})
 	case req.Method == http.MethodGet && req.PathValue("id") != "" && req.PathValue("file_id") != "" && strings.HasSuffix(req.URL.Path, "/thumbnail"):
 		shareID, ok := parseSharePathUint(w, req, "id")
 		if !ok {
@@ -181,7 +167,7 @@ func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Requ
 		if !ok {
 			return
 		}
-		_, replica, err := r.authorizedUserShare(userID, shareID)
+		_, replica, _, err := r.GetUserShare(userID, shareID)
 		if err != nil {
 			writeStorageShareError(w, storageShareStatus(err), err.Error())
 			return
@@ -196,7 +182,7 @@ func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Requ
 		if !ok {
 			return
 		}
-		share, replica, err := r.authorizedUserShare(userID, shareID)
+		share, replica, _, err := r.GetUserShare(userID, shareID)
 		if err != nil {
 			writeStorageShareError(w, storageShareStatus(err), err.Error())
 			return
@@ -211,12 +197,9 @@ func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Requ
 		if !ok {
 			return
 		}
-		share, replica, err := r.availableUserShareWithPermission(userID, shareID, shareUpdatePermission)
-		if err != nil {
-			writeStorageShareError(w, storageShareStatus(err), err.Error())
-			return
-		}
-		r.updateShareFileContent(w, req, share, replica, fileID)
+		r.updateShareFileContent(w, req, func(content io.Reader, size int64) error {
+			return r.ReplaceUserShareFileContent(req.Context(), userID, shareID, fileID, req.Header.Get("If-Match"), content, size)
+		})
 	case req.Method == http.MethodDelete && req.PathValue("id") != "" && req.PathValue("file_id") != "":
 		shareID, ok := parseSharePathUint(w, req, "id")
 		if !ok {
@@ -226,12 +209,9 @@ func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Requ
 		if !ok {
 			return
 		}
-		share, replica, err := r.availableUserShareWithPermission(userID, shareID, shareDeletePermission)
-		if err != nil {
-			writeStorageShareError(w, storageShareStatus(err), err.Error())
-			return
-		}
-		r.deleteShareFile(w, req, share, replica, fileID)
+		r.deleteShareFile(w, req, func() error {
+			return r.DeleteUserShareFile(req.Context(), userID, shareID, fileID, req.Header.Get("If-Match"))
+		})
 	default:
 		writeStorageShareError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -246,37 +226,29 @@ func (r *Runtime) ServePublicShares(w http.ResponseWriter, req *http.Request) {
 
 	switch {
 	case req.Method == http.MethodGet && req.PathValue("file_id") == "" && !strings.HasSuffix(req.URL.Path, "/files"):
-		share, _, err := r.authorizedPublicShare(linkHash)
+		share, _, _, err := r.GetPublicShare(linkHash)
 		if err != nil {
 			writeStorageShareError(w, storageShareStatus(err), err.Error())
 			return
 		}
 		writeStorageShareJSON(w, http.StatusOK, share)
 	case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/files"):
-		_, replica, err := r.authorizedPublicShare(linkHash)
+		list, err := r.apiPublicShareFileList(req, linkHash)
 		if err != nil {
-			writeStorageShareError(w, storageShareStatus(err), err.Error())
+			writeStorageShareError(w, shareListErrorStatus(err), err.Error())
 			return
 		}
-		list, err := r.availableShareFileList(req, replica.ID)
-		if err != nil {
-			writeStorageShareError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeStorageShareJSON(w, http.StatusOK, list)
+		writeStorageShareJSON(w, http.StatusOK, apiShareFileList(list))
 	case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/files"):
-		share, replica, err := r.authorizedPublicShareWithPermission(linkHash, shareCreatePermission)
-		if err != nil {
-			writeStorageShareError(w, storageShareStatus(err), err.Error())
-			return
-		}
-		r.createShareFile(w, req, share, replica)
+		r.createShareFile(w, req, func(relativeURI string, file io.Reader, size int64) error {
+			return r.CreatePublicShareFile(req.Context(), linkHash, relativeURI, file, size)
+		})
 	case req.Method == http.MethodGet && req.PathValue("file_id") != "" && strings.HasSuffix(req.URL.Path, "/thumbnail"):
 		fileID, ok := parseSharePathUint(w, req, "file_id")
 		if !ok {
 			return
 		}
-		_, replica, err := r.authorizedPublicShare(linkHash)
+		_, replica, _, err := r.GetPublicShare(linkHash)
 		if err != nil {
 			writeStorageShareError(w, storageShareStatus(err), err.Error())
 			return
@@ -287,7 +259,7 @@ func (r *Runtime) ServePublicShares(w http.ResponseWriter, req *http.Request) {
 		if !ok {
 			return
 		}
-		share, replica, err := r.authorizedPublicShare(linkHash)
+		share, replica, _, err := r.GetPublicShare(linkHash)
 		if err != nil {
 			writeStorageShareError(w, storageShareStatus(err), err.Error())
 			return
@@ -298,23 +270,17 @@ func (r *Runtime) ServePublicShares(w http.ResponseWriter, req *http.Request) {
 		if !ok {
 			return
 		}
-		share, replica, err := r.authorizedPublicShareWithPermission(linkHash, shareUpdatePermission)
-		if err != nil {
-			writeStorageShareError(w, storageShareStatus(err), err.Error())
-			return
-		}
-		r.updateShareFileContent(w, req, share, replica, fileID)
+		r.updateShareFileContent(w, req, func(content io.Reader, size int64) error {
+			return r.ReplacePublicShareFileContent(req.Context(), linkHash, fileID, req.Header.Get("If-Match"), content, size)
+		})
 	case req.Method == http.MethodDelete && req.PathValue("file_id") != "":
 		fileID, ok := parseSharePathUint(w, req, "file_id")
 		if !ok {
 			return
 		}
-		share, replica, err := r.authorizedPublicShareWithPermission(linkHash, shareDeletePermission)
-		if err != nil {
-			writeStorageShareError(w, storageShareStatus(err), err.Error())
-			return
-		}
-		r.deleteShareFile(w, req, share, replica, fileID)
+		r.deleteShareFile(w, req, func() error {
+			return r.DeletePublicShareFile(req.Context(), linkHash, fileID, req.Header.Get("If-Match"))
+		})
 	default:
 		writeStorageShareError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -332,7 +298,7 @@ func (r *Runtime) authenticateShareUser(req *http.Request) (uint, error) {
 	return user.UserID, nil
 }
 
-func (r *Runtime) readableShareListForUser(req *http.Request, userID uint) (shareListBody, error) {
+func (r *Runtime) apiShareListForUser(req *http.Request, userID uint) (shareListBody, error) {
 	page, count, err := parseShareListPagination(req)
 	if err != nil {
 		return shareListBody{}, err
@@ -342,38 +308,20 @@ func (r *Runtime) readableShareListForUser(req *http.Request, userID uint) (shar
 		return shareListBody{}, err
 	}
 
-	shares := r.readableSharesForUser(userID)
-	filtered := make([]apiclient.Share, 0, len(shares))
-	for _, share := range shares {
-		if filter.status != "" && share.Status != filter.status {
-			continue
-		}
-		if filter.replicaID > 0 && share.ReplicaID != filter.replicaID {
-			continue
-		}
-		if filter.name != "" && share.Name != filter.name {
-			continue
-		}
-		filtered = append(filtered, share)
+	result, err := r.ListUserShares(userID, page, count, filter)
+	if err != nil {
+		return shareListBody{}, err
 	}
-
-	total := int64(len(filtered))
-	start := (page - 1) * count
-	if start >= len(filtered) {
-		filtered = []apiclient.Share{}
-	} else {
-		end := start + count
-		if end > len(filtered) {
-			end = len(filtered)
-		}
-		filtered = filtered[start:end]
+	items := make([]apiclient.Share, 0, len(result.Items))
+	for _, item := range result.Items {
+		items = append(items, item.Share)
 	}
 
 	return shareListBody{
-		Items: filtered,
-		Page:  page,
-		Count: count,
-		Total: total,
+		Items: items,
+		Page:  result.Page,
+		Count: result.Count,
+		Total: result.Total,
 	}, nil
 }
 
@@ -407,23 +355,55 @@ func parseShareListPagination(req *http.Request) (int, int, error) {
 	return page, count, nil
 }
 
-func parseShareListFilter(req *http.Request) (shareListFilter, error) {
+func parseShareListFilter(req *http.Request) (ShareListFilter, error) {
 	query := req.URL.Query()
-	filter := shareListFilter{
-		status: strings.TrimSpace(query.Get("status")),
-		name:   strings.TrimSpace(query.Get("name")),
+	filter := ShareListFilter{
+		Status: strings.TrimSpace(query.Get("status")),
+		Name:   strings.TrimSpace(query.Get("name")),
 	}
-	if filter.status != "" && filter.status != "active" && filter.status != "deleted" {
-		return shareListFilter{}, errors.New("invalid share status")
+	if filter.Status != "" && filter.Status != "active" && filter.Status != "deleted" {
+		return ShareListFilter{}, errors.New("invalid share status")
 	}
 	if rawReplicaID := strings.TrimSpace(query.Get("replica_id")); rawReplicaID != "" {
 		value, err := strconv.ParseUint(rawReplicaID, 10, 64)
 		if err != nil {
-			return shareListFilter{}, errors.New("invalid replica_id")
+			return ShareListFilter{}, errors.New("invalid replica_id")
 		}
-		filter.replicaID = uint(value)
+		filter.ReplicaID = uint(value)
 	}
 	return filter, nil
+}
+
+func (r *Runtime) apiUserShareFileList(req *http.Request, userID, shareID uint) (ShareFileListResult, error) {
+	page, count, err := parseShareListPagination(req)
+	if err != nil {
+		return ShareFileListResult{}, err
+	}
+	return r.ListUserShareFiles(userID, shareID, page, count)
+}
+
+func (r *Runtime) apiPublicShareFileList(req *http.Request, linkHash string) (ShareFileListResult, error) {
+	page, count, err := parseShareListPagination(req)
+	if err != nil {
+		return ShareFileListResult{}, err
+	}
+	return r.ListPublicShareFiles(linkHash, page, count)
+}
+
+func apiShareFileList(result ShareFileListResult) shareFileListBody {
+	return shareFileListBody{
+		Items: result.Items,
+		Page:  result.Page,
+		Count: result.Count,
+		Total: result.Total,
+	}
+}
+
+func shareListErrorStatus(err error) int {
+	if strings.HasPrefix(err.Error(), "invalid ") {
+		return http.StatusBadRequest
+	}
+	return storageShareStatus(err)
 }
 
 func parsePositiveIntQuery(req *http.Request, name string, fallback int) (int, error) {
@@ -538,23 +518,9 @@ func (r *Runtime) availableShareFileList(req *http.Request, replicaID uint) (sha
 	}, nil
 }
 
-func (r *Runtime) createShareFile(w http.ResponseWriter, req *http.Request, share apiclient.Share, replica apiclient.Replica) {
-	if replica.InventoryType != "folder" {
-		writeStorageShareError(w, http.StatusConflict, errShareCreateNotAllowed.Error())
-		return
-	}
+func (r *Runtime) createShareFile(w http.ResponseWriter, req *http.Request, create func(relativeURI string, file io.Reader, size int64) error) {
 	if err := req.ParseMultipartForm(32 << 20); err != nil {
 		writeStorageShareError(w, http.StatusBadRequest, "invalid multipart request")
-		return
-	}
-
-	relativeURI, err := cleanWriteRelativeURI(req.FormValue("relative_uri"))
-	if err != nil {
-		writeStorageShareError(w, http.StatusBadRequest, errShareInvalidRelativeURI.Error())
-		return
-	}
-	if r.activeShareFileExists(share, replica.ID, relativeURI) {
-		writeStorageShareError(w, http.StatusConflict, errShareFileAlreadyExists.Error())
 		return
 	}
 
@@ -569,59 +535,24 @@ func (r *Runtime) createShareFile(w http.ResponseWriter, req *http.Request, shar
 	if header != nil {
 		size = header.Size
 	}
-	writer, err := GetWriter(req.Context(), replica.URI)
-	if err != nil {
+	if err := create(req.FormValue("relative_uri"), file, size); err != nil {
 		writeStorageShareError(w, storageShareStatus(err), err.Error())
-		return
-	}
-	if err := writer.Save(req.Context(), replica.URI, relativeURI, file, size); err != nil {
-		writeStorageShareError(w, http.StatusInternalServerError, errShareLocalStorageFailed.Error())
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
 }
 
-func (r *Runtime) updateShareFileContent(w http.ResponseWriter, req *http.Request, share apiclient.Share, replica apiclient.Replica, fileID uint) {
-	file, err := r.shareFileForMutation(share, replica.ID, fileID)
-	if err != nil {
+func (r *Runtime) updateShareFileContent(w http.ResponseWriter, req *http.Request, replace func(content io.Reader, size int64) error) {
+	if err := replace(req.Body, req.ContentLength); err != nil {
 		writeStorageShareError(w, storageShareStatus(err), err.Error())
-		return
-	}
-	if err := validateShareIfMatch(req, file.InventoryVersion); err != nil {
-		writeStorageShareError(w, storageShareStatus(err), err.Error())
-		return
-	}
-
-	writer, err := GetWriter(req.Context(), replica.URI)
-	if err != nil {
-		writeStorageShareError(w, storageShareStatus(err), err.Error())
-		return
-	}
-	if err := writer.Save(req.Context(), replica.URI, file.RelativeURI, req.Body, req.ContentLength); err != nil {
-		writeStorageShareError(w, http.StatusInternalServerError, errShareLocalStorageFailed.Error())
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
 }
 
-func (r *Runtime) deleteShareFile(w http.ResponseWriter, req *http.Request, share apiclient.Share, replica apiclient.Replica, fileID uint) {
-	file, err := r.shareFileForMutation(share, replica.ID, fileID)
-	if err != nil {
+func (r *Runtime) deleteShareFile(w http.ResponseWriter, _ *http.Request, deleteFile func() error) {
+	if err := deleteFile(); err != nil {
 		writeStorageShareError(w, storageShareStatus(err), err.Error())
-		return
-	}
-	if err := validateShareIfMatch(req, file.InventoryVersion); err != nil {
-		writeStorageShareError(w, storageShareStatus(err), err.Error())
-		return
-	}
-
-	writer, err := GetWriter(req.Context(), replica.URI)
-	if err != nil {
-		writeStorageShareError(w, storageShareStatus(err), err.Error())
-		return
-	}
-	if err := writer.Delete(req.Context(), replica.URI, file.RelativeURI); err != nil {
-		writeStorageShareError(w, http.StatusInternalServerError, errShareLocalStorageFailed.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -648,26 +579,6 @@ func (r *Runtime) shareFileForMutation(share apiclient.Share, replicaID, fileID 
 		return apiclient.ReplicaInventoryFile{}, errShareFileUnsynchronized
 	}
 	return file, nil
-}
-
-func validateShareIfMatch(req *http.Request, expectedVersion uint) error {
-	raw := strings.TrimSpace(req.Header.Get("If-Match"))
-	if raw == "" {
-		return errSharePrecondition
-	}
-
-	value, err := strconv.Unquote(raw)
-	if err != nil || strings.TrimSpace(value) == "" {
-		return errShareMalformedIfMatch
-	}
-	parsed, err := strconv.ParseUint(strings.TrimSpace(value), 10, 64)
-	if err != nil || parsed == 0 {
-		return errShareMalformedIfMatch
-	}
-	if uint(parsed) != expectedVersion {
-		return errShareVersionConflict
-	}
-	return nil
 }
 
 func (r *Runtime) serveShareFileContent(w http.ResponseWriter, req *http.Request, share apiclient.Share, replica apiclient.Replica, fileID uint) {
@@ -699,15 +610,9 @@ func (r *Runtime) serveShareFileContent(w http.ResponseWriter, req *http.Request
 }
 
 func (r *Runtime) openShareFileContent(req *http.Request, share apiclient.Share, replica apiclient.Replica, fileID uint) (apiclient.ReplicaInventoryFile, io.ReadCloser, int64, error) {
-	_, file, ok := r.findReplicaFile(replica.ID, fileID)
-	if !ok || file.InventoryID != share.InventoryID {
-		return apiclient.ReplicaInventoryFile{}, nil, 0, errShareFileNotFound
-	}
-	if file.InventoryStatus != "active" {
-		return apiclient.ReplicaInventoryFile{}, nil, 0, errShareFileNotFound
-	}
-	if file.ReplicaStatus != "synchronized" {
-		return apiclient.ReplicaInventoryFile{}, nil, 0, errShareFileUnsynchronized
+	file, err := r.shareFileForReadInShare(share, replica.ID, fileID)
+	if err != nil {
+		return apiclient.ReplicaInventoryFile{}, nil, 0, err
 	}
 
 	reader, err := GetReader(req.Context(), replica.URI)

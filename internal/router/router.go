@@ -14,6 +14,7 @@ import (
 	"replica/internal/buildinfo"
 	"replica/internal/config"
 	"replica/internal/service"
+	"replica/internal/shareui"
 	"replica/internal/storage"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -70,6 +71,9 @@ func New(
 	if cfg.App.Storage && storageRuntime != nil {
 		registerInternalStorageTransferRoutes(mux, svc)
 		registerStorageShareRoutes(mux, svc)
+		if err := shareui.Register(mux, storageRuntime); err != nil {
+			panic(err)
+		}
 	}
 	if cfg.App.Coordinator || authService != nil {
 		registerPublicAuthRoutes(adminGroup, svc)
