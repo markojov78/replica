@@ -1334,13 +1334,31 @@ Errors:
 Returns files available for read through the share.
 
 Query parameters:
-* `page` optional, default `1`
-* `count` optional, default `20`, maximum `100`
+- `name` optional, substring match on filename only, case-insensitive   
+    for example:  
+    `?name=photo`  
+    matches:  
+    `photo.jpg`  
+    `album/photo2.png`  
+- `path` optional, substring match on relative_uri part before filename (if any), case-insensitive  
+    for example:  
+    `?path=album`  
+    matches:  
+    `album/photo.jpg`  
+    `other-album/photo2.png`
+- `sort` optional, can be `id`, `name`, `size`, `created`, `modified`, default `id`
+- `order` optional, `asc` or `desc`, default `asc` 
+- `page` optional, default `1`
+- `count` optional, default `20`, maximum `100`
 
-Only files matching all of the following are returned:
-- `inventory_files.status = active`
-- local `replica_files` row exists for the share replica
-- `replica_files.status = synchronized`
+Behavior:  
+- require read permission
+- `name` and `path` filters apply before pagination, and the `total` is equal to the filtered result count
+- in case of sorting ties results preserve existing order
+- only returns files matching all of the following are returned:
+  - `inventory_files.status = active`
+  - local `replica_files` row exists for the share replica
+  - `replica_files.status = synchronized`
 
 The response shape intentionally matches coordinator list endpoints.
 
@@ -1368,6 +1386,14 @@ Example response:
   "total": 1
 }
 ```
+
+Errors:
+- `400` invalid `sort`, `order`, `page`, or `count` value
+- `401` missing, invalid or expired user access token
+- `403` missing required share permission
+- `404` share not found
+- `503` coordinator unavailable for uncached token validation
+
 #### POST /shares/{id}/files
 Content-Type: multipart/form-data  
 
@@ -1596,13 +1622,65 @@ Errors:
 
 #### /s/{link_hash}/files endpoint
 ##### GET /s/{link_hash}/files
-Returns the same synchronized active file list as authenticated share file listing.
+Returns files available for read through the share.
 
 Query parameters:
-* `page` optional, default `1`
-* `count` optional, default `20`, maximum `100`
+- `name` optional, substring match on filename only, case-insensitive   
+  for example:  
+  `?name=photo`  
+  matches:  
+  `photo.jpg`  
+  `album/photo2.png`
+- `path` optional, substring match on relative_uri part before filename (if any), case-insensitive  
+  for example:  
+  `?path=album`  
+  matches:  
+  `album/photo.jpg`  
+  `other-album/photo2.png`
+- `sort` optional, can be `id`, `name`, `size`, `created`, `modified`, default `id`
+- `order` optional, `asc` or `desc`, default `asc`
+- `page` optional, default `1`
+- `count` optional, default `20`, maximum `100`
+
+Behavior:
+- require read permission
+- `name` and `path` filters apply before pagination, and the `total` is equal to the filtered result count
+- in case of sorting ties results preserve existing order
+- only returns files matching all of the following are returned:
+  - `inventory_files.status = active`
+  - local `replica_files` row exists for the share replica
+  - `replica_files.status = synchronized`
 
 The response shape intentionally matches coordinator list endpoints.
+
+Example response:
+```json
+{
+  "items": [
+    {
+      "file_id": 10,
+      "replica_id": 3,
+      "inventory_id": 1,
+      "relative_uri": "album/photo.jpg",
+      "size": 12345,
+      "hash": "blake3-hash",
+      "inventory_status": "active",
+      "inventory_version": 4,
+      "replica_status": "synchronized",
+      "replica_version": 4,
+      "created": "2026-03-17T10:30:00Z",
+      "modified": "2026-03-17T10:30:00Z"
+    }
+  ],
+  "page": 1,
+  "count": 20,
+  "total": 1
+}
+```
+
+Errors:
+- `400` invalid `sort`, `order`, `page`, or `count` value
+- `404` share or link_hash not found / unavailable / inactive / expired on this storage node
 
 ##### POST /s/{link_hash}/files
 Content-Type: multipart/form-data

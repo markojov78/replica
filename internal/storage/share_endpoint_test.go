@@ -333,6 +333,125 @@ func TestServeShareFilesListsOnlySynchronizedActiveFilesAndStreamsLocalContent(t
 	}
 }
 
+func TestServeAuthenticatedShareFilesAppliesDocumentedFiltersAndSorting(t *testing.T) {
+	runtime := newShareEndpointRuntime(t, validationServer(t, 15, http.StatusOK))
+	created := time.Date(2026, 3, 17, 10, 30, 0, 0, time.UTC)
+	runtime.setLocalState(
+		[]apiclient.Replica{{ID: 3, InventoryID: 1, NodeID: "node-a", URI: t.TempDir(), Status: "active"}},
+		[]apiclient.Share{{
+			ID:          4,
+			InventoryID: 1,
+			ReplicaID:   3,
+			Status:      "active",
+			UserPermissions: []apiclient.UserPermission{{
+				UserID:      15,
+				Permissions: []string{"read"},
+			}},
+		}},
+		map[uint][]apiclient.ReplicaInventoryFile{
+			3: {
+				{FileID: 30, ReplicaID: 3, InventoryID: 1, RelativeURI: "album/PhotoB.jpg", Size: 50, InventoryStatus: "active", ReplicaStatus: "synchronized", Created: created.Add(2 * time.Hour), Modified: created.Add(2 * time.Hour)},
+				{FileID: 10, ReplicaID: 3, InventoryID: 1, RelativeURI: "other-album/photoA.png", Size: 20, InventoryStatus: "active", ReplicaStatus: "synchronized", Created: created, Modified: created},
+				{FileID: 20, ReplicaID: 3, InventoryID: 1, RelativeURI: "docs/photo.txt", Size: 20, InventoryStatus: "active", ReplicaStatus: "synchronized", Created: created.Add(time.Hour), Modified: created.Add(time.Hour)},
+				{FileID: 40, ReplicaID: 3, InventoryID: 1, RelativeURI: "album/note.txt", Size: 10, InventoryStatus: "active", ReplicaStatus: "synchronized", Created: created.Add(3 * time.Hour), Modified: created.Add(3 * time.Hour)},
+				{FileID: 50, ReplicaID: 3, InventoryID: 2, RelativeURI: "album/photo-leak.jpg", Size: 90, InventoryStatus: "active", ReplicaStatus: "synchronized", Created: created.Add(4 * time.Hour), Modified: created.Add(4 * time.Hour)},
+			},
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/share/shares/4/files?name=PHOTO&path=album&sort=size&order=desc&page=1&count=1", nil)
+	req.SetPathValue("id", "4")
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+
+	runtime.ServeAuthenticatedShares(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
+	}
+	var list shareFileListBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("Unmarshal(files) error = %v", err)
+	}
+	if list.Page != 1 || list.Count != 1 || list.Total != 2 {
+		t.Fatalf("file list metadata = page:%d count:%d total:%d, want 1/1/2", list.Page, list.Count, list.Total)
+	}
+	if len(list.Items) != 1 || list.Items[0].FileID != 30 {
+		t.Fatalf("file list items = %+v, want largest matching file first", list.Items)
+	}
+	if strings.Contains(rec.Body.String(), "docs/photo.txt") || strings.Contains(rec.Body.String(), "note.txt") || strings.Contains(rec.Body.String(), "photo-leak.jpg") {
+		t.Fatalf("file list body = %s, want name/path filtered files from share inventory only", rec.Body.String())
+	}
+}
+
+func TestServePublicShareFilesAppliesStableSortingAndValidatesQuery(t *testing.T) {
+	linkHash := "public-link"
+	runtime := newShareEndpointRuntime(t, "http://coordinator")
+	runtime.setLocalState(
+		[]apiclient.Replica{{ID: 3, InventoryID: 1, NodeID: "node-a", URI: t.TempDir(), Status: "active"}},
+		[]apiclient.Share{{
+			ID:                   1,
+			InventoryID:          1,
+			ReplicaID:            3,
+			Status:               "active",
+			LinkHash:             &linkHash,
+			AnonymousPermissions: []string{"read"},
+		}},
+		map[uint][]apiclient.ReplicaInventoryFile{
+			3: {
+				{FileID: 30, ReplicaID: 3, InventoryID: 1, RelativeURI: "z/photo2.jpg", Size: 20, InventoryStatus: "active", ReplicaStatus: "synchronized"},
+				{FileID: 10, ReplicaID: 3, InventoryID: 1, RelativeURI: "a/photo1.jpg", Size: 20, InventoryStatus: "active", ReplicaStatus: "synchronized"},
+				{FileID: 20, ReplicaID: 3, InventoryID: 1, RelativeURI: "m/photo3.jpg", Size: 30, InventoryStatus: "active", ReplicaStatus: "synchronized"},
+			},
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/s/public-link/files", nil)
+	req.SetPathValue("link_hash", "public-link")
+	rec := httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
+	}
+	var list shareFileListBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("Unmarshal(files) error = %v", err)
+	}
+	if len(list.Items) != 3 || list.Items[0].FileID != 10 || list.Items[1].FileID != 20 || list.Items[2].FileID != 30 {
+		t.Fatalf("file list items = %+v, want default id asc sort", list.Items)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/s/public-link/files?sort=size&order=asc", nil)
+	req.SetPathValue("link_hash", "public-link")
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
+	}
+	list = shareFileListBody{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("Unmarshal(files) error = %v", err)
+	}
+	if len(list.Items) != 3 || list.Items[0].FileID != 30 || list.Items[1].FileID != 10 || list.Items[2].FileID != 20 {
+		t.Fatalf("file list items = %+v, want stable size sort preserving ties", list.Items)
+	}
+
+	for _, target := range []string{
+		"/s/public-link/files?sort=relative_uri",
+		"/s/public-link/files?order=up",
+		"/s/public-link/files?page=0",
+		"/s/public-link/files?count=bad",
+	} {
+		req = httptest.NewRequest(http.MethodGet, target, nil)
+		req.SetPathValue("link_hash", "public-link")
+		rec = httptest.NewRecorder()
+		runtime.ServePublicShares(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s status = %d body=%s, want %d", target, rec.Code, rec.Body.String(), http.StatusBadRequest)
+		}
+	}
+}
+
 func TestServeAuthenticatedShareFileContentFollowsDocumentedResponse(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "photo.jpg"), []byte("0123456789"), 0o600); err != nil {

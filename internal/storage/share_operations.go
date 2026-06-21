@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"io"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +16,13 @@ type ShareListFilter struct {
 	Status    string
 	ReplicaID uint
 	Name      string
+}
+
+type ShareFileListFilter struct {
+	Name  string
+	Path  string
+	Sort  string
+	Order string
 }
 
 type ShareWithPermissions struct {
@@ -93,12 +101,12 @@ func (r *Runtime) GetUserShare(userID, shareID uint) (apiclient.Share, apiclient
 	return share, replica, userSharePermissions(share, userID), nil
 }
 
-func (r *Runtime) ListUserShareFiles(userID, shareID uint, page, count int) (ShareFileListResult, error) {
+func (r *Runtime) ListUserShareFiles(userID, shareID uint, page, count int, filter ShareFileListFilter) (ShareFileListResult, error) {
 	share, replica, permissions, err := r.GetUserShare(userID, shareID)
 	if err != nil {
 		return ShareFileListResult{}, err
 	}
-	return r.shareFileList(share, replica.ID, permissions, page, count), nil
+	return r.shareFileList(share, replica.ID, permissions, page, count, filter), nil
 }
 
 func (r *Runtime) GetUserShareFile(userID, shareID, fileID uint) (apiclient.Share, apiclient.Replica, apiclient.ReplicaInventoryFile, error) {
@@ -145,12 +153,12 @@ func (r *Runtime) GetPublicShare(linkHash string) (apiclient.Share, apiclient.Re
 	return share, replica, append([]string(nil), share.AnonymousPermissions...), nil
 }
 
-func (r *Runtime) ListPublicShareFiles(linkHash string, page, count int) (ShareFileListResult, error) {
+func (r *Runtime) ListPublicShareFiles(linkHash string, page, count int, filter ShareFileListFilter) (ShareFileListResult, error) {
 	share, replica, permissions, err := r.GetPublicShare(linkHash)
 	if err != nil {
 		return ShareFileListResult{}, err
 	}
-	return r.shareFileList(share, replica.ID, permissions, page, count), nil
+	return r.shareFileList(share, replica.ID, permissions, page, count, filter), nil
 }
 
 func (r *Runtime) GetPublicShareFile(linkHash string, fileID uint) (apiclient.Share, apiclient.Replica, apiclient.ReplicaInventoryFile, error) {
@@ -189,9 +197,11 @@ func (r *Runtime) DeletePublicShareFile(ctx context.Context, linkHash string, fi
 	return r.deleteShareFileOperation(ctx, share, replica, fileID, ifMatch)
 }
 
-func (r *Runtime) shareFileList(share apiclient.Share, replicaID uint, permissions []string, page, count int) ShareFileListResult {
+func (r *Runtime) shareFileList(share apiclient.Share, replicaID uint, permissions []string, page, count int, filter ShareFileListFilter) ShareFileListResult {
 	page, count = normalizeSharePagination(page, count)
 	files := r.availableShareFiles(replicaID)
+	files = filterShareFiles(share, files, filter)
+	sortShareFiles(files, filter)
 	total := int64(len(files))
 	files = paginateFiles(files, page, count)
 	return ShareFileListResult{
@@ -202,6 +212,74 @@ func (r *Runtime) shareFileList(share apiclient.Share, replicaID uint, permissio
 		Count:                count,
 		Total:                total,
 	}
+}
+
+func filterShareFiles(share apiclient.Share, files []apiclient.ReplicaInventoryFile, filter ShareFileListFilter) []apiclient.ReplicaInventoryFile {
+	name := strings.ToLower(strings.TrimSpace(filter.Name))
+	pathFilter := strings.ToLower(strings.TrimSpace(filter.Path))
+	result := make([]apiclient.ReplicaInventoryFile, 0, len(files))
+	for _, file := range files {
+		if share.InventoryID != 0 && file.InventoryID != share.InventoryID {
+			continue
+		}
+		filename := strings.ToLower(path.Base(file.RelativeURI))
+		if name != "" && !strings.Contains(filename, name) {
+			continue
+		}
+		dir := path.Dir(file.RelativeURI)
+		if dir == "." {
+			dir = ""
+		}
+		if pathFilter != "" && !strings.Contains(strings.ToLower(dir), pathFilter) {
+			continue
+		}
+		result = append(result, file)
+	}
+	return result
+}
+
+func sortShareFiles(files []apiclient.ReplicaInventoryFile, filter ShareFileListFilter) {
+	sortBy := filter.Sort
+	if sortBy == "" {
+		sortBy = "id"
+	}
+	desc := filter.Order == "desc"
+	sort.SliceStable(files, func(i, j int) bool {
+		less := false
+		switch sortBy {
+		case "name":
+			left := strings.ToLower(path.Base(files[i].RelativeURI))
+			right := strings.ToLower(path.Base(files[j].RelativeURI))
+			if left == right {
+				return false
+			}
+			less = left < right
+		case "size":
+			if files[i].Size == files[j].Size {
+				return false
+			}
+			less = files[i].Size < files[j].Size
+		case "created":
+			if files[i].Created.Equal(files[j].Created) {
+				return false
+			}
+			less = files[i].Created.Before(files[j].Created)
+		case "modified":
+			if files[i].Modified.Equal(files[j].Modified) {
+				return false
+			}
+			less = files[i].Modified.Before(files[j].Modified)
+		default:
+			if files[i].FileID == files[j].FileID {
+				return false
+			}
+			less = files[i].FileID < files[j].FileID
+		}
+		if desc {
+			return !less
+		}
+		return less
+	})
 }
 
 func (r *Runtime) createShareFileOperation(ctx context.Context, share apiclient.Share, replica apiclient.Replica, relativeURI string, file io.Reader, size int64) error {

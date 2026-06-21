@@ -381,7 +381,11 @@ func (r *Runtime) apiUserShareFileList(req *http.Request, userID, shareID uint) 
 	if err != nil {
 		return ShareFileListResult{}, err
 	}
-	return r.ListUserShareFiles(userID, shareID, page, count)
+	filter, err := parseShareFileListFilter(req)
+	if err != nil {
+		return ShareFileListResult{}, err
+	}
+	return r.ListUserShareFiles(userID, shareID, page, count, filter)
 }
 
 func (r *Runtime) apiPublicShareFileList(req *http.Request, linkHash string) (ShareFileListResult, error) {
@@ -389,7 +393,32 @@ func (r *Runtime) apiPublicShareFileList(req *http.Request, linkHash string) (Sh
 	if err != nil {
 		return ShareFileListResult{}, err
 	}
-	return r.ListPublicShareFiles(linkHash, page, count)
+	filter, err := parseShareFileListFilter(req)
+	if err != nil {
+		return ShareFileListResult{}, err
+	}
+	return r.ListPublicShareFiles(linkHash, page, count, filter)
+}
+
+func parseShareFileListFilter(req *http.Request) (ShareFileListFilter, error) {
+	query := req.URL.Query()
+	filter := ShareFileListFilter{
+		Name:  strings.TrimSpace(query.Get("name")),
+		Path:  strings.TrimSpace(query.Get("path")),
+		Sort:  strings.TrimSpace(query.Get("sort")),
+		Order: strings.TrimSpace(query.Get("order")),
+	}
+	if filter.Sort != "" {
+		switch filter.Sort {
+		case "id", "name", "size", "created", "modified":
+		default:
+			return ShareFileListFilter{}, errors.New("invalid sort")
+		}
+	}
+	if filter.Order != "" && filter.Order != "asc" && filter.Order != "desc" {
+		return ShareFileListFilter{}, errors.New("invalid order")
+	}
+	return filter, nil
 }
 
 func apiShareFileList(result ShareFileListResult) shareFileListBody {

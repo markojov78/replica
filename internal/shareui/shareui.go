@@ -145,7 +145,7 @@ func (h *Handler) shareFilesPage(w http.ResponseWriter, r *http.Request, auth au
 		return
 	}
 	page, count := parsePagination(r)
-	result, err := h.runtime.ListUserShareFiles(auth.UserID, shareID, page, count)
+	result, err := h.runtime.ListUserShareFiles(auth.UserID, shareID, page, count, storage.ShareFileListFilter{})
 	if err != nil {
 		h.renderShareError(w, err)
 		return
@@ -156,7 +156,7 @@ func (h *Handler) shareFilesPage(w http.ResponseWriter, r *http.Request, auth au
 func (h *Handler) publicSharePage(w http.ResponseWriter, r *http.Request) {
 	page, count := parsePagination(r)
 	linkHash := strings.TrimSpace(r.PathValue("link_hash"))
-	result, err := h.runtime.ListPublicShareFiles(linkHash, page, count)
+	result, err := h.runtime.ListPublicShareFiles(linkHash, page, count, storage.ShareFileListFilter{})
 	if err != nil {
 		h.renderShareError(w, err)
 		return
@@ -278,7 +278,7 @@ func (h *Handler) afterPublicMutation(w http.ResponseWriter, r *http.Request, li
 }
 
 func (h *Handler) renderAuthenticatedFilePageWithMessage(w http.ResponseWriter, r *http.Request, auth authContext, shareID uint, errMessage, message string) {
-	result, err := h.runtime.ListUserShareFiles(auth.UserID, shareID, 1, parseCount(r))
+	result, err := h.runtime.ListUserShareFiles(auth.UserID, shareID, 1, parseCount(r), storage.ShareFileListFilter{})
 	if err != nil {
 		h.renderShareError(w, err)
 		return
@@ -287,7 +287,7 @@ func (h *Handler) renderAuthenticatedFilePageWithMessage(w http.ResponseWriter, 
 }
 
 func (h *Handler) renderPublicFilePageWithMessage(w http.ResponseWriter, r *http.Request, linkHash string, errMessage, message string) {
-	result, err := h.runtime.ListPublicShareFiles(linkHash, 1, parseCount(r))
+	result, err := h.runtime.ListPublicShareFiles(linkHash, 1, parseCount(r), storage.ShareFileListFilter{})
 	if err != nil {
 		h.renderShareError(w, err)
 		return
