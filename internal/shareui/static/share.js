@@ -21,6 +21,9 @@
     if (pair.user_id) {
       localStorage.setItem(prefix + "user_id", pair.user_id);
     }
+    if (pair.username) {
+      localStorage.setItem(prefix + "username", pair.username);
+    }
   }
 
   function clearTokens() {
@@ -28,6 +31,7 @@
       localStorage.removeItem(prefix + key);
     }
     localStorage.removeItem(prefix + "user_id");
+    localStorage.removeItem(prefix + "username");
   }
 
   function authHeaders(headers = new Headers()) {
@@ -114,6 +118,7 @@
       return;
     }
     storeTokens(await response.json());
+    localStorage.setItem(prefix + "username", form.elements.username.value.trim());
     window.location.replace("/share/shares");
   }
 
@@ -129,12 +134,40 @@
     }
     const response = await request("/api/share/auth/me");
     if (response?.ok) {
+      storeCurrentUser(await response.json());
       const current = window.location.pathname === "/share" ? "/share/shares" : window.location.href;
       await showPage(current, undefined, false);
     }
   }
 
+  function storeCurrentUser(user) {
+    if (user.user_id) {
+      localStorage.setItem(prefix + "user_id", user.user_id);
+    }
+    if (user.username) {
+      localStorage.setItem(prefix + "username", user.username);
+    }
+  }
+
+  function fillCurrentUser() {
+    const username = localStorage.getItem(prefix + "username") || "";
+    const userID = localStorage.getItem(prefix + "user_id") || "";
+    for (const element of document.querySelectorAll("[data-share-current-username]")) {
+      element.textContent = username || (userID ? `User #${userID}` : "");
+    }
+  }
+
   function bindAuthenticatedPage() {
+    fillCurrentUser();
+    request("/api/share/auth/me")
+      .then(async (response) => {
+        if (!response?.ok) {
+          return;
+        }
+        storeCurrentUser(await response.json());
+        fillCurrentUser();
+      })
+      .catch(() => {});
     document.body.addEventListener("click", (event) => {
       const download = event.target.closest("[data-auth-download]");
       if (download) {

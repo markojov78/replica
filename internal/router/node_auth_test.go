@@ -125,14 +125,15 @@ func TestInternalValidateUserTokenAcceptsActiveUserToken(t *testing.T) {
 		t.Fatalf("status = %d body=%s, want %d", recorder.Code, recorder.Body.String(), http.StatusOK)
 	}
 	var body struct {
-		UserID uint   `json:"user_id"`
-		Status string `json:"status"`
+		UserID   uint   `json:"user_id"`
+		Username string `json:"username"`
+		Status   string `json:"status"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("Unmarshal(response) error = %v", err)
 	}
-	if body.UserID == 0 || body.Status != "active" {
-		t.Fatalf("body = %+v, want active user", body)
+	if body.UserID == 0 || body.Username == "" || body.Status != "active" {
+		t.Fatalf("body = %+v, want active user with username", body)
 	}
 }
 

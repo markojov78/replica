@@ -21,7 +21,12 @@
 <div class="share-app">
   <header class="topbar">
     <a class="brand" href="{{if .Authenticated}}/share/shares{{else if .Public}}{{.BasePath}}{{else}}/share{{end}}"><span class="logo-mark"></span><span>Replica Share</span></a>
-    {{if .Authenticated}}<form action="/share/logout" method="post" data-share-logout><button type="submit">Log out</button></form>{{end}}
+    {{if .Authenticated}}
+    <div class="top-actions">
+      <span class="current-user">User: <span data-share-current-username></span></span>
+      <form action="/share/logout" method="post" data-share-logout><button type="submit">Log out</button></form>
+    </div>
+    {{end}}
   </header>
   <main class="page">
 {{end}}

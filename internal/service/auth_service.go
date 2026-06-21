@@ -56,6 +56,7 @@ type AuthenticatedNode struct {
 
 type ValidatedUserToken struct {
 	UserID        uint
+	Username      string
 	Status        string
 	AccessExpires time.Time
 }
@@ -272,6 +273,7 @@ func (s *AuthService) ValidateUserAccessToken(accessToken string) (*ValidatedUse
 
 	return &ValidatedUserToken{
 		UserID:        user.ID,
+		Username:      user.Name,
 		Status:        string(user.Status),
 		AccessExpires: claims.ExpiresAt.Time,
 	}, nil

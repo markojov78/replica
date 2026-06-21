@@ -62,6 +62,7 @@ type runningReplicaWatcher struct {
 
 type shareTokenCacheEntry struct {
 	userID      uint
+	username    string
 	status      string
 	tokenExpiry time.Time
 	validatedAt time.Time
@@ -318,6 +319,7 @@ func (r *Runtime) validateShareAPIToken(ctx context.Context, token string) (*api
 	if entry, ok := r.shareTokenCache[hash]; ok && now.Before(entry.expiresAt) {
 		result := &apiclient.ValidatedUserToken{
 			UserID:               entry.userID,
+			Username:             entry.username,
 			Status:               entry.status,
 			AccessTokenExpiresAt: entry.tokenExpiry,
 		}
@@ -349,6 +351,7 @@ func (r *Runtime) validateShareAPIToken(ctx context.Context, token string) (*api
 	}
 	r.shareTokenCache[hash] = shareTokenCacheEntry{
 		userID:      validated.UserID,
+		username:    validated.Username,
 		status:      validated.Status,
 		tokenExpiry: validated.AccessTokenExpiresAt,
 		validatedAt: now,

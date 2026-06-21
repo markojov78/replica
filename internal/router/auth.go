@@ -116,6 +116,7 @@ func registerInternalAuthRoutes(api huma.API, svc services) {
 		return &validateUserTokenResponse{
 			Body: validateUserTokenBody{
 				UserID:               token.UserID,
+				Username:             token.Username,
 				Status:               token.Status,
 				AccessTokenExpiresAt: token.AccessExpires,
 			},
@@ -216,6 +217,7 @@ type nodeMeResponse struct {
 
 type validateUserTokenBody struct {
 	UserID               uint      `json:"user_id"`
+	Username             string    `json:"username"`
 	Status               string    `json:"status"`
 	AccessTokenExpiresAt time.Time `json:"access_token_expires_at"`
 }

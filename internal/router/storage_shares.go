@@ -103,15 +103,17 @@ func serveShareAuthMe(svc services) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, shareAuthMeBody{
-			UserID: user.UserID,
-			Status: user.Status,
+			UserID:   user.UserID,
+			Username: user.Username,
+			Status:   user.Status,
 		})
 	}
 }
 
 type shareAuthMeBody struct {
-	UserID uint   `json:"user_id"`
-	Status string `json:"status"`
+	UserID   uint   `json:"user_id"`
+	Username string `json:"username"`
+	Status   string `json:"status"`
 }
 
 func writeShareAuthError(w http.ResponseWriter, err error) {

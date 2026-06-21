@@ -1260,6 +1260,7 @@ Example response:
 ```json
 {
   "user_id": 15,
+  "username": "jsmith",
   "status": "active"
 }
 ```
@@ -1899,6 +1900,7 @@ Example response:
 ```json
 {
   "user_id": 15,
+  "username": "jsmith",
   "status": "active",
   "access_token_expires_at": "2026-04-07T12:30:00Z"
 }
