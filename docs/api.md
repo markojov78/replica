@@ -1442,8 +1442,62 @@ Errors:
 #### GET /shares/{id}/files/{file_id}/content
 Streams file content from the local replica storage.
 
-The request identifies files by numeric `file_id`; raw filesystem paths are not accepted.
-If a known active inventory file is not synchronized locally, direct content access returns `409`.
+Example:  
+```http request
+GET /api/share/shares/4/files/41/content
+Authorization: Bearer access-token-value
+X-API-Version: 1
+```
+
+Behavior:  
+- Requires read permission.
+- Content is streamed from the storage node that owns the share replica.
+- Content is not proxied through the coordinator.
+- Content is not fetched from other storage nodes in v1.
+- The request identifies files by numeric file_id; raw filesystem paths are not accepted.
+- Share must be active, not expired, and available on this storage node.
+- Replica must be active.
+- File must belong to this share inventory.
+- File must be active.
+- Local replica file must be synchronized.
+- If the file is known but not synchronized locally, direct content access returns 409.
+- Content-Type is detected from the file name and/or file content.
+- Content-Disposition contains the original file name.
+- ETag identifies the served file version.
+- Range requests are supported when the underlying storage backend supports byte ranges.
+
+Response:
+```
+200 OK
+Content-Type: image/jpeg
+Content-Length: 997667
+ETag: "file-41-v24"
+Cache-Control: private, max-age=0, must-revalidate
+Content-Disposition: inline; filename="photo.jpg"
+Accept-Ranges: bytes
+```
+
+Partial response when Range request is used:
+```
+206 Partial Content
+Content-Type: image/jpeg
+Content-Length: 1024
+Content-Range: bytes 0-1023/997667
+ETag: "file-41-v24"
+Cache-Control: private, max-age=0, must-revalidate
+Content-Disposition: inline; filename="photo.jpg"
+Accept-Ranges: bytes
+```
+
+Errors:  
+- `400` malformed Range header
+- `401` missing, invalid or expired user access token
+- `403` missing required share permission
+- `404` share or file not found / unavailable / inactive / expired on this storage node
+- `409` file not synchronized
+- `416` requested range not satisfiable
+- `503` coordinator unavailable for uncached token validation
+- `500` local storage read failed
 
 #### PUT /shares/{id}/files/{file_id}/content
 Content-Type: application/octet-stream  
@@ -1617,7 +1671,61 @@ Errors:
 
 #### /s/{link_hash}/files/{file_id}/content endpoint
 ##### GET /s/{link_hash}/files/{file_id}/content
-Streams file content from the local replica storage.
+Streams file content from the local replica storage for public anonymous read access.
+
+Example:
+```http request
+GET /s/JDFpfRV6Sis2rNuwYvaLa07F-CJE4rqbEGMwbY4RBb8/files/207/content
+X-API-Version: 1
+```
+
+Behavior:
+- Requires anonymous read permission.
+- Content is streamed from the storage node that owns the share replica.
+- Content is not proxied through the coordinator.
+- Content is not fetched from other storage nodes in v1.
+- The request identifies files by numeric file_id; raw filesystem paths are not accepted.
+- link_hash must match an active public share.
+- Share must be active, not expired, and available on this storage node.
+- Replica must be active.
+- File must belong to this share inventory.
+- File must be active.
+- Local replica file must be synchronized.
+- If the file is known but not synchronized locally, direct content access returns 409.
+- Content-Type is detected from the file name and/or file content.
+- Content-Disposition contains the original file name.
+- ETag identifies the served file version.
+- Range requests are supported when the underlying storage backend supports byte ranges.
+
+Response:  
+```
+200 OK
+Content-Type: image/jpeg
+Content-Length: 997667
+ETag: "file-207-v4"
+Cache-Control: private, max-age=0, must-revalidate
+Content-Disposition: inline; filename="photo.jpg"
+Accept-Ranges: bytes
+```
+Partial response when `Range` request is used:  
+```
+206 Partial Content
+Content-Type: image/jpeg
+Content-Length: 1024
+Content-Range: bytes 0-1023/997667
+ETag: "file-207-v4"
+Cache-Control: private, max-age=0, must-revalidate
+Content-Disposition: inline; filename="photo.jpg"
+Accept-Ranges: bytes
+```
+
+Errors:
+- `400` malformed Range header
+- `403` matching public share exists but anonymous read is not allowed
+- `404 `share or file not found / unavailable / inactive / expired on this storage node
+- `409 `file not synchronized
+- `416 `requested range not satisfiable
+- `500 `local storage read failed
 
 ##### PUT /s/{link_hash}/files/{file_id}/content
 Content-Type: application/octet-stream

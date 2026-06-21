@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -185,7 +187,7 @@ func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Requ
 			return
 		}
 		r.serveShareFileThumbnail(w, req, replica, fileID)
-	case req.Method == http.MethodGet && req.PathValue("id") != "" && req.PathValue("file_id") != "":
+	case req.Method == http.MethodGet && req.PathValue("id") != "" && req.PathValue("file_id") != "" && strings.HasSuffix(req.URL.Path, "/content"):
 		shareID, ok := parseSharePathUint(w, req, "id")
 		if !ok {
 			return
@@ -194,12 +196,12 @@ func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Requ
 		if !ok {
 			return
 		}
-		_, replica, err := r.authorizedUserShare(userID, shareID)
+		share, replica, err := r.authorizedUserShare(userID, shareID)
 		if err != nil {
 			writeStorageShareError(w, storageShareStatus(err), err.Error())
 			return
 		}
-		r.serveShareFileContent(w, req, replica, fileID)
+		r.serveShareFileContent(w, req, share, replica, fileID)
 	case req.Method == http.MethodPut && req.PathValue("id") != "" && req.PathValue("file_id") != "":
 		shareID, ok := parseSharePathUint(w, req, "id")
 		if !ok {
@@ -280,17 +282,17 @@ func (r *Runtime) ServePublicShares(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		r.serveShareFileThumbnail(w, req, replica, fileID)
-	case req.Method == http.MethodGet && req.PathValue("file_id") != "":
+	case req.Method == http.MethodGet && req.PathValue("file_id") != "" && strings.HasSuffix(req.URL.Path, "/content"):
 		fileID, ok := parseSharePathUint(w, req, "file_id")
 		if !ok {
 			return
 		}
-		_, replica, err := r.authorizedPublicShare(linkHash)
+		share, replica, err := r.authorizedPublicShare(linkHash)
 		if err != nil {
 			writeStorageShareError(w, storageShareStatus(err), err.Error())
 			return
 		}
-		r.serveShareFileContent(w, req, replica, fileID)
+		r.serveShareFileContent(w, req, share, replica, fileID)
 	case req.Method == http.MethodPut && req.PathValue("file_id") != "":
 		fileID, ok := parseSharePathUint(w, req, "file_id")
 		if !ok {
@@ -668,37 +670,111 @@ func validateShareIfMatch(req *http.Request, expectedVersion uint) error {
 	return nil
 }
 
-func (r *Runtime) serveShareFileContent(w http.ResponseWriter, req *http.Request, replica apiclient.Replica, fileID uint) {
-	file, size, err := r.openShareFileContent(req, replica, fileID)
+func (r *Runtime) serveShareFileContent(w http.ResponseWriter, req *http.Request, share apiclient.Share, replica apiclient.Replica, fileID uint) {
+	if err := validateShareRangeHeader(req.Header.Get("Range")); err != nil {
+		writeStorageShareError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	file, content, size, err := r.openShareFileContent(req, share, replica, fileID)
 	if err != nil {
 		writeStorageShareError(w, storageShareStatus(err), err.Error())
 		return
 	}
-	defer file.Close()
+	defer content.Close()
 
-	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
+	w.Header().Set("Content-Disposition", shareContentDisposition(file.RelativeURI))
+	w.Header().Set("ETag", fmt.Sprintf(`"file-%d-v%d"`, file.FileID, file.InventoryVersion))
+
+	if seeker, ok := content.(io.ReadSeeker); ok {
+		http.ServeContent(w, req, path.Base(file.RelativeURI), file.Modified, seeker)
+		return
+	}
+
+	w.Header().Set("Content-Type", contentTypeByName(file.RelativeURI))
 	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(w, file)
+	_, _ = io.Copy(w, content)
 }
 
-func (r *Runtime) openShareFileContent(req *http.Request, replica apiclient.Replica, fileID uint) (io.ReadCloser, int64, error) {
+func (r *Runtime) openShareFileContent(req *http.Request, share apiclient.Share, replica apiclient.Replica, fileID uint) (apiclient.ReplicaInventoryFile, io.ReadCloser, int64, error) {
 	_, file, ok := r.findReplicaFile(replica.ID, fileID)
-	if !ok {
-		return nil, 0, errShareFileNotFound
+	if !ok || file.InventoryID != share.InventoryID {
+		return apiclient.ReplicaInventoryFile{}, nil, 0, errShareFileNotFound
 	}
 	if file.InventoryStatus != "active" {
-		return nil, 0, errShareFileNotFound
+		return apiclient.ReplicaInventoryFile{}, nil, 0, errShareFileNotFound
 	}
 	if file.ReplicaStatus != "synchronized" {
-		return nil, 0, errShareFileUnsynchronized
+		return apiclient.ReplicaInventoryFile{}, nil, 0, errShareFileUnsynchronized
 	}
 
 	reader, err := GetReader(req.Context(), replica.URI)
 	if err != nil {
-		return nil, 0, err
+		return apiclient.ReplicaInventoryFile{}, nil, 0, err
 	}
-	return reader.Open(req.Context(), replica.URI, file.RelativeURI)
+	content, size, err := reader.Open(req.Context(), replica.URI, file.RelativeURI)
+	if err != nil {
+		return apiclient.ReplicaInventoryFile{}, nil, 0, err
+	}
+	return file, content, size, nil
+}
+
+func contentTypeByName(name string) string {
+	if contentType := mime.TypeByExtension(path.Ext(name)); contentType != "" {
+		return contentType
+	}
+	return "application/octet-stream"
+}
+
+func shareContentDisposition(relativeURI string) string {
+	filename := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(path.Base(relativeURI))
+	return fmt.Sprintf(`inline; filename="%s"`, filename)
+}
+
+func validateShareRangeHeader(header string) error {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return nil
+	}
+	if !strings.HasPrefix(header, "bytes=") {
+		return errors.New("malformed Range header")
+	}
+	ranges := strings.Split(strings.TrimPrefix(header, "bytes="), ",")
+	if len(ranges) == 0 {
+		return errors.New("malformed Range header")
+	}
+	for _, rawRange := range ranges {
+		rawRange = strings.TrimSpace(rawRange)
+		start, end, ok := strings.Cut(rawRange, "-")
+		if !ok {
+			return errors.New("malformed Range header")
+		}
+		start = strings.TrimSpace(start)
+		end = strings.TrimSpace(end)
+		if start == "" && end == "" {
+			return errors.New("malformed Range header")
+		}
+		if start != "" {
+			parsedStart, err := strconv.ParseInt(start, 10, 64)
+			if err != nil || parsedStart < 0 {
+				return errors.New("malformed Range header")
+			}
+			if end != "" {
+				parsedEnd, err := strconv.ParseInt(end, 10, 64)
+				if err != nil || parsedEnd < parsedStart {
+					return errors.New("malformed Range header")
+				}
+			}
+			continue
+		}
+		parsedSuffix, err := strconv.ParseInt(end, 10, 64)
+		if err != nil || parsedSuffix < 1 {
+			return errors.New("malformed Range header")
+		}
+	}
+	return nil
 }
 
 func (r *Runtime) serveShareFileThumbnail(w http.ResponseWriter, req *http.Request, replica apiclient.Replica, fileID uint) {

@@ -333,6 +333,160 @@ func TestServeShareFilesListsOnlySynchronizedActiveFilesAndStreamsLocalContent(t
 	}
 }
 
+func TestServeAuthenticatedShareFileContentFollowsDocumentedResponse(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "photo.jpg"), []byte("0123456789"), 0o600); err != nil {
+		t.Fatalf("WriteFile(photo) error = %v", err)
+	}
+
+	runtime := newShareEndpointRuntime(t, validationServer(t, 15, http.StatusOK))
+	runtime.setLocalState(
+		[]apiclient.Replica{{ID: 3, InventoryID: 1, NodeID: "node-a", URI: root, Status: "active"}},
+		[]apiclient.Share{{
+			ID:          4,
+			InventoryID: 1,
+			ReplicaID:   3,
+			Status:      "active",
+			UserPermissions: []apiclient.UserPermission{{
+				UserID:      15,
+				Permissions: []string{"read"},
+			}},
+		}},
+		map[uint][]apiclient.ReplicaInventoryFile{
+			3: {
+				{
+					FileID:           41,
+					ReplicaID:        3,
+					InventoryID:      1,
+					RelativeURI:      "album/photo.jpg",
+					Size:             10,
+					InventoryStatus:  "active",
+					InventoryVersion: 24,
+					ReplicaStatus:    "synchronized",
+					ReplicaVersion:   24,
+				},
+			},
+		},
+	)
+	if err := os.MkdirAll(filepath.Join(root, "album"), 0o700); err != nil {
+		t.Fatalf("MkdirAll(album) error = %v", err)
+	}
+	if err := os.Rename(filepath.Join(root, "photo.jpg"), filepath.Join(root, "album", "photo.jpg")); err != nil {
+		t.Fatalf("Rename(photo) error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/share/shares/4/files/41/content", nil)
+	req.SetPathValue("id", "4")
+	req.SetPathValue("file_id", "41")
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+
+	runtime.ServeAuthenticatedShares(rec, req)
+
+	if rec.Code != http.StatusOK || rec.Body.String() != "0123456789" {
+		t.Fatalf("status/body = %d/%q, want 200/full content", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("Content-Type") != "image/jpeg" {
+		t.Fatalf("Content-Type = %q, want image/jpeg", rec.Header().Get("Content-Type"))
+	}
+	if rec.Header().Get("Content-Length") != "10" {
+		t.Fatalf("Content-Length = %q, want 10", rec.Header().Get("Content-Length"))
+	}
+	if rec.Header().Get("ETag") != `"file-41-v24"` {
+		t.Fatalf("ETag = %q, want file/version ETag", rec.Header().Get("ETag"))
+	}
+	if rec.Header().Get("Cache-Control") != "private, max-age=0, must-revalidate" {
+		t.Fatalf("Cache-Control = %q, want private revalidation", rec.Header().Get("Cache-Control"))
+	}
+	if rec.Header().Get("Content-Disposition") != `inline; filename="photo.jpg"` {
+		t.Fatalf("Content-Disposition = %q, want inline filename", rec.Header().Get("Content-Disposition"))
+	}
+	if rec.Header().Get("Accept-Ranges") != "bytes" {
+		t.Fatalf("Accept-Ranges = %q, want bytes", rec.Header().Get("Accept-Ranges"))
+	}
+}
+
+func TestServePublicShareFileContentRangeAndErrors(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "video.mp4"), []byte("0123456789"), 0o600); err != nil {
+		t.Fatalf("WriteFile(video) error = %v", err)
+	}
+	linkHash := "public-link"
+	runtime := newShareEndpointRuntime(t, "http://coordinator")
+	runtime.setLocalState(
+		[]apiclient.Replica{{ID: 3, InventoryID: 1, NodeID: "node-a", URI: root, Status: "active"}},
+		[]apiclient.Share{{
+			ID:                   1,
+			InventoryID:          1,
+			ReplicaID:            3,
+			Status:               "active",
+			LinkHash:             &linkHash,
+			AnonymousPermissions: []string{"read"},
+		}},
+		map[uint][]apiclient.ReplicaInventoryFile{
+			3: {
+				{FileID: 10, ReplicaID: 3, InventoryID: 1, RelativeURI: "video.mp4", Size: 10, InventoryStatus: "active", InventoryVersion: 4, ReplicaStatus: "synchronized", ReplicaVersion: 4},
+				{FileID: 11, ReplicaID: 3, InventoryID: 2, RelativeURI: "other.txt", Size: 5, InventoryStatus: "active", InventoryVersion: 1, ReplicaStatus: "synchronized", ReplicaVersion: 1},
+				{FileID: 12, ReplicaID: 3, InventoryID: 1, RelativeURI: "pending.txt", Size: 5, InventoryStatus: "active", InventoryVersion: 2, ReplicaStatus: "pending", ReplicaVersion: 1},
+			},
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/s/public-link/files/10/content", nil)
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "10")
+	req.Header.Set("Range", "bytes=2-5")
+	rec := httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusPartialContent || rec.Body.String() != "2345" {
+		t.Fatalf("range status/body = %d/%q, want 206/2345", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("Content-Range") != "bytes 2-5/10" {
+		t.Fatalf("Content-Range = %q, want bytes 2-5/10", rec.Header().Get("Content-Range"))
+	}
+	if rec.Header().Get("ETag") != `"file-10-v4"` {
+		t.Fatalf("range ETag = %q, want file/version ETag", rec.Header().Get("ETag"))
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/s/public-link/files/10/content", nil)
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "10")
+	req.Header.Set("Range", "bytes=bad")
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("malformed range status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusBadRequest)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/s/public-link/files/10/content", nil)
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "10")
+	req.Header.Set("Range", "bytes=20-30")
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusRequestedRangeNotSatisfiable {
+		t.Fatalf("unsatisfiable range status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusRequestedRangeNotSatisfiable)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/s/public-link/files/11/content", nil)
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "11")
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("different inventory status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusNotFound)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/s/public-link/files/12/content", nil)
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "12")
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShares(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("unsynchronized status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusConflict)
+	}
+}
+
 func TestServeAuthenticatedShareFileThumbnailStreamsGeneratedLocalImage(t *testing.T) {
 	root := t.TempDir()
 	writeSharePNG(t, filepath.Join(root, "photo.png"), 64, 32)
