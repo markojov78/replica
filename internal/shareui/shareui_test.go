@@ -2,14 +2,18 @@ package shareui
 
 import (
 	"bytes"
+	"encoding/json"
 	"html/template"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"replica/internal/apiclient"
+	"replica/internal/config"
+	"replica/internal/storage"
 )
 
 func TestRegisterServesLoginAndStaticAssets(t *testing.T) {
@@ -132,6 +136,51 @@ func TestAuthenticatedGridUsesAPIThumbnailDataSource(t *testing.T) {
 	}
 }
 
+func TestShareUIDeletePostRedirectsToCanonicalSharePageAndGetStaysMethodNotAllowed(t *testing.T) {
+	runtime := newShareUIRuntime(t)
+	mux := http.NewServeMux()
+	if err := Register(mux, runtime); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	form := url.Values{
+		"version": {"2"},
+		"page":    {"3"},
+		"count":   {"40"},
+		"thumb":   {"256"},
+		"view":    {"grid"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/share/shares/5/files/216/delete", strings.NewReader(form.Encode()))
+	req.Header.Set("Authorization", "Bearer user-token")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("POST delete status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusSeeOther)
+	}
+	location := rec.Header().Get("Location")
+	parsed, err := url.Parse(location)
+	if err != nil {
+		t.Fatalf("Location %q parse error = %v", location, err)
+	}
+	if parsed.Path != "/share/shares/5" {
+		t.Fatalf("Location path = %q, want /share/shares/5", parsed.Path)
+	}
+	query := parsed.Query()
+	for key, want := range map[string]string{"page": "3", "count": "40", "thumb": "256", "view": "grid"} {
+		if got := query.Get(key); got != want {
+			t.Fatalf("Location %s = %q in %q, want %q", key, got, location, want)
+		}
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/share/shares/5/files/216/delete", nil))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET delete status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusMethodNotAllowed)
+	}
+}
+
 func renderShareTemplate(t *testing.T, data pageData) string {
 	t.Helper()
 	pages, err := template.New("shareui-test").Funcs(templateFuncs()).ParseFS(assets, "templates/*.html")
@@ -143,4 +192,55 @@ func renderShareTemplate(t *testing.T, data pageData) string {
 		t.Fatalf("ExecuteTemplate(share_files) error = %v", err)
 	}
 	return out.String()
+}
+
+func newShareUIRuntime(t *testing.T) *storage.Runtime {
+	t.Helper()
+	coordinator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/node/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":                  "node-a",
+				"access_token":             "node-token",
+				"refresh_token":            "refresh-token",
+				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
+				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/node/auth/validate-user-token":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"user_id":                 15,
+				"username":                "jsmith",
+				"status":                  "active",
+				"access_token_expires_at": time.Now().UTC().Add(time.Hour),
+			})
+		default:
+			t.Fatalf("unexpected coordinator path %q", r.URL.Path)
+		}
+	}))
+	t.Cleanup(coordinator.Close)
+
+	runtime, err := storage.NewRuntime(config.Config{
+		App: config.AppConfig{
+			NodeID:            "node-a",
+			NodeAddress:       "http://node-a",
+			CoordinatorURL:    coordinator.URL,
+			HeartbeatInterval: time.Minute,
+		},
+		Auth: config.AuthConfig{
+			NodeSecret:                 "secret",
+			ShareAPITokenCacheDuration: 5 * time.Minute,
+		},
+		Sharing: config.SharingConfig{
+			ThumbnailSizes:             []int{128, 256},
+			ThumbnailDefaultSize:       128,
+			ThumbnailsGenerateForVideo: false,
+			FfmpegPath:                 "ffmpeg",
+			ThumbnailStorage:           t.TempDir(),
+			ThumbnailStorageLimitMB:    500,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v", err)
+	}
+	return runtime
 }

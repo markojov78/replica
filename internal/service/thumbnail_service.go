@@ -315,7 +315,7 @@ func (s *ThumbnailService) generateVideoThumbnail(ctx context.Context, req Thumb
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	tmp, err := os.CreateTemp(s.storageDir, ".thumbnail-*")
+	tmp, err := os.CreateTemp(s.storageDir, ".thumbnail-*.jpg")
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrThumbnailStorage, err)
 	}

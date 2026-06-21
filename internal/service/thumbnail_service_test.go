@@ -249,6 +249,53 @@ func TestVideoFallbackWhenFFmpegInvalid(t *testing.T) {
 	}
 }
 
+func TestVideoThumbnailUsesJPEGTempOutput(t *testing.T) {
+	service := newThumbnailServiceForTest(t)
+	service.cfg.Sharing.ThumbnailsGenerateForVideo = true
+	ffmpegPath := filepath.Join(t.TempDir(), "fake-ffmpeg")
+	if err := os.WriteFile(ffmpegPath, []byte(`#!/bin/sh
+for last do :; done
+case "$last" in
+	*.jpg) ;;
+	*) echo "missing jpg output suffix: $last" >&2; exit 234 ;;
+esac
+printf 'jpeg bytes' > "$last"
+`), 0o755); err != nil {
+		t.Fatalf("WriteFile(fake ffmpeg) error = %v", err)
+	}
+	service.cfg.Sharing.FfmpegPath = ffmpegPath
+
+	sourcePath := filepath.Join(t.TempDir(), "clip.mp4")
+	if err := os.WriteFile(sourcePath, []byte("fake video"), 0o644); err != nil {
+		t.Fatalf("WriteFile(video) error = %v", err)
+	}
+
+	req := ThumbnailRequest{
+		FileID:      125,
+		FileVersion: 4,
+		Size:        256,
+		RelativeURI: "clip.mp4",
+		Source:      NewLocalFileThumbnailSource(sourcePath, "clip.mp4"),
+	}
+	result, err := service.GetOrCreateThumbnail(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetOrCreateThumbnail(video) error = %v", err)
+	}
+	if result.ContentType != ThumbnailContentTypeJPEG {
+		t.Fatalf("ContentType = %q, want %q", result.ContentType, ThumbnailContentTypeJPEG)
+	}
+	if filepath.Base(result.Path) != "125_4_256.jpg" {
+		t.Fatalf("Path = %q, want 125_4_256.jpg", result.Path)
+	}
+	data, err := os.ReadFile(result.Path)
+	if err != nil {
+		t.Fatalf("ReadFile(thumbnail) error = %v", err)
+	}
+	if string(data) != "jpeg bytes" {
+		t.Fatalf("thumbnail data = %q, want fake ffmpeg output", string(data))
+	}
+}
+
 func TestImageSourceOverLimitReturnsGenericSVG(t *testing.T) {
 	service := newThumbnailServiceForTest(t)
 	service.cfg.Sharing.ThumbnailStorageLimitMB = 1

@@ -157,6 +157,27 @@
     }
   }
 
+  function bindUploadFilenamePrefill() {
+    document.body.addEventListener("change", (event) => {
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement) || input.type !== "file" || input.name !== "file") {
+        return;
+      }
+      const form = input.closest(".upload-form");
+      if (!form) {
+        return;
+      }
+      const relativeURI = form.querySelector("input[name=relative_uri]");
+      if (!(relativeURI instanceof HTMLInputElement)) {
+        return;
+      }
+      const fileName = input.files?.[0]?.name || input.value.split(/[/\\]/).pop() || "";
+      if (fileName) {
+        relativeURI.value = fileName;
+      }
+    });
+  }
+
   function bindAuthenticatedPage() {
     applyFileViewPreferences();
     fillCurrentUser();
@@ -292,10 +313,12 @@
   });
 
   if (document.body.dataset.shareAuthenticated === "true") {
+    bindUploadFilenamePrefill();
     bindAuthenticatedPage();
   } else if (document.querySelector("[data-share-login-form]")) {
     bootstrapLogin();
   } else {
+    bindUploadFilenamePrefill();
     bindPublicPage();
   }
 })();

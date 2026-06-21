@@ -261,20 +261,50 @@ func (h *Handler) deletePublicFile(w http.ResponseWriter, r *http.Request) {
 	h.afterPublicMutation(w, r, linkHash, err, "File deleted.")
 }
 
-func (h *Handler) afterAuthenticatedMutation(w http.ResponseWriter, r *http.Request, auth authContext, shareID uint, err error, message string) {
+func (h *Handler) afterAuthenticatedMutation(w http.ResponseWriter, r *http.Request, _ authContext, shareID uint, err error, _ string) {
 	if err != nil {
-		h.renderAuthenticatedFilePageWithMessage(w, r, auth, shareID, apiMessage(err), "")
+		h.redirectAfterMutation(w, r, authenticatedShareViewURL(shareID, r))
 		return
 	}
-	h.renderAuthenticatedFilePageWithMessage(w, r, auth, shareID, "", message)
+	h.redirectAfterMutation(w, r, authenticatedShareViewURL(shareID, r))
 }
 
-func (h *Handler) afterPublicMutation(w http.ResponseWriter, r *http.Request, linkHash string, err error, message string) {
+func (h *Handler) afterPublicMutation(w http.ResponseWriter, r *http.Request, linkHash string, err error, _ string) {
 	if err != nil {
-		h.renderPublicFilePageWithMessage(w, r, linkHash, apiMessage(err), "")
+		h.redirectAfterMutation(w, r, publicShareViewURL(linkHash, r))
 		return
 	}
-	h.renderPublicFilePageWithMessage(w, r, linkHash, "", message)
+	h.redirectAfterMutation(w, r, publicShareViewURL(linkHash, r))
+}
+
+func (h *Handler) redirectAfterMutation(w http.ResponseWriter, r *http.Request, target string) {
+	if isHTMX(r) {
+		w.Header().Set("HX-Redirect", target)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+func authenticatedShareViewURL(shareID uint, r *http.Request) string {
+	return shareViewURL(fmt.Sprintf("/share/shares/%d", shareID), r)
+}
+
+func publicShareViewURL(linkHash string, r *http.Request) string {
+	return shareViewURL("/w/"+url.PathEscape(strings.TrimSpace(linkHash)), r)
+}
+
+func shareViewURL(basePath string, r *http.Request) string {
+	query := url.Values{}
+	query.Set("page", strconv.Itoa(parsePositiveRequestValue(r, "page", 1)))
+	query.Set("count", strconv.Itoa(parsePositiveRequestValue(r, "count", 20)))
+	if thumb := strings.TrimSpace(requestValue(r, "thumb")); thumb != "" {
+		query.Set("thumb", thumb)
+	}
+	if view := selectedViewMode(r); view != "" {
+		query.Set("view", view)
+	}
+	return basePath + "?" + query.Encode()
 }
 
 func (h *Handler) renderAuthenticatedFilePageWithMessage(w http.ResponseWriter, r *http.Request, auth authContext, shareID uint, errMessage, message string) {
@@ -367,10 +397,7 @@ func parsePositiveQuery(r *http.Request, name string, fallback int) int {
 }
 
 func parsePositiveRequestValue(r *http.Request, name string, fallback int) int {
-	raw := strings.TrimSpace(r.URL.Query().Get(name))
-	if raw == "" {
-		raw = strings.TrimSpace(r.FormValue(name))
-	}
+	raw := requestValue(r, name)
 	value, err := strconv.Atoi(raw)
 	if err != nil || value < 1 {
 		return fallback
@@ -379,6 +406,14 @@ func parsePositiveRequestValue(r *http.Request, name string, fallback int) int {
 		return 100
 	}
 	return value
+}
+
+func requestValue(r *http.Request, name string) string {
+	raw := strings.TrimSpace(r.URL.Query().Get(name))
+	if raw == "" {
+		raw = strings.TrimSpace(r.FormValue(name))
+	}
+	return raw
 }
 
 func selectedThumbnailSize(r *http.Request, cfg config.SharingConfig) int {
