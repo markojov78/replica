@@ -39,7 +39,8 @@ func TestRegisterServesLoginAndStaticAssets(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `htmx:configRequest`) ||
 		!strings.Contains(rec.Body.String(), `Authorization`) ||
-		!strings.Contains(rec.Body.String(), `thumbnail_size`) {
+		!strings.Contains(rec.Body.String(), `thumbnail_size`) ||
+		!strings.Contains(rec.Body.String(), `folder_tree_visible`) {
 		t.Fatalf("share.js body = %s, want HTMX auth header handling", rec.Body.String())
 	}
 }
@@ -269,6 +270,88 @@ func TestAuthenticatedAndAnonymousTreeRenderingUseCorrectBasePaths(t *testing.T)
 	}
 }
 
+func TestTreeSidePanelRenderedOnlyInTreeMode(t *testing.T) {
+	tree := renderShareTemplate(t, treeTemplateData("list", "", false))
+	if !strings.Contains(tree, `data-folder-tree-panel`) || !strings.Contains(tree, `aria-label="Folders"`) {
+		t.Fatalf("tree html = %s, want folder side panel", tree)
+	}
+
+	flat := renderShareTemplate(t, pageData{
+		Title:          "Photos",
+		Authenticated:  true,
+		Share:          apiclient.Share{ID: 4, Name: "Photos"},
+		Permissions:    []string{"read"},
+		Page:           1,
+		Count:          20,
+		Total:          0,
+		BasePath:       "/share/shares/4",
+		APIBasePath:    "/api/share/shares/4",
+		ThumbnailSizes: []int{128, 256},
+		ThumbnailSize:  128,
+		ViewMode:       "list",
+		BrowseMode:     "flat",
+		ShowPagination: true,
+	})
+	if strings.Contains(flat, `data-folder-tree-panel`) {
+		t.Fatalf("flat html = %s, want no folder side panel", flat)
+	}
+}
+
+func TestTreeSidePanelHighlightsCurrentFolderAndRendersNestedFolders(t *testing.T) {
+	html := renderShareTemplate(t, treeTemplateData("list", "sub", false))
+	for _, want := range []string{
+		`data-tree-path="sub" class="active"`,
+		`data-tree-path="sub/videos"`,
+		`href="/share/shares/4?browse=tree&amp;path=sub%2Fvideos&amp;thumb=128&amp;view=list"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("tree side panel html = %s, want %q", html, want)
+		}
+	}
+	if strings.Contains(html, `data-tree-path="sub/videos" class="active"`) {
+		t.Fatalf("tree side panel html = %s, want only current folder active", html)
+	}
+}
+
+func TestTreeSidePanelNavigationPreservesBrowseViewAndThumbnail(t *testing.T) {
+	html := renderShareTemplate(t, treeTemplateData("grid", "sub", false))
+	if !strings.Contains(html, `href="/share/shares/4?browse=tree&amp;path=sub%2Fvideos&amp;thumb=128&amp;view=grid"`) {
+		t.Fatalf("tree side panel html = %s, want navigation preserving browse/view/thumb", html)
+	}
+}
+
+func TestTreeSidePanelExpandCollapseStateHooks(t *testing.T) {
+	html := renderShareTemplate(t, treeTemplateData("list", "", false))
+	if !strings.Contains(html, `data-tree-toggle`) || !strings.Contains(html, `data-tree-node`) {
+		t.Fatalf("tree side panel html = %s, want expand/collapse hooks", html)
+	}
+
+	mux := http.NewServeMux()
+	if err := Register(mux, nil); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/share/static/share.js", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET share.js status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
+	}
+	for _, want := range []string{`folder_tree_collapsed`, `folder_tree_visible`, `data-tree-toggle`, `data-folder-panel-toggle`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("share.js = %s, want %q", rec.Body.String(), want)
+		}
+	}
+}
+
+func TestTreeModelFeedsMainContentAndSidePanel(t *testing.T) {
+	html := renderShareTemplate(t, treeTemplateData("grid", "", false))
+	if !strings.Contains(html, `folder-card`) || !strings.Contains(html, `data-folder-tree-panel`) {
+		t.Fatalf("tree html = %s, want main folder cards and side panel", html)
+	}
+	if !strings.Contains(html, `href="/share/shares/4?browse=tree&amp;path=sub&amp;thumb=128&amp;view=grid"`) {
+		t.Fatalf("tree html = %s, want shared sub folder URL in rendered tree", html)
+	}
+}
+
 func TestAuthenticatedUIContentRouteRequiresCookieAuth(t *testing.T) {
 	runtime := newShareUIRuntime(t)
 	mux := http.NewServeMux()
@@ -405,6 +488,7 @@ func treeTemplateData(viewMode string, treePath string, public bool) pageData {
 		authenticated = false
 	}
 	folders := treeFolderViews(node.folderEntries(), basePath, viewMode, 128)
+	panel := treePanelFromModel(model, basePath, viewMode, 128, cleanPath)
 	var parent *treeFolderView
 	if cleanPath != "" {
 		parentPath := parentTreePath(cleanPath)
@@ -429,6 +513,7 @@ func treeTemplateData(viewMode string, treePath string, public bool) pageData {
 		TreePath:       cleanPath,
 		ParentFolder:   parent,
 		Folders:        folders,
+		TreePanel:      &panel,
 		HasEntries:     parent != nil || len(folders) > 0 || len(node.Files) > 0,
 		ShowPagination: false,
 	}

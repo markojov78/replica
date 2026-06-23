@@ -31,6 +31,19 @@ type treeFolderView struct {
 	IsParent bool
 }
 
+type treePanelView struct {
+	Root treePanelNode
+}
+
+type treePanelNode struct {
+	Name        string
+	Path        string
+	URL         string
+	Active      bool
+	HasChildren bool
+	Children    []treePanelNode
+}
+
 func buildTreeModel(files []apiclient.ReplicaInventoryFile) treeModel {
 	root := &folderNode{Children: make(map[string]*folderNode)}
 	for _, file := range files {
@@ -94,14 +107,23 @@ func (n *folderNode) ensurePath(folderPath string) *folderNode {
 }
 
 func (n *folderNode) folderEntries() []treeFolderEntry {
-	entries := make([]treeFolderEntry, 0, len(n.Children))
-	for _, child := range n.Children {
+	children := n.sortedChildren()
+	entries := make([]treeFolderEntry, 0, len(children))
+	for _, child := range children {
 		entries = append(entries, treeFolderEntry{Name: child.Name, Path: child.Path})
 	}
-	sort.SliceStable(entries, func(i, j int) bool {
-		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
-	})
 	return entries
+}
+
+func (n *folderNode) sortedChildren() []*folderNode {
+	children := make([]*folderNode, 0, len(n.Children))
+	for _, child := range n.Children {
+		children = append(children, child)
+	}
+	sort.SliceStable(children, func(i, j int) bool {
+		return strings.ToLower(children[i].Name) < strings.ToLower(children[j].Name)
+	})
+	return children
 }
 
 func (n *folderNode) sort() {
@@ -135,4 +157,33 @@ func parentTreePath(value string) string {
 		return ""
 	}
 	return parent
+}
+
+func treePanelFromModel(model treeModel, basePath string, viewMode string, thumbSize int, currentPath string) treePanelView {
+	currentPath = cleanTreePath(currentPath)
+	root := treePanelNode{
+		Name:        "/",
+		URL:         browseURL(basePath, browseModeTree, viewMode, "", thumbSize),
+		Active:      currentPath == "",
+		HasChildren: len(model.Root.Children) > 0,
+		Children:    treePanelChildren(model.Root, basePath, viewMode, thumbSize, currentPath),
+	}
+	return treePanelView{Root: root}
+}
+
+func treePanelChildren(node *folderNode, basePath string, viewMode string, thumbSize int, currentPath string) []treePanelNode {
+	children := node.sortedChildren()
+	result := make([]treePanelNode, 0, len(children))
+	for _, child := range children {
+		panelNode := treePanelNode{
+			Name:        child.Name,
+			Path:        child.Path,
+			URL:         browseURL(basePath, browseModeTree, viewMode, child.Path, thumbSize),
+			Active:      child.Path == currentPath,
+			HasChildren: len(child.Children) > 0,
+			Children:    treePanelChildren(child, basePath, viewMode, thumbSize, currentPath),
+		}
+		result = append(result, panelNode)
+	}
+	return result
 }

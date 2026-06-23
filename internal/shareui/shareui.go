@@ -58,6 +58,7 @@ type pageData struct {
 	TreePath       string
 	ParentFolder   *treeFolderView
 	Folders        []treeFolderView
+	TreePanel      *treePanelView
 	HasEntries     bool
 	ShowPagination bool
 	Error          string
@@ -534,6 +535,7 @@ func (h *Handler) renderFilePageWithMessages(w http.ResponseWriter, r *http.Requ
 	files := result.Items
 	var folders []treeFolderView
 	var parentFolder *treeFolderView
+	var treePanel *treePanelView
 	showPagination := browseMode != browseModeTree
 	if browseMode == browseModeTree {
 		if result.Total > treeBrowseFileLimit {
@@ -546,6 +548,8 @@ func (h *Handler) renderFilePageWithMessages(w http.ResponseWriter, r *http.Requ
 				node = model.Root
 				treePath = ""
 			}
+			panel := treePanelFromModel(model, basePath, viewMode, size, treePath)
+			treePanel = &panel
 			files = node.Files
 			folders = treeFolderViews(node.folderEntries(), basePath, viewMode, size)
 			if treePath != "" {
@@ -578,6 +582,7 @@ func (h *Handler) renderFilePageWithMessages(w http.ResponseWriter, r *http.Requ
 		TreePath:       treePath,
 		ParentFolder:   parentFolder,
 		Folders:        folders,
+		TreePanel:      treePanel,
 		HasEntries:     parentFolder != nil || len(folders) > 0 || len(files) > 0,
 		ShowPagination: showPagination,
 		Error:          errMessage,

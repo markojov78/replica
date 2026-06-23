@@ -177,6 +177,7 @@
 
   function bindAuthenticatedPage() {
     applyFileViewPreferences();
+    bindFolderTreePanel();
     fillCurrentUser();
     request("/share/auth/me")
       .then(async (response) => {
@@ -231,6 +232,7 @@
 
   function bindPublicPage() {
     applyFileViewPreferences();
+    bindFolderTreePanel();
   }
 
   async function authenticatedDownload(path, filename) {
@@ -318,6 +320,64 @@
       return;
     }
     window.location.replace(`${window.location.pathname}?${params.toString()}`);
+  }
+
+  function bindFolderTreePanel() {
+    const layout = document.querySelector("[data-folder-tree-layout]");
+    if (!layout) {
+      return;
+    }
+    const root = layout.closest("[data-share-file-view]") || layout;
+    const visibilityKey = prefix + "folder_tree_visible";
+    const collapsedKey = prefix + "folder_tree_collapsed";
+
+    const storedVisible = localStorage.getItem(visibilityKey);
+    if (storedVisible === "false") {
+      layout.classList.add("tree-panel-hidden");
+      root.classList.add("tree-panel-hidden");
+    } else if (storedVisible === "true") {
+      layout.classList.add("tree-panel-open");
+      root.classList.add("tree-panel-open");
+    }
+
+    let collapsed = new Set(JSON.parse(localStorage.getItem(collapsedKey) || "[]"));
+    for (const node of layout.querySelectorAll("[data-tree-node]")) {
+      if (collapsed.has(node.dataset.treePath || "")) {
+        node.classList.add("collapsed");
+      }
+    }
+
+    document.body.addEventListener("click", (event) => {
+      const panelToggle = event.target.closest("[data-folder-panel-toggle]");
+      if (panelToggle) {
+        event.preventDefault();
+        const hidden = layout.classList.toggle("tree-panel-hidden");
+        layout.classList.toggle("tree-panel-open", !hidden);
+        root.classList.toggle("tree-panel-hidden", hidden);
+        root.classList.toggle("tree-panel-open", !hidden);
+        localStorage.setItem(visibilityKey, hidden ? "false" : "true");
+        return;
+      }
+
+      const treeToggle = event.target.closest("[data-tree-toggle]");
+      if (!treeToggle) {
+        return;
+      }
+      event.preventDefault();
+      const node = treeToggle.closest("[data-tree-node]");
+      if (!node) {
+        return;
+      }
+      const nodePath = node.dataset.treePath || "";
+      node.classList.toggle("collapsed");
+      collapsed = new Set(JSON.parse(localStorage.getItem(collapsedKey) || "[]"));
+      if (node.classList.contains("collapsed")) {
+        collapsed.add(nodePath);
+      } else {
+        collapsed.delete(nodePath);
+      }
+      localStorage.setItem(collapsedKey, JSON.stringify([...collapsed]));
+    });
   }
 
   document.body.addEventListener("htmx:configRequest", (event) => {

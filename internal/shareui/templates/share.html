@@ -87,6 +87,20 @@
 {{template "layout_end" .}}
 {{end}}
 
+{{define "tree_panel_node"}}
+<li data-tree-node data-tree-path="{{.Path}}" class="{{if .Active}}active{{end}}">
+  <div class="tree-node-line">
+    {{if .HasChildren}}<button type="button" class="tree-expander" data-tree-toggle aria-label="Toggle folder"></button>{{else}}<span class="tree-expander-placeholder"></span>{{end}}
+    <a href="{{.URL}}" hx-get="{{.URL}}" hx-target="body" hx-swap="outerHTML">{{.Name}}</a>
+  </div>
+  {{if .Children}}
+  <ul>
+    {{range .Children}}{{template "tree_panel_node" .}}{{end}}
+  </ul>
+  {{end}}
+</li>
+{{end}}
+
 {{define "share_files"}}
 {{template "layout_start" .}}
 <section class="panel" data-share-file-view data-view-mode="{{.ViewMode}}" data-browse-mode="{{.BrowseMode}}" data-thumbnail-size="{{.ThumbnailSize}}">
@@ -132,6 +146,20 @@
     <input name="relative_uri" placeholder="relative/path/file.ext" required>
     <button type="submit" class="primary">Upload</button>
   </form>
+  {{end}}
+  {{if .TreePanel}}
+  <button type="button" class="btn folder-panel-button" data-folder-panel-toggle>Folders</button>
+  <div class="share-tree-layout" data-folder-tree-layout>
+    <aside class="folder-tree-panel" data-folder-tree-panel>
+      <div class="folder-tree-head">
+        <strong>Folders</strong>
+        <button type="button" class="btn" data-folder-panel-toggle>Hide</button>
+      </div>
+      <nav class="folder-tree" aria-label="Folders">
+        <ul>{{template "tree_panel_node" .TreePanel.Root}}</ul>
+      </nav>
+    </aside>
+    <div class="share-main">
   {{end}}
   {{if eq .ViewMode "grid"}}
   <section class="file-grid" style="{{thumbStyle .ThumbnailSize}}" data-view-mode="grid">
@@ -264,6 +292,10 @@
   {{end}}
   {{if .ShowPagination}}
   {{template "pagination" .}}
+  {{end}}
+  {{if .TreePanel}}
+    </div>
+  </div>
   {{end}}
 </section>
 {{template "layout_end" .}}
