@@ -142,6 +142,133 @@ func TestAuthenticatedGridUsesAPIThumbnailDataSource(t *testing.T) {
 	}
 }
 
+func TestTreeModelGenerationFromRelativeURIs(t *testing.T) {
+	model := buildTreeModel([]apiclient.ReplicaInventoryFile{
+		{FileID: 1, RelativeURI: "image01.jpg"},
+		{FileID: 2, RelativeURI: "sub/image03.jpg"},
+		{FileID: 3, RelativeURI: "sub/videos/video01.mp4"},
+	})
+
+	root := model.folder("")
+	if root == nil || len(root.Files) != 1 || root.Files[0].RelativeURI != "image01.jpg" {
+		t.Fatalf("root files = %+v, want image01.jpg", root)
+	}
+	sub := model.folder("sub")
+	if sub == nil || len(sub.Files) != 1 || sub.Files[0].RelativeURI != "sub/image03.jpg" {
+		t.Fatalf("sub node = %+v, want sub/image03.jpg", sub)
+	}
+	videos := model.folder("sub/videos")
+	if videos == nil || len(videos.Files) != 1 || videos.Files[0].RelativeURI != "sub/videos/video01.mp4" {
+		t.Fatalf("videos node = %+v, want video01.mp4", videos)
+	}
+}
+
+func TestTreeRootFolderRendering(t *testing.T) {
+	html := renderShareTemplate(t, treeTemplateData("list", "", false))
+	for _, want := range []string{
+		`data-browse-mode="tree"`,
+		`href="/share/shares/4?browse=tree&amp;path=sub&amp;thumb=128&amp;view=list"`,
+		`Folder sub`,
+		`image01.jpg`,
+		`image02.jpg`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("tree root html = %s, want %q", html, want)
+		}
+	}
+	if strings.Contains(html, `Parent folder`) || strings.Contains(html, `class="pagination"`) {
+		t.Fatalf("tree root html = %s, want no parent or pagination", html)
+	}
+}
+
+func TestTreeNestedFolderRenderingWithParent(t *testing.T) {
+	html := renderShareTemplate(t, treeTemplateData("list", "sub", false))
+	for _, want := range []string{
+		`Up Parent folder`,
+		`Folder videos`,
+		`image03.jpg`,
+		`image04.jpg`,
+		`href="/share/shares/4?browse=tree&amp;thumb=128&amp;view=list"`,
+		`href="/share/shares/4?browse=tree&amp;path=sub%2Fvideos&amp;thumb=128&amp;view=list"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("tree nested html = %s, want %q", html, want)
+		}
+	}
+}
+
+func TestTreeListAndGridRendering(t *testing.T) {
+	list := renderShareTemplate(t, treeTemplateData("list", "sub/videos", false))
+	if !strings.Contains(list, `<table>`) || strings.Contains(list, `class="file-grid"`) {
+		t.Fatalf("tree list html = %s, want table only", list)
+	}
+	if !strings.Contains(list, `video01.mp4`) || !strings.Contains(list, `Up Parent folder`) {
+		t.Fatalf("tree list html = %s, want video and parent folder", list)
+	}
+
+	grid := renderShareTemplate(t, treeTemplateData("grid", "sub", false))
+	for _, want := range []string{
+		`class="file-grid"`,
+		`folder-card`,
+		`folder-preview`,
+		`image03.jpg`,
+	} {
+		if !strings.Contains(grid, want) {
+			t.Fatalf("tree grid html = %s, want %q", grid, want)
+		}
+	}
+}
+
+func TestFlatModePaginationUnchangedAndTreePaginationHidden(t *testing.T) {
+	file := fileView{
+		ReplicaInventoryFile: apiclient.ReplicaInventoryFile{FileID: 10, RelativeURI: "photo.jpg", Size: 100},
+		Name:                 "photo.jpg",
+		Type:                 "Image (JPG)",
+		ContentPath:          "/share/shares/4/files/10/content",
+		DownloadPath:         "/share/shares/4/files/10/content",
+	}
+	flat := renderShareTemplate(t, pageData{
+		Title:          "Photos",
+		Authenticated:  true,
+		Share:          apiclient.Share{ID: 4, Name: "Photos"},
+		Files:          []fileView{file},
+		Permissions:    []string{"read"},
+		Page:           2,
+		Count:          20,
+		Total:          41,
+		BasePath:       "/share/shares/4",
+		APIBasePath:    "/api/share/shares/4",
+		ThumbnailSizes: []int{128, 256},
+		ThumbnailSize:  128,
+		ViewMode:       "list",
+		BrowseMode:     "flat",
+		ShowPagination: true,
+		HasEntries:     true,
+	})
+	if !strings.Contains(flat, `Page 2 of 3`) || !strings.Contains(flat, `browse=flat`) {
+		t.Fatalf("flat html = %s, want existing pagination with browse=flat", flat)
+	}
+
+	tree := renderShareTemplate(t, treeTemplateData("list", "", false))
+	if strings.Contains(tree, `class="pagination"`) {
+		t.Fatalf("tree html = %s, want pagination hidden", tree)
+	}
+}
+
+func TestAuthenticatedAndAnonymousTreeRenderingUseCorrectBasePaths(t *testing.T) {
+	authHTML := renderShareTemplate(t, treeTemplateData("grid", "sub", false))
+	if !strings.Contains(authHTML, `href="/share/shares/4?browse=tree`) ||
+		!strings.Contains(authHTML, `href="/share/shares/4/files/`) {
+		t.Fatalf("authenticated tree html = %s, want /share content and navigation links", authHTML)
+	}
+
+	publicHTML := renderShareTemplate(t, treeTemplateData("grid", "sub", true))
+	if !strings.Contains(publicHTML, `href="/w/public-link?browse=tree`) ||
+		!strings.Contains(publicHTML, `href="/w/public-link/files/`) {
+		t.Fatalf("anonymous tree html = %s, want /w content and navigation links", publicHTML)
+	}
+}
+
 func TestAuthenticatedUIContentRouteRequiresCookieAuth(t *testing.T) {
 	runtime := newShareUIRuntime(t)
 	mux := http.NewServeMux()
@@ -240,6 +367,9 @@ func TestShareUIDeletePostRedirectsToCanonicalSharePageAndGetStaysMethodNotAllow
 
 func renderShareTemplate(t *testing.T, data pageData) string {
 	t.Helper()
+	if !data.HasEntries && (len(data.Files) > 0 || len(data.Folders) > 0 || data.ParentFolder != nil) {
+		data.HasEntries = true
+	}
 	pages, err := template.New("shareui-test").Funcs(templateFuncs()).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		t.Fatalf("ParseFS() error = %v", err)
@@ -249,6 +379,59 @@ func renderShareTemplate(t *testing.T, data pageData) string {
 		t.Fatalf("ExecuteTemplate(share_files) error = %v", err)
 	}
 	return out.String()
+}
+
+func treeTemplateData(viewMode string, treePath string, public bool) pageData {
+	files := []apiclient.ReplicaInventoryFile{
+		{FileID: 1, RelativeURI: "image01.jpg", Size: 100, InventoryVersion: 1, Modified: time.Date(2026, 3, 17, 10, 30, 0, 0, time.UTC)},
+		{FileID: 2, RelativeURI: "image02.jpg", Size: 100, InventoryVersion: 1, Modified: time.Date(2026, 3, 17, 10, 31, 0, 0, time.UTC)},
+		{FileID: 3, RelativeURI: "sub/image03.jpg", Size: 100, InventoryVersion: 1, Modified: time.Date(2026, 3, 17, 10, 32, 0, 0, time.UTC)},
+		{FileID: 4, RelativeURI: "sub/image04.jpg", Size: 100, InventoryVersion: 1, Modified: time.Date(2026, 3, 17, 10, 33, 0, 0, time.UTC)},
+		{FileID: 5, RelativeURI: "sub/videos/video01.mp4", Size: 100, InventoryVersion: 1, Modified: time.Date(2026, 3, 17, 10, 34, 0, 0, time.UTC)},
+	}
+	model := buildTreeModel(files)
+	cleanPath := cleanTreePath(treePath)
+	node := model.folder(cleanPath)
+	if node == nil {
+		node = model.Root
+		cleanPath = ""
+	}
+	basePath := "/share/shares/4"
+	apiBasePath := "/api/share/shares/4"
+	authenticated := true
+	if public {
+		basePath = "/w/public-link"
+		apiBasePath = "/s/public-link"
+		authenticated = false
+	}
+	folders := treeFolderViews(node.folderEntries(), basePath, viewMode, 128)
+	var parent *treeFolderView
+	if cleanPath != "" {
+		parentPath := parentTreePath(cleanPath)
+		parent = &treeFolderView{Name: "Parent folder", Path: parentPath, URL: browseURL(basePath, browseModeTree, viewMode, parentPath, 128), IsParent: true}
+	}
+	return pageData{
+		Title:          "Photos",
+		Authenticated:  authenticated,
+		Public:         public,
+		Share:          apiclient.Share{ID: 4, Name: "Photos"},
+		Files:          fileViews(node.Files, apiBasePath, basePath, 128, authenticated, config.SharingConfig{}),
+		Permissions:    []string{"read"},
+		Page:           1,
+		Count:          20,
+		Total:          int64(len(files)),
+		BasePath:       basePath,
+		APIBasePath:    apiBasePath,
+		ThumbnailSizes: []int{128, 256},
+		ThumbnailSize:  128,
+		ViewMode:       viewMode,
+		BrowseMode:     "tree",
+		TreePath:       cleanPath,
+		ParentFolder:   parent,
+		Folders:        folders,
+		HasEntries:     parent != nil || len(folders) > 0 || len(node.Files) > 0,
+		ShowPagination: false,
+	}
 }
 
 func newShareUIRuntime(t *testing.T) *storage.Runtime {

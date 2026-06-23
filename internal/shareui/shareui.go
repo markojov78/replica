@@ -54,6 +54,12 @@ type pageData struct {
 	ThumbnailSizes []int
 	ThumbnailSize  int
 	ViewMode       string
+	BrowseMode     string
+	TreePath       string
+	ParentFolder   *treeFolderView
+	Folders        []treeFolderView
+	HasEntries     bool
+	ShowPagination bool
 	Error          string
 	Message        string
 }
@@ -71,6 +77,10 @@ type fileView struct {
 const (
 	shareUIAccessCookie  = "replica_share_access"
 	shareUIRefreshCookie = "replica_share_refresh"
+	browseModeFlat       = "flat"
+	browseModeTree       = "tree"
+	// Tree mode intentionally uses one existing file-list request and refuses larger shares.
+	treeBrowseFileLimit = 100
 )
 
 func Register(mux *http.ServeMux, runtime *storage.Runtime, authServices ...*service.AuthService) error {
@@ -117,6 +127,7 @@ func templateFuncs() template.FuncMap {
 		"pathEscape":      url.PathEscape,
 		"pageURL":         pageURL,
 		"viewURL":         viewURL,
+		"browseURL":       browseURL,
 		"thumbStyle":      thumbStyle,
 	}
 }
@@ -283,7 +294,11 @@ func (h *Handler) shareFilesPage(w http.ResponseWriter, r *http.Request, auth au
 	if !ok {
 		return
 	}
+	browseMode := selectedBrowseMode(r)
 	page, count := parsePagination(r)
+	if browseMode == browseModeTree {
+		page, count = 1, treeBrowseFileLimit
+	}
 	result, err := h.runtime.ListUserShareFiles(auth.UserID, shareID, page, count, storage.ShareFileListFilter{})
 	if err != nil {
 		h.renderShareError(w, err)
@@ -293,7 +308,11 @@ func (h *Handler) shareFilesPage(w http.ResponseWriter, r *http.Request, auth au
 }
 
 func (h *Handler) publicSharePage(w http.ResponseWriter, r *http.Request) {
+	browseMode := selectedBrowseMode(r)
 	page, count := parsePagination(r)
+	if browseMode == browseModeTree {
+		page, count = 1, treeBrowseFileLimit
+	}
 	linkHash := strings.TrimSpace(r.PathValue("link_hash"))
 	result, err := h.runtime.ListPublicShareFiles(linkHash, page, count, storage.ShareFileListFilter{})
 	if err != nil {
@@ -458,11 +477,15 @@ func shareViewURL(basePath string, r *http.Request) string {
 	query := url.Values{}
 	query.Set("page", strconv.Itoa(parsePositiveRequestValue(r, "page", 1)))
 	query.Set("count", strconv.Itoa(parsePositiveRequestValue(r, "count", 20)))
+	query.Set("browse", selectedBrowseMode(r))
 	if thumb := strings.TrimSpace(requestValue(r, "thumb")); thumb != "" {
 		query.Set("thumb", thumb)
 	}
 	if view := selectedViewMode(r); view != "" {
 		query.Set("view", view)
+	}
+	if treePath := selectedTreePath(r); treePath != "" {
+		query.Set("path", treePath)
 	}
 	return basePath + "?" + query.Encode()
 }
@@ -493,6 +516,8 @@ func (h *Handler) renderFilePageWithMessages(w http.ResponseWriter, r *http.Requ
 	cfg := h.runtime.SharingConfig()
 	size := selectedThumbnailSize(r, cfg)
 	viewMode := selectedViewMode(r)
+	browseMode := selectedBrowseMode(r)
+	treePath := selectedTreePath(r)
 	basePath := fmt.Sprintf("/share/shares/%d", result.Share.ID)
 	apiBase := fmt.Sprintf("/api/share/shares/%d", result.Share.ID)
 	contentBase := basePath
@@ -506,12 +531,40 @@ func (h *Handler) renderFilePageWithMessages(w http.ResponseWriter, r *http.Requ
 		apiBase = "/s/" + url.PathEscape(linkHash)
 		contentBase = basePath
 	}
+	files := result.Items
+	var folders []treeFolderView
+	var parentFolder *treeFolderView
+	showPagination := browseMode != browseModeTree
+	if browseMode == browseModeTree {
+		if result.Total > treeBrowseFileLimit {
+			files = nil
+			errMessage = fmt.Sprintf("Tree browsing supports up to %d files. Use flat browsing for larger shares.", treeBrowseFileLimit)
+		} else {
+			model := buildTreeModel(result.Items)
+			node := model.folder(treePath)
+			if node == nil {
+				node = model.Root
+				treePath = ""
+			}
+			files = node.Files
+			folders = treeFolderViews(node.folderEntries(), basePath, viewMode, size)
+			if treePath != "" {
+				parentPath := parentTreePath(treePath)
+				parentFolder = &treeFolderView{
+					Name:     "Parent folder",
+					Path:     parentPath,
+					URL:      browseURL(basePath, browseModeTree, viewMode, parentPath, size),
+					IsParent: true,
+				}
+			}
+		}
+	}
 	data := pageData{
 		Title:          title,
 		Authenticated:  !public,
 		Public:         public,
 		Share:          result.Share,
-		Files:          fileViews(result.Items, apiBase, contentBase, size, !public, cfg),
+		Files:          fileViews(files, apiBase, contentBase, size, !public, cfg),
 		Permissions:    result.EffectivePermissions,
 		Page:           result.Page,
 		Count:          result.Count,
@@ -521,6 +574,12 @@ func (h *Handler) renderFilePageWithMessages(w http.ResponseWriter, r *http.Requ
 		ThumbnailSizes: cfg.ThumbnailSizes,
 		ThumbnailSize:  size,
 		ViewMode:       viewMode,
+		BrowseMode:     browseMode,
+		TreePath:       treePath,
+		ParentFolder:   parentFolder,
+		Folders:        folders,
+		HasEntries:     parentFolder != nil || len(folders) > 0 || len(files) > 0,
+		ShowPagination: showPagination,
 		Error:          errMessage,
 		Message:        message,
 	}
@@ -599,6 +658,27 @@ func selectedViewMode(r *http.Request) string {
 	default:
 		return "list"
 	}
+}
+
+func selectedBrowseMode(r *http.Request) string {
+	browseMode := strings.TrimSpace(r.URL.Query().Get("browse"))
+	if browseMode == "" {
+		browseMode = strings.TrimSpace(r.FormValue("browse"))
+	}
+	switch browseMode {
+	case browseModeTree:
+		return browseModeTree
+	default:
+		return browseModeFlat
+	}
+}
+
+func selectedTreePath(r *http.Request) string {
+	raw := strings.TrimSpace(r.URL.Query().Get("path"))
+	if raw == "" {
+		raw = strings.TrimSpace(r.FormValue("path"))
+	}
+	return cleanTreePath(raw)
 }
 
 func uploadedFile(w http.ResponseWriter, r *http.Request) (string, multipart.File, int64, bool) {
@@ -741,6 +821,18 @@ func fileViews(files []apiclient.ReplicaInventoryFile, apiBasePath string, conte
 	return result
 }
 
+func treeFolderViews(entries []treeFolderEntry, basePath string, viewMode string, thumbSize int) []treeFolderView {
+	result := make([]treeFolderView, 0, len(entries))
+	for _, entry := range entries {
+		result = append(result, treeFolderView{
+			Name: entry.Name,
+			Path: entry.Path,
+			URL:  browseURL(basePath, browseModeTree, viewMode, entry.Path, thumbSize),
+		})
+	}
+	return result
+}
+
 func fileType(ext string) string {
 	switch ext {
 	case "jpg", "jpeg", "png", "gif", "webp":
@@ -762,12 +854,34 @@ func isPlayableVideo(ext string) bool {
 	return ext == "mp4" || ext == "webm"
 }
 
-func pageURL(base string, page, count, thumb int, viewMode string) string {
-	return fmt.Sprintf("%s?page=%d&count=%d&thumb=%d&view=%s", base, page, count, thumb, url.QueryEscape(selectedViewValue(viewMode)))
+func pageURL(base string, page, count, thumb int, viewMode string, browseMode string, treePath string) string {
+	query := url.Values{}
+	query.Set("page", strconv.Itoa(page))
+	query.Set("count", strconv.Itoa(count))
+	query.Set("thumb", strconv.Itoa(thumb))
+	query.Set("view", selectedViewValue(viewMode))
+	query.Set("browse", selectedBrowseValue(browseMode))
+	if cleanPath := cleanTreePath(treePath); cleanPath != "" {
+		query.Set("path", cleanPath)
+	}
+	return base + "?" + query.Encode()
 }
 
-func viewURL(base string, page, count, thumb int, viewMode string) string {
-	return pageURL(base, page, count, thumb, viewMode)
+func viewURL(base string, page, count, thumb int, viewMode string, browseMode string, treePath string) string {
+	return pageURL(base, page, count, thumb, viewMode, browseMode, treePath)
+}
+
+func browseURL(base string, browseMode string, viewMode string, treePath string, thumb int) string {
+	query := url.Values{}
+	query.Set("browse", selectedBrowseValue(browseMode))
+	query.Set("view", selectedViewValue(viewMode))
+	if thumb > 0 {
+		query.Set("thumb", strconv.Itoa(thumb))
+	}
+	if cleanPath := cleanTreePath(treePath); cleanPath != "" {
+		query.Set("path", cleanPath)
+	}
+	return base + "?" + query.Encode()
 }
 
 func selectedViewValue(viewMode string) string {
@@ -775,6 +889,13 @@ func selectedViewValue(viewMode string) string {
 		return "grid"
 	}
 	return "list"
+}
+
+func selectedBrowseValue(browseMode string) string {
+	if browseMode == browseModeTree {
+		return browseModeTree
+	}
+	return browseModeFlat
 }
 
 func thumbStyle(size int) template.CSS {

@@ -89,18 +89,20 @@
 
 {{define "share_files"}}
 {{template "layout_start" .}}
-<section class="panel" data-share-file-view data-view-mode="{{.ViewMode}}" data-thumbnail-size="{{.ThumbnailSize}}">
+<section class="panel" data-share-file-view data-view-mode="{{.ViewMode}}" data-browse-mode="{{.BrowseMode}}" data-thumbnail-size="{{.ThumbnailSize}}">
   <div class="section-head">
     <div>
       {{if .Authenticated}}<a class="back-link" href="/share/shares">My shares</a>{{end}}
       <h1>{{.Share.Name}}</h1>
-      <p>{{joinPermissions .Permissions ", "}}</p>
+      <p>{{joinPermissions .Permissions ", "}}{{if eq .BrowseMode "tree"}} · /{{.TreePath}}{{end}}</p>
     </div>
     <div class="toolbar">
       <form method="get" action="{{.BasePath}}" hx-get="{{.BasePath}}" hx-target="body" hx-swap="outerHTML" class="inline-form">
         <input type="hidden" name="page" value="{{.Page}}">
         <input type="hidden" name="count" value="{{.Count}}">
         <input type="hidden" name="view" value="{{.ViewMode}}">
+        <input type="hidden" name="browse" value="{{.BrowseMode}}">
+        {{if .TreePath}}<input type="hidden" name="path" value="{{.TreePath}}">{{end}}
         <label>Thumbnail size
           <select name="thumb" onchange="this.form.requestSubmit()">
             {{range .ThumbnailSizes}}<option value="{{.}}" {{if eq . $.ThumbnailSize}}selected{{end}}>{{.}}</option>{{end}}
@@ -108,8 +110,12 @@
         </label>
       </form>
       <div class="view-toggle" data-share-view-toggle>
-        <a class="btn {{if eq .ViewMode "list"}}active{{end}}" href="{{viewURL .BasePath .Page .Count .ThumbnailSize "list"}}" hx-get="{{viewURL .BasePath .Page .Count .ThumbnailSize "list"}}" hx-target="body" hx-swap="outerHTML" data-view-mode="list">List</a>
-        <a class="btn {{if eq .ViewMode "grid"}}active{{end}}" href="{{viewURL .BasePath .Page .Count .ThumbnailSize "grid"}}" hx-get="{{viewURL .BasePath .Page .Count .ThumbnailSize "grid"}}" hx-target="body" hx-swap="outerHTML" data-view-mode="grid">Grid</a>
+        <a class="btn {{if eq .ViewMode "list"}}active{{end}}" href="{{viewURL .BasePath .Page .Count .ThumbnailSize "list" .BrowseMode .TreePath}}" hx-get="{{viewURL .BasePath .Page .Count .ThumbnailSize "list" .BrowseMode .TreePath}}" hx-target="body" hx-swap="outerHTML" data-view-mode="list">List</a>
+        <a class="btn {{if eq .ViewMode "grid"}}active{{end}}" href="{{viewURL .BasePath .Page .Count .ThumbnailSize "grid" .BrowseMode .TreePath}}" hx-get="{{viewURL .BasePath .Page .Count .ThumbnailSize "grid" .BrowseMode .TreePath}}" hx-target="body" hx-swap="outerHTML" data-view-mode="grid">Grid</a>
+      </div>
+      <div class="view-toggle" data-share-browse-toggle>
+        <a class="btn {{if eq .BrowseMode "flat"}}active{{end}}" href="{{browseURL .BasePath "flat" .ViewMode "" .ThumbnailSize}}" hx-get="{{browseURL .BasePath "flat" .ViewMode "" .ThumbnailSize}}" hx-target="body" hx-swap="outerHTML" data-browse-mode="flat">Flat</a>
+        <a class="btn {{if eq .BrowseMode "tree"}}active{{end}}" href="{{browseURL .BasePath "tree" .ViewMode .TreePath .ThumbnailSize}}" hx-get="{{browseURL .BasePath "tree" .ViewMode .TreePath .ThumbnailSize}}" hx-target="body" hx-swap="outerHTML" data-browse-mode="tree">Tree</a>
       </div>
     </div>
   </div>
@@ -120,6 +126,8 @@
     <input type="hidden" name="count" value="{{.Count}}">
     <input type="hidden" name="thumb" value="{{.ThumbnailSize}}">
     <input type="hidden" name="view" value="{{.ViewMode}}">
+    <input type="hidden" name="browse" value="{{.BrowseMode}}">
+    {{if .TreePath}}<input type="hidden" name="path" value="{{.TreePath}}">{{end}}
     <input name="file" type="file" required>
     <input name="relative_uri" placeholder="relative/path/file.ext" required>
     <button type="submit" class="primary">Upload</button>
@@ -127,6 +135,18 @@
   {{end}}
   {{if eq .ViewMode "grid"}}
   <section class="file-grid" style="{{thumbStyle .ThumbnailSize}}" data-view-mode="grid">
+    {{with .ParentFolder}}
+      <article class="file-card folder-card">
+        <a class="card-preview folder-preview" href="{{.URL}}" hx-get="{{.URL}}" hx-target="body" hx-swap="outerHTML">Up</a>
+        <div class="card-body"><h2><a class="name-link" href="{{.URL}}" hx-get="{{.URL}}" hx-target="body" hx-swap="outerHTML">{{.Name}}</a></h2><p>Folder</p></div>
+      </article>
+    {{end}}
+    {{range .Folders}}
+      <article class="file-card folder-card">
+        <a class="card-preview folder-preview" href="{{.URL}}" hx-get="{{.URL}}" hx-target="body" hx-swap="outerHTML">Folder</a>
+        <div class="card-body"><h2><a class="name-link" href="{{.URL}}" hx-get="{{.URL}}" hx-target="body" hx-swap="outerHTML">{{.Name}}</a></h2><p>Folder</p></div>
+      </article>
+    {{end}}
     {{range .Files}}
       <article class="file-card">
         <a class="card-preview" href="{{.ContentPath}}">
@@ -154,6 +174,8 @@
             <input type="hidden" name="count" value="{{$.Count}}">
             <input type="hidden" name="thumb" value="{{$.ThumbnailSize}}">
             <input type="hidden" name="view" value="{{$.ViewMode}}">
+            <input type="hidden" name="browse" value="{{$.BrowseMode}}">
+            {{if $.TreePath}}<input type="hidden" name="path" value="{{$.TreePath}}">{{end}}
             <label class="file-button">Replace<input name="file" type="file" required onchange="this.form.requestSubmit()"></label>
           </form>
           {{end}}
@@ -164,12 +186,15 @@
             <input type="hidden" name="count" value="{{$.Count}}">
             <input type="hidden" name="thumb" value="{{$.ThumbnailSize}}">
             <input type="hidden" name="view" value="{{$.ViewMode}}">
+            <input type="hidden" name="browse" value="{{$.BrowseMode}}">
+            {{if $.TreePath}}<input type="hidden" name="path" value="{{$.TreePath}}">{{end}}
             <button type="submit" class="danger" data-confirm="Delete {{.Name}}?">Delete</button>
           </form>
           {{end}}
         </div>
       </article>
-    {{else}}
+    {{end}}
+    {{if not .HasEntries}}
       <div class="empty">No files found.</div>
     {{end}}
   </section>
@@ -177,6 +202,18 @@
   <table>
     <thead><tr><th>Name</th><th>Size</th><th>Type</th><th>Modified</th><th>Actions</th></tr></thead>
     <tbody>
+    {{with .ParentFolder}}
+      <tr class="folder-row">
+        <td><a class="name-link folder-link" href="{{.URL}}" hx-get="{{.URL}}" hx-target="body" hx-swap="outerHTML">Up {{.Name}}</a></td>
+        <td>-</td><td>Folder</td><td>-</td><td></td>
+      </tr>
+    {{end}}
+    {{range .Folders}}
+      <tr class="folder-row">
+        <td><a class="name-link folder-link" href="{{.URL}}" hx-get="{{.URL}}" hx-target="body" hx-swap="outerHTML">Folder {{.Name}}</a></td>
+        <td>-</td><td>Folder</td><td>-</td><td></td>
+      </tr>
+    {{end}}
     {{range .Files}}
       <tr>
         <td>
@@ -199,6 +236,8 @@
             <input type="hidden" name="count" value="{{$.Count}}">
             <input type="hidden" name="thumb" value="{{$.ThumbnailSize}}">
             <input type="hidden" name="view" value="{{$.ViewMode}}">
+            <input type="hidden" name="browse" value="{{$.BrowseMode}}">
+            {{if $.TreePath}}<input type="hidden" name="path" value="{{$.TreePath}}">{{end}}
             <label class="file-button">Replace<input name="file" type="file" required onchange="this.form.requestSubmit()"></label>
           </form>
           {{end}}
@@ -209,18 +248,23 @@
             <input type="hidden" name="count" value="{{$.Count}}">
             <input type="hidden" name="thumb" value="{{$.ThumbnailSize}}">
             <input type="hidden" name="view" value="{{$.ViewMode}}">
+            <input type="hidden" name="browse" value="{{$.BrowseMode}}">
+            {{if $.TreePath}}<input type="hidden" name="path" value="{{$.TreePath}}">{{end}}
             <button type="submit" class="danger" data-confirm="Delete {{.Name}}?">Delete</button>
           </form>
           {{end}}
         </td>
       </tr>
-    {{else}}
+    {{end}}
+    {{if not .HasEntries}}
       <tr><td colspan="5" class="empty">No files found.</td></tr>
     {{end}}
     </tbody>
   </table>
   {{end}}
+  {{if .ShowPagination}}
   {{template "pagination" .}}
+  {{end}}
 </section>
 {{template "layout_end" .}}
 {{end}}
@@ -231,11 +275,11 @@
   <span>Showing {{pageStart .Total .Page .Count}} to {{pageEnd .Total .Page .Count}} of {{.Total}} {{if .Shares}}shares{{else}}files{{end}}</span>
   <div class="pager">
     {{if .ThumbnailSize}}
-    <a class="btn {{if le .Page 1}}disabled{{end}}" href="{{pageURL .BasePath 1 .Count .ThumbnailSize .ViewMode}}" hx-get="{{pageURL .BasePath 1 .Count .ThumbnailSize .ViewMode}}" hx-target="body" hx-swap="outerHTML">first</a>
-    <a class="btn {{if le .Page 1}}disabled{{end}}" href="{{pageURL .BasePath (sub .Page 1) .Count .ThumbnailSize .ViewMode}}" hx-get="{{pageURL .BasePath (sub .Page 1) .Count .ThumbnailSize .ViewMode}}" hx-target="body" hx-swap="outerHTML">previous</a>
+    <a class="btn {{if le .Page 1}}disabled{{end}}" href="{{pageURL .BasePath 1 .Count .ThumbnailSize .ViewMode .BrowseMode .TreePath}}" hx-get="{{pageURL .BasePath 1 .Count .ThumbnailSize .ViewMode .BrowseMode .TreePath}}" hx-target="body" hx-swap="outerHTML">first</a>
+    <a class="btn {{if le .Page 1}}disabled{{end}}" href="{{pageURL .BasePath (sub .Page 1) .Count .ThumbnailSize .ViewMode .BrowseMode .TreePath}}" hx-get="{{pageURL .BasePath (sub .Page 1) .Count .ThumbnailSize .ViewMode .BrowseMode .TreePath}}" hx-target="body" hx-swap="outerHTML">previous</a>
     <span class="page-current">Page {{.Page}} of {{$pages}}</span>
-    <a class="btn {{if ge .Page $pages}}disabled{{end}}" href="{{pageURL .BasePath (add .Page 1) .Count .ThumbnailSize .ViewMode}}" hx-get="{{pageURL .BasePath (add .Page 1) .Count .ThumbnailSize .ViewMode}}" hx-target="body" hx-swap="outerHTML">next</a>
-    <a class="btn {{if ge .Page $pages}}disabled{{end}}" href="{{pageURL .BasePath $pages .Count .ThumbnailSize .ViewMode}}" hx-get="{{pageURL .BasePath $pages .Count .ThumbnailSize .ViewMode}}" hx-target="body" hx-swap="outerHTML">last</a>
+    <a class="btn {{if ge .Page $pages}}disabled{{end}}" href="{{pageURL .BasePath (add .Page 1) .Count .ThumbnailSize .ViewMode .BrowseMode .TreePath}}" hx-get="{{pageURL .BasePath (add .Page 1) .Count .ThumbnailSize .ViewMode .BrowseMode .TreePath}}" hx-target="body" hx-swap="outerHTML">next</a>
+    <a class="btn {{if ge .Page $pages}}disabled{{end}}" href="{{pageURL .BasePath $pages .Count .ThumbnailSize .ViewMode .BrowseMode .TreePath}}" hx-get="{{pageURL .BasePath $pages .Count .ThumbnailSize .ViewMode .BrowseMode .TreePath}}" hx-target="body" hx-swap="outerHTML">last</a>
     {{else}}
     <a class="btn {{if le .Page 1}}disabled{{end}}" href="{{.BasePath}}?page=1&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-get="{{.BasePath}}?page=1&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-target="body" hx-swap="outerHTML">first</a>
     <a class="btn {{if le .Page 1}}disabled{{end}}" href="{{.BasePath}}?page={{sub .Page 1}}&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-get="{{.BasePath}}?page={{sub .Page 1}}&count={{.Count}}{{if .ThumbnailSize}}&thumb={{.ThumbnailSize}}{{end}}" hx-target="body" hx-swap="outerHTML">previous</a>
@@ -248,6 +292,8 @@
     <input type="hidden" name="page" value="1">
     {{if .ThumbnailSize}}<input type="hidden" name="thumb" value="{{.ThumbnailSize}}">{{end}}
     {{if .ThumbnailSize}}<input type="hidden" name="view" value="{{.ViewMode}}">{{end}}
+    <input type="hidden" name="browse" value="{{.BrowseMode}}">
+    {{if .TreePath}}<input type="hidden" name="path" value="{{.TreePath}}">{{end}}
     <select name="count" onchange="this.form.requestSubmit()">
       <option value="20" {{if eq .Count 20}}selected{{end}}>20</option>
       <option value="50" {{if eq .Count 50}}selected{{end}}>50</option>

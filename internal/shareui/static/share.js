@@ -270,18 +270,24 @@
       return;
     }
     const viewKey = prefix + "file_view_mode";
+    const browseKey = prefix + "file_browse_mode";
     const thumbKey = prefix + "thumbnail_size";
     const params = new URLSearchParams(window.location.search);
     const current = viewRoot.dataset.viewMode === "grid" ? "grid" : "list";
+    const currentBrowse = viewRoot.dataset.browseMode === "tree" ? "tree" : "flat";
     const currentThumb = viewRoot.dataset.thumbnailSize || "";
     if (params.has("view")) {
       localStorage.setItem(viewKey, current);
+    }
+    if (params.has("browse")) {
+      localStorage.setItem(browseKey, currentBrowse);
     }
     if (params.has("thumb") && currentThumb) {
       localStorage.setItem(thumbKey, currentThumb);
     }
 
     const storedView = localStorage.getItem(viewKey);
+    const storedBrowse = localStorage.getItem(browseKey);
     const storedThumb = localStorage.getItem(thumbKey);
     let changed = false;
 
@@ -289,6 +295,13 @@
       localStorage.setItem(viewKey, current);
     } else if (!params.has("view") && storedView !== current) {
       params.set("view", storedView);
+      changed = true;
+    }
+
+    if (storedBrowse !== "tree" && storedBrowse !== "flat") {
+      localStorage.setItem(browseKey, currentBrowse);
+    } else if (!params.has("browse") && storedBrowse !== currentBrowse) {
+      params.set("browse", storedBrowse);
       changed = true;
     }
 
