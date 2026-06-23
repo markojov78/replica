@@ -71,7 +71,7 @@ func New(
 	if cfg.App.Storage && storageRuntime != nil {
 		registerInternalStorageTransferRoutes(mux, svc)
 		registerStorageShareRoutes(mux, svc)
-		if err := shareui.Register(mux, storageRuntime); err != nil {
+		if err := shareui.Register(mux, storageRuntime, authService); err != nil {
 			panic(err)
 		}
 	}

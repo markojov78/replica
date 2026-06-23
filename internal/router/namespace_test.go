@@ -40,6 +40,7 @@ func TestCoordinatorStorageNamespacesCoexistAndOldRoutesAreRemoved(t *testing.T)
 		{http.MethodGet, "/transfer/replicas/1/files/1/content?version=1"},
 		{http.MethodGet, "/api/share/shares"},
 		{http.MethodGet, "/api/share/shares/1/files/1/thumbnail"},
+		{http.MethodGet, "/share/shares/1/files/1/content"},
 		{http.MethodPost, "/s/missing-link"},
 		{http.MethodGet, "/dashboard"},
 	} {
@@ -58,6 +59,10 @@ func TestCoordinatorStorageNamespacesCoexistAndOldRoutesAreRemoved(t *testing.T)
 		{http.MethodGet, "/internal/auth/me"},
 		{http.MethodGet, "/internal/replicas/1/files/1/content?version=1"},
 		{http.MethodGet, "/api/shares"},
+		{http.MethodGet, "/api/share/shares/1/files/1/open"},
+		{http.MethodGet, "/share/shares/1/files/1/open"},
+		{http.MethodGet, "/s/missing-link/files/1/open"},
+		{http.MethodGet, "/w/missing-link/files/1/open"},
 		{http.MethodPost, "/api/public/shares/missing-link"},
 		{http.MethodGet, "/admin"},
 	} {

@@ -2,6 +2,7 @@ package shareui
 
 import (
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -16,6 +17,7 @@ import (
 
 	"replica/internal/apiclient"
 	"replica/internal/config"
+	"replica/internal/service"
 	"replica/internal/storage"
 )
 
@@ -24,11 +26,14 @@ var assets embed.FS
 
 type Handler struct {
 	runtime *storage.Runtime
+	auth    *service.AuthService
 	pages   *template.Template
 }
 
 type authContext struct {
-	UserID uint
+	UserID   uint
+	Username string
+	Status   string
 }
 
 type pageData struct {
@@ -57,26 +62,41 @@ type fileView struct {
 	apiclient.ReplicaInventoryFile
 	Name         string
 	Type         string
+	ContentPath  string
 	DownloadPath string
 	ThumbnailURL string
 	CanPreview   bool
 }
 
-func Register(mux *http.ServeMux, runtime *storage.Runtime) error {
+const (
+	shareUIAccessCookie  = "replica_share_access"
+	shareUIRefreshCookie = "replica_share_refresh"
+)
+
+func Register(mux *http.ServeMux, runtime *storage.Runtime, authServices ...*service.AuthService) error {
 	pages, err := template.New("shareui").Funcs(templateFuncs()).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		return err
 	}
-	handler := &Handler{runtime: runtime, pages: pages}
+	var auth *service.AuthService
+	if len(authServices) > 0 {
+		auth = authServices[0]
+	}
+	handler := &Handler{runtime: runtime, auth: auth, pages: pages}
 
 	mux.Handle("GET /share/static/", http.StripPrefix("/share/static/", http.FileServer(http.FS(mustSub(assets, "static")))))
 	mux.HandleFunc("GET /share", handler.loginPage)
+	mux.HandleFunc("POST /share/auth/login", handler.login)
+	mux.HandleFunc("GET /share/auth/me", handler.protected(handler.me))
+	mux.HandleFunc("POST /share/logout", handler.logout)
 	mux.HandleFunc("GET /share/shares", handler.protected(handler.shareListPage))
 	mux.HandleFunc("GET /share/shares/{id}", handler.protected(handler.shareFilesPage))
 	mux.HandleFunc("POST /share/shares/{id}/files", handler.protected(handler.uploadShareFile))
+	mux.HandleFunc("GET /share/shares/{id}/files/{file_id}/content", handler.protected(handler.shareFileContent))
 	mux.HandleFunc("POST /share/shares/{id}/files/{file_id}/replace", handler.protected(handler.replaceShareFile))
 	mux.HandleFunc("POST /share/shares/{id}/files/{file_id}/delete", handler.protected(handler.deleteShareFile))
 	mux.HandleFunc("GET /w/{link_hash}", handler.publicSharePage)
+	mux.HandleFunc("GET /w/{link_hash}/files/{file_id}/content", handler.publicShareFileContent)
 	mux.HandleFunc("POST /w/{link_hash}/files", handler.uploadPublicFile)
 	mux.HandleFunc("POST /w/{link_hash}/files/{file_id}/replace", handler.replacePublicFile)
 	mux.HandleFunc("POST /w/{link_hash}/files/{file_id}/delete", handler.deletePublicFile)
@@ -113,18 +133,137 @@ func (h *Handler) loginPage(w http.ResponseWriter, _ *http.Request) {
 	h.render(w, http.StatusOK, "login", pageData{Title: "Sign in", LoginPath: "/share"})
 }
 
+func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
+	username, password, ok := loginCredentials(w, r)
+	if !ok {
+		return
+	}
+	pair, status, err := h.loginShareUser(r, username, password)
+	if err != nil {
+		http.Error(w, err.Error(), status)
+		return
+	}
+	h.setAuthCookies(w, pair)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(pair)
+}
+
+func (h *Handler) loginShareUser(r *http.Request, username string, password string) (storage.ShareTokenPair, int, error) {
+	if h.auth != nil {
+		pair, err := h.auth.Login(username, password)
+		if err != nil {
+			return storage.ShareTokenPair{}, localAuthStatus(err), err
+		}
+		return shareTokenPairFromService(pair), http.StatusOK, nil
+	}
+	return h.runtime.LoginShareUser(r.Context(), username, password)
+}
+
+func (h *Handler) refreshShareUser(r *http.Request, refreshToken string) (storage.ShareTokenPair, int, error) {
+	if h.auth != nil {
+		pair, err := h.auth.Refresh(refreshToken)
+		if err != nil {
+			return storage.ShareTokenPair{}, localAuthStatus(err), err
+		}
+		return shareTokenPairFromService(pair), http.StatusOK, nil
+	}
+	return h.runtime.RefreshShareUser(r.Context(), refreshToken)
+}
+
+func shareTokenPairFromService(pair *service.TokenPair) storage.ShareTokenPair {
+	return storage.ShareTokenPair{
+		UserID:                pair.UserID,
+		AccessToken:           pair.AccessToken,
+		RefreshToken:          pair.RefreshToken,
+		AccessTokenExpiresAt:  pair.AccessTokenExpiresAt,
+		RefreshTokenExpiresAt: pair.RefreshTokenExpiresAt,
+	}
+}
+
+func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
+	h.clearAuthCookies(w)
+	if isHTMX(r) {
+		w.Header().Set("HX-Redirect", "/share")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	http.Redirect(w, r, "/share", http.StatusSeeOther)
+}
+
+func (h *Handler) authenticateCookie(w http.ResponseWriter, r *http.Request) (*apiclient.ValidatedUserToken, error) {
+	if accessToken := cookieValue(r, shareUIAccessCookie); accessToken != "" {
+		user, err := h.validateAccessToken(r, accessToken)
+		if err == nil {
+			return user, nil
+		}
+	}
+
+	refreshToken := cookieValue(r, shareUIRefreshCookie)
+	if refreshToken == "" {
+		return nil, errors.New("missing authenticated user")
+	}
+	pair, _, err := h.refreshShareUser(r, refreshToken)
+	if err != nil {
+		h.clearAuthCookies(w)
+		return nil, err
+	}
+	h.setAuthCookies(w, pair)
+	return h.validateAccessToken(r, pair.AccessToken)
+}
+
+func (h *Handler) validateAccessToken(r *http.Request, accessToken string) (*apiclient.ValidatedUserToken, error) {
+	if h.auth != nil {
+		user, err := h.auth.ValidateUserAccessToken(accessToken)
+		if err != nil {
+			return nil, err
+		}
+		return &apiclient.ValidatedUserToken{
+			UserID:               user.UserID,
+			Username:             user.Username,
+			Status:               user.Status,
+			AccessTokenExpiresAt: user.AccessExpires,
+		}, nil
+	}
+	return h.runtime.AuthenticateShareUserAuthorization(r.Context(), "Bearer "+accessToken)
+}
+
+func (h *Handler) setAuthCookies(w http.ResponseWriter, pair storage.ShareTokenPair) {
+	setShareCookie(w, shareUIAccessCookie, pair.AccessToken, pair.AccessTokenExpiresAt)
+	setShareCookie(w, shareUIRefreshCookie, pair.RefreshToken, pair.RefreshTokenExpiresAt)
+}
+
+func (h *Handler) clearAuthCookies(w http.ResponseWriter) {
+	clearShareCookie(w, shareUIAccessCookie)
+	clearShareCookie(w, shareUIRefreshCookie)
+}
+
 func (h *Handler) protected(next func(http.ResponseWriter, *http.Request, authContext)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user, err := h.runtime.AuthenticateShareUserAuthorization(r.Context(), r.Header.Get("Authorization"))
+		user, err := h.authenticateCookie(w, r)
 		if err != nil {
 			if isHTMX(r) {
 				w.Header().Set("HX-Redirect", "/share")
 			}
-			h.render(w, h.runtime.ShareAuthErrorStatus(err), "login", pageData{Title: "Sign in", Error: apiMessage(err)})
+			h.render(w, h.shareAuthStatus(err), "login", pageData{Title: "Sign in", Error: apiMessage(err)})
 			return
 		}
-		next(w, r, authContext{UserID: user.UserID})
+		next(w, r, authContext{UserID: user.UserID, Username: user.Username, Status: user.Status})
 	}
+}
+
+func (h *Handler) shareAuthStatus(err error) int {
+	if strings.Contains(err.Error(), "missing authenticated user") || strings.Contains(err.Error(), "invalid token") || strings.Contains(err.Error(), "expired token") || strings.Contains(err.Error(), "revoked token") {
+		return http.StatusUnauthorized
+	}
+	if h.auth != nil {
+		return localAuthStatus(err)
+	}
+	return h.runtime.ShareAuthErrorStatus(err)
+}
+
+func (h *Handler) me(w http.ResponseWriter, _ *http.Request, auth authContext) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"user_id": auth.UserID, "username": auth.Username, "status": auth.Status})
 }
 
 func (h *Handler) shareListPage(w http.ResponseWriter, r *http.Request, auth authContext) {
@@ -162,6 +301,27 @@ func (h *Handler) publicSharePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.renderFilePage(w, r, true, result, "")
+}
+
+func (h *Handler) shareFileContent(w http.ResponseWriter, r *http.Request, auth authContext) {
+	shareID, ok := pathUint(w, r, "id")
+	if !ok {
+		return
+	}
+	fileID, ok := pathUint(w, r, "file_id")
+	if !ok {
+		return
+	}
+	h.runtime.ServeUserShareFileContent(w, r, auth.UserID, shareID, fileID)
+}
+
+func (h *Handler) publicShareFileContent(w http.ResponseWriter, r *http.Request) {
+	linkHash := strings.TrimSpace(r.PathValue("link_hash"))
+	fileID, ok := pathUint(w, r, "file_id")
+	if !ok {
+		return
+	}
+	h.runtime.ServePublicShareFileContent(w, r, linkHash, fileID)
 }
 
 func (h *Handler) uploadShareFile(w http.ResponseWriter, r *http.Request, auth authContext) {
@@ -335,6 +495,7 @@ func (h *Handler) renderFilePageWithMessages(w http.ResponseWriter, r *http.Requ
 	viewMode := selectedViewMode(r)
 	basePath := fmt.Sprintf("/share/shares/%d", result.Share.ID)
 	apiBase := fmt.Sprintf("/api/share/shares/%d", result.Share.ID)
+	contentBase := basePath
 	title := result.Share.Name
 	if public {
 		linkHash := strings.TrimSpace(r.PathValue("link_hash"))
@@ -343,13 +504,14 @@ func (h *Handler) renderFilePageWithMessages(w http.ResponseWriter, r *http.Requ
 		}
 		basePath = "/w/" + url.PathEscape(linkHash)
 		apiBase = "/s/" + url.PathEscape(linkHash)
+		contentBase = basePath
 	}
 	data := pageData{
 		Title:          title,
 		Authenticated:  !public,
 		Public:         public,
 		Share:          result.Share,
-		Files:          fileViews(result.Items, apiBase, size, !public, cfg),
+		Files:          fileViews(result.Items, apiBase, contentBase, size, !public, cfg),
 		Permissions:    result.EffectivePermissions,
 		Page:           result.Page,
 		Count:          result.Count,
@@ -472,6 +634,71 @@ func formIfMatch(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return strconv.Quote(value), true
 }
 
+func loginCredentials(w http.ResponseWriter, r *http.Request) (string, string, bool) {
+	contentType := strings.ToLower(r.Header.Get("Content-Type"))
+	if strings.Contains(contentType, "application/json") {
+		var body struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+			return "", "", false
+		}
+		return strings.TrimSpace(body.Username), body.Password, true
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form request", http.StatusBadRequest)
+		return "", "", false
+	}
+	return strings.TrimSpace(r.FormValue("username")), r.FormValue("password"), true
+}
+
+func cookieValue(r *http.Request, name string) string {
+	cookie, err := r.Cookie(name)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(cookie.Value)
+}
+
+func setShareCookie(w http.ResponseWriter, name string, value string, expires time.Time) {
+	if expires.IsZero() {
+		expires = time.Now().UTC().Add(time.Hour)
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     name,
+		Value:    value,
+		Path:     "/share",
+		Expires:  expires,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func clearShareCookie(w http.ResponseWriter, name string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     name,
+		Value:    "",
+		Path:     "/share",
+		MaxAge:   -1,
+		Expires:  time.Unix(0, 0).UTC(),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func localAuthStatus(err error) int {
+	switch {
+	case errors.Is(err, service.ErrInvalidCredentials), errors.Is(err, service.ErrInvalidToken), errors.Is(err, service.ErrExpiredToken), errors.Is(err, service.ErrRevokedToken):
+		return http.StatusUnauthorized
+	case errors.Is(err, service.ErrInactiveUser):
+		return http.StatusForbidden
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
 func pathUint(w http.ResponseWriter, r *http.Request, name string) (uint, bool) {
 	value, err := strconv.ParseUint(r.PathValue(name), 10, 64)
 	if err != nil || value == 0 {
@@ -492,15 +719,17 @@ func apiMessage(err error) string {
 	return err.Error()
 }
 
-func fileViews(files []apiclient.ReplicaInventoryFile, apiBasePath string, thumbSize int, authenticated bool, cfg config.SharingConfig) []fileView {
+func fileViews(files []apiclient.ReplicaInventoryFile, apiBasePath string, contentBasePath string, thumbSize int, authenticated bool, cfg config.SharingConfig) []fileView {
 	result := make([]fileView, 0, len(files))
 	for _, file := range files {
 		ext := strings.TrimPrefix(strings.ToLower(path.Ext(file.RelativeURI)), ".")
+		contentPath := fmt.Sprintf("%s/files/%d/content", contentBasePath, file.FileID)
 		view := fileView{
 			ReplicaInventoryFile: file,
 			Name:                 path.Base(file.RelativeURI),
 			Type:                 fileType(ext),
-			DownloadPath:         fmt.Sprintf("%s/files/%d/content", apiBasePath, file.FileID),
+			ContentPath:          contentPath,
+			DownloadPath:         contentPath,
 			ThumbnailURL:         fmt.Sprintf("%s/files/%d/thumbnail?size=%d", apiBasePath, file.FileID, thumbSize),
 			CanPreview:           cfg.VideoPlaybackEnabled && isPlayableVideo(ext) && file.Size <= int64(cfg.VideoInlineMaxSizeMB)*1024*1024,
 		}

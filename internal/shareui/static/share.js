@@ -34,14 +34,6 @@
     localStorage.removeItem(prefix + "username");
   }
 
-  function authHeaders(headers = new Headers()) {
-    headers.set("X-API-Version", "1");
-    if (token("access_token")) {
-      headers.set("Authorization", `Bearer ${token("access_token")}`);
-    }
-    return headers;
-  }
-
   async function refresh() {
     if (!refreshPromise) {
       refreshPromise = (async () => {
@@ -66,9 +58,14 @@
   }
 
   async function request(path, options = {}, retry = true) {
-    const headers = authHeaders(new Headers(options.headers));
+    const url = new URL(path, window.location.origin);
+    const headers = new Headers(options.headers);
+    headers.set("X-API-Version", "1");
+    if (!url.pathname.startsWith("/share") && token("access_token")) {
+      headers.set("Authorization", `Bearer ${token("access_token")}`);
+    }
     const response = await fetch(path, {...options, headers});
-    if (response.status !== 401 || !retry) {
+    if (url.pathname.startsWith("/share") || response.status !== 401 || !retry) {
       return response;
     }
     try {
@@ -101,7 +98,7 @@
   }
 
   async function login(form) {
-    const response = await fetch("/api/share/auth/login", {
+    const response = await fetch(form.action, {
       method: "POST",
       headers: {"Content-Type": "application/json", "X-API-Version": "1"},
       body: JSON.stringify({
@@ -132,7 +129,7 @@
       clearTokens();
       return;
     }
-    const response = await request("/api/share/auth/me");
+    const response = await request("/share/auth/me");
     if (response?.ok) {
       storeCurrentUser(await response.json());
       const current = window.location.pathname === "/share" ? "/share/shares" : window.location.href;
@@ -181,7 +178,7 @@
   function bindAuthenticatedPage() {
     applyFileViewPreferences();
     fillCurrentUser();
-    request("/api/share/auth/me")
+    request("/share/auth/me")
       .then(async (response) => {
         if (!response?.ok) {
           return;
@@ -201,6 +198,9 @@
       if (!link || link.origin !== window.location.origin || !link.pathname.startsWith("/share")) {
         return;
       }
+      if (link.pathname.endsWith("/content")) {
+        return;
+      }
       event.preventDefault();
       showPage(link.href);
     });
@@ -212,7 +212,9 @@
       event.preventDefault();
       if (form.matches("[data-share-logout]")) {
         clearTokens();
-        window.location.replace("/share");
+        fetch(form.action, {method: "POST", headers: {"X-API-Version": "1"}}).finally(() => {
+          window.location.replace("/share");
+        });
         return;
       }
       if (!form.action.startsWith(window.location.origin + "/share")) {
@@ -307,7 +309,7 @@
 
   document.body.addEventListener("htmx:configRequest", (event) => {
     event.detail.headers["X-API-Version"] = "1";
-    if (token("access_token") && event.detail.path.startsWith("/share")) {
+    if (token("access_token") && !event.detail.path.startsWith("/share")) {
       event.detail.headers.Authorization = `Bearer ${token("access_token")}`;
     }
   });

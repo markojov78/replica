@@ -28,7 +28,7 @@ func TestRegisterServesLoginAndStaticAssets(t *testing.T) {
 		t.Fatalf("GET /share status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
 	}
 	if !strings.Contains(rec.Body.String(), `data-share-login-form`) ||
-		!strings.Contains(rec.Body.String(), `/api/share/auth/login`) {
+		!strings.Contains(rec.Body.String(), `/share/auth/login`) {
 		t.Fatalf("GET /share body = %s, want sharing login form", rec.Body.String())
 	}
 
@@ -55,6 +55,7 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 		},
 		Name:         "photo.jpg",
 		Type:         "Image (JPG)",
+		ContentPath:  "/share/shares/4/files/10/content",
 		DownloadPath: "/api/share/shares/4/files/10/content",
 	}
 
@@ -76,9 +77,13 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 	if !strings.Contains(list, "<table>") || strings.Contains(list, `class="file-grid"`) {
 		t.Fatalf("list view = %s, want table and no grid", list)
 	}
+	if !strings.Contains(list, `href="/share/shares/4/files/10/content"`) {
+		t.Fatalf("list view = %s, want authenticated content link", list)
+	}
 
 	file.ThumbnailURL = "/s/public-link/files/10/thumbnail?size=256"
-	file.DownloadPath = "/s/public-link/files/10/content"
+	file.ContentPath = "/w/public-link/files/10/content"
+	file.DownloadPath = "/w/public-link/files/10/content"
 	grid := renderShareTemplate(t, pageData{
 		Title:          "Photos",
 		Public:         true,
@@ -97,7 +102,7 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 	for _, want := range []string{
 		`class="file-grid"`,
 		`src="/s/public-link/files/10/thumbnail?size=256"`,
-		`href="/s/public-link/files/10/content"`,
+		`href="/w/public-link/files/10/content"`,
 		`Replace`,
 		`Delete`,
 	} {
@@ -116,6 +121,7 @@ func TestAuthenticatedGridUsesAPIThumbnailDataSource(t *testing.T) {
 			ReplicaInventoryFile: apiclient.ReplicaInventoryFile{FileID: 10, RelativeURI: "photo.jpg", Size: 100, InventoryVersion: 4},
 			Name:                 "photo.jpg",
 			Type:                 "Image (JPG)",
+			ContentPath:          "/share/shares/4/files/10/content",
 			DownloadPath:         "/api/share/shares/4/files/10/content",
 		}},
 		Permissions:    []string{"read"},
@@ -136,6 +142,57 @@ func TestAuthenticatedGridUsesAPIThumbnailDataSource(t *testing.T) {
 	}
 }
 
+func TestAuthenticatedUIContentRouteRequiresCookieAuth(t *testing.T) {
+	runtime := newShareUIRuntime(t)
+	mux := http.NewServeMux()
+	if err := Register(mux, runtime); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/share/shares/4/files/10/content", nil)
+	req.SetPathValue("id", "4")
+	req.SetPathValue("file_id", "10")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("GET authenticated content without cookie status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusUnauthorized)
+	}
+}
+
+func TestShareUILoginSetsHttpOnlyAuthCookies(t *testing.T) {
+	runtime := newShareUIRuntime(t)
+	mux := http.NewServeMux()
+	if err := Register(mux, runtime); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/share/auth/login", strings.NewReader(`{"username":"alice","password":"secret"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST login status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
+	}
+	cookies := rec.Result().Cookies()
+	var accessCookie, refreshCookie *http.Cookie
+	for _, cookie := range cookies {
+		switch cookie.Name {
+		case shareUIAccessCookie:
+			accessCookie = cookie
+		case shareUIRefreshCookie:
+			refreshCookie = cookie
+		}
+	}
+	if accessCookie == nil || refreshCookie == nil {
+		t.Fatalf("cookies = %+v, want access and refresh cookies", cookies)
+	}
+	if !accessCookie.HttpOnly || !refreshCookie.HttpOnly || accessCookie.Path != "/share" || refreshCookie.Path != "/share" {
+		t.Fatalf("cookies = %+v, want HttpOnly cookies scoped to /share", cookies)
+	}
+}
+
 func TestShareUIDeletePostRedirectsToCanonicalSharePageAndGetStaysMethodNotAllowed(t *testing.T) {
 	runtime := newShareUIRuntime(t)
 	mux := http.NewServeMux()
@@ -151,7 +208,7 @@ func TestShareUIDeletePostRedirectsToCanonicalSharePageAndGetStaysMethodNotAllow
 		"view":    {"grid"},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/share/shares/5/files/216/delete", strings.NewReader(form.Encode()))
-	req.Header.Set("Authorization", "Bearer user-token")
+	req.AddCookie(&http.Cookie{Name: shareUIAccessCookie, Value: "user-token", Path: "/share"})
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -198,6 +255,14 @@ func newShareUIRuntime(t *testing.T) *storage.Runtime {
 	t.Helper()
 	coordinator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/api/admin/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"user_id":                  15,
+				"access_token":             "user-access-token",
+				"refresh_token":            "user-refresh-token",
+				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
+				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
 		case "/node/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":                  "node-a",

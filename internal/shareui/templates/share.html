@@ -50,7 +50,7 @@
     <div class="brand login-brand"><span class="logo-mark"></span><span>Replica Share</span></div>
     <p>Sign in to access your shares</p>
     <div class="alert login-error" data-share-login-error>{{.Error}}</div>
-    <form action="/api/share/auth/login" method="post" class="stack" data-share-login-form>
+    <form action="/share/auth/login" method="post" class="stack" data-share-login-form>
       <label>Username<input name="username" required autofocus autocomplete="username"></label>
       <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
       <button type="submit" class="primary">Sign in</button>
@@ -129,23 +129,23 @@
   <section class="file-grid" style="{{thumbStyle .ThumbnailSize}}" data-view-mode="grid">
     {{range .Files}}
       <article class="file-card">
-        <div class="card-preview">
-          {{if .ThumbnailURL}}
-            <img class="grid-thumb" src="{{.ThumbnailURL}}" alt="" onerror="this.hidden=true; this.nextElementSibling.hidden=false">
-            <span class="file-fallback" hidden>{{.Type}}</span>
-          {{else}}
-            <span class="file-fallback grid-auth-thumb" data-auth-src="{{$.APIBasePath}}/files/{{.FileID}}/thumbnail?size={{$.ThumbnailSize}}">{{.Type}}</span>
-          {{end}}
-        </div>
+        <a class="card-preview" href="{{.ContentPath}}">
+            {{if .ThumbnailURL}}
+              <img class="grid-thumb" src="{{.ThumbnailURL}}" alt="" onerror="this.hidden=true; this.nextElementSibling.hidden=false">
+              <span class="file-fallback" hidden>{{.Type}}</span>
+            {{else}}
+              <span class="file-fallback grid-auth-thumb" data-auth-src="{{$.APIBasePath}}/files/{{.FileID}}/thumbnail?size={{$.ThumbnailSize}}">{{.Type}}</span>
+            {{end}}
+        </a>
         <div class="card-body">
-          <h2>{{.RelativeURI}}</h2>
+          <h2><a class="name-link" href="{{.ContentPath}}">{{.RelativeURI}}</a></h2>
           <p>{{formatBytes .Size}} · {{formatTime .Modified}}</p>
         </div>
         <div class="card-actions row-actions">
           {{if $.Authenticated}}
             <button type="button" data-auth-download="{{.DownloadPath}}" data-filename="{{.Name}}">Download</button>
           {{else}}
-            <a class="btn" href="{{.DownloadPath}}">Download</a>
+            <a class="btn" href="{{.DownloadPath}}" download="{{.Name}}">Download</a>
           {{end}}
           {{if hasPermission $.Permissions "update"}}
           <form action="{{$.BasePath}}/files/{{.FileID}}/replace" method="post" enctype="multipart/form-data" data-share-form hx-post="{{$.BasePath}}/files/{{.FileID}}/replace" hx-target="body" hx-swap="outerHTML">
@@ -180,8 +180,8 @@
     {{range .Files}}
       <tr>
         <td>
-          {{if .ThumbnailURL}}<img class="thumb" src="{{.ThumbnailURL}}" alt="">{{else}}<span class="thumb" data-auth-src="{{$.APIBasePath}}/files/{{.FileID}}/thumbnail?size={{$.ThumbnailSize}}"></span>{{end}}
-          <span>{{.RelativeURI}}</span>
+          <a href="{{.ContentPath}}">{{if .ThumbnailURL}}<img class="thumb" src="{{.ThumbnailURL}}" alt="">{{else}}<span class="thumb" data-auth-src="{{$.APIBasePath}}/files/{{.FileID}}/thumbnail?size={{$.ThumbnailSize}}"></span>{{end}}</a>
+          <a class="name-link" href="{{.ContentPath}}">{{.RelativeURI}}</a>
         </td>
         <td>{{formatBytes .Size}}</td>
         <td>{{.Type}}</td>
@@ -190,7 +190,7 @@
           {{if $.Authenticated}}
             <button type="button" data-auth-download="{{.DownloadPath}}" data-filename="{{.Name}}">Download</button>
           {{else}}
-            <a class="btn" href="{{.DownloadPath}}">Download</a>
+            <a class="btn" href="{{.DownloadPath}}" download="{{.Name}}">Download</a>
           {{end}}
           {{if hasPermission $.Permissions "update"}}
           <form action="{{$.BasePath}}/files/{{.FileID}}/replace" method="post" enctype="multipart/form-data" data-share-form hx-post="{{$.BasePath}}/files/{{.FileID}}/replace" hx-target="body" hx-swap="outerHTML">

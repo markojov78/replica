@@ -1,12 +1,17 @@
 package storage
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
+	"net/http"
 	"path"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"replica/internal/apiclient"
 	"replica/internal/config"
@@ -47,12 +52,71 @@ type ShareFileListResult struct {
 	Total                int64
 }
 
+type ShareTokenPair struct {
+	UserID                uint      `json:"user_id"`
+	AccessToken           string    `json:"access_token"`
+	RefreshToken          string    `json:"refresh_token"`
+	AccessTokenExpiresAt  time.Time `json:"access_token_expires_at"`
+	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at"`
+}
+
 func (r *Runtime) AuthenticateShareUserAuthorization(ctx context.Context, authorization string) (*apiclient.ValidatedUserToken, error) {
 	token, err := bearerShareToken(authorization)
 	if err != nil {
 		return nil, err
 	}
 	return r.validateShareAPIToken(ctx, token)
+}
+
+func (r *Runtime) LoginShareUser(ctx context.Context, username string, password string) (ShareTokenPair, int, error) {
+	body, err := json.Marshal(map[string]string{
+		"username": username,
+		"password": password,
+	})
+	if err != nil {
+		return ShareTokenPair{}, http.StatusInternalServerError, err
+	}
+	return r.proxyShareUserTokenPair(ctx, body, r.client.ProxyUserLogin)
+}
+
+func (r *Runtime) RefreshShareUser(ctx context.Context, refreshToken string) (ShareTokenPair, int, error) {
+	body, err := json.Marshal(map[string]string{
+		"refresh_token": refreshToken,
+	})
+	if err != nil {
+		return ShareTokenPair{}, http.StatusInternalServerError, err
+	}
+	return r.proxyShareUserTokenPair(ctx, body, r.client.ProxyUserRefresh)
+}
+
+func (r *Runtime) proxyShareUserTokenPair(ctx context.Context, body []byte, proxy func(context.Context, []byte, string) (int, http.Header, []byte, error)) (ShareTokenPair, int, error) {
+	status, _, responseBody, err := proxy(ctx, body, "application/json")
+	if err != nil {
+		return ShareTokenPair{}, http.StatusServiceUnavailable, err
+	}
+	if status < 200 || status >= 300 {
+		return ShareTokenPair{}, status, errors.New(proxyShareError(responseBody))
+	}
+	var pair ShareTokenPair
+	if err := json.NewDecoder(bytes.NewReader(responseBody)).Decode(&pair); err != nil {
+		return ShareTokenPair{}, http.StatusServiceUnavailable, err
+	}
+	return pair, status, nil
+}
+
+func proxyShareError(body []byte) string {
+	var problem map[string]any
+	if err := json.Unmarshal(body, &problem); err == nil {
+		for _, key := range []string{"error", "detail", "title"} {
+			if value, ok := problem[key].(string); ok && strings.TrimSpace(value) != "" {
+				return value
+			}
+		}
+	}
+	if message := strings.TrimSpace(string(body)); message != "" {
+		return message
+	}
+	return "auth request failed"
 }
 
 func (r *Runtime) ShareAuthErrorStatus(err error) int {
@@ -121,6 +185,15 @@ func (r *Runtime) GetUserShareFile(userID, shareID, fileID uint) (apiclient.Shar
 	return share, replica, file, nil
 }
 
+func (r *Runtime) ServeUserShareFileContent(w http.ResponseWriter, req *http.Request, userID, shareID, fileID uint) {
+	share, replica, _, err := r.GetUserShare(userID, shareID)
+	if err != nil {
+		writeStorageShareError(w, storageShareStatus(err), err.Error())
+		return
+	}
+	r.serveShareFileContent(w, req, share, replica, fileID)
+}
+
 func (r *Runtime) CreateUserShareFile(ctx context.Context, userID, shareID uint, relativeURI string, file io.Reader, size int64) error {
 	share, replica, err := r.availableUserShareWithPermission(userID, shareID, shareCreatePermission)
 	if err != nil {
@@ -171,6 +244,15 @@ func (r *Runtime) GetPublicShareFile(linkHash string, fileID uint) (apiclient.Sh
 		return apiclient.Share{}, apiclient.Replica{}, apiclient.ReplicaInventoryFile{}, err
 	}
 	return share, replica, file, nil
+}
+
+func (r *Runtime) ServePublicShareFileContent(w http.ResponseWriter, req *http.Request, linkHash string, fileID uint) {
+	share, replica, _, err := r.GetPublicShare(linkHash)
+	if err != nil {
+		writeStorageShareError(w, storageShareStatus(err), err.Error())
+		return
+	}
+	r.serveShareFileContent(w, req, share, replica, fileID)
 }
 
 func (r *Runtime) CreatePublicShareFile(ctx context.Context, linkHash, relativeURI string, file io.Reader, size int64) error {

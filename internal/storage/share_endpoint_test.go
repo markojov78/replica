@@ -525,6 +525,61 @@ func TestServeAuthenticatedShareFileContentFollowsDocumentedResponse(t *testing.
 	}
 }
 
+func TestServeUserShareFileContentMatchesAuthenticatedAPIContent(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "document.pdf"), []byte("%PDF-data"), 0o600); err != nil {
+		t.Fatalf("WriteFile(document) error = %v", err)
+	}
+
+	runtime := newShareEndpointRuntime(t, validationServer(t, 15, http.StatusOK))
+	runtime.setLocalState(
+		[]apiclient.Replica{{ID: 3, InventoryID: 1, NodeID: "node-a", URI: root, Status: "active"}},
+		[]apiclient.Share{{
+			ID:          4,
+			InventoryID: 1,
+			ReplicaID:   3,
+			Status:      "active",
+			UserPermissions: []apiclient.UserPermission{{
+				UserID:      15,
+				Permissions: []string{"read"},
+			}},
+		}},
+		map[uint][]apiclient.ReplicaInventoryFile{
+			3: {
+				{FileID: 41, ReplicaID: 3, InventoryID: 1, RelativeURI: "document.pdf", Size: 9, InventoryStatus: "active", InventoryVersion: 24, ReplicaStatus: "synchronized", ReplicaVersion: 24},
+			},
+		},
+	)
+
+	apiReq := httptest.NewRequest(http.MethodGet, "/api/share/shares/4/files/41/content", nil)
+	apiReq.SetPathValue("id", "4")
+	apiReq.SetPathValue("file_id", "41")
+	apiReq.Header.Set("Authorization", "Bearer user-token")
+	apiRec := httptest.NewRecorder()
+	runtime.ServeAuthenticatedShares(apiRec, apiReq)
+
+	uiReq := httptest.NewRequest(http.MethodGet, "/share/shares/4/files/41/content", nil)
+	uiReq.SetPathValue("id", "4")
+	uiReq.SetPathValue("file_id", "41")
+	uiRec := httptest.NewRecorder()
+	runtime.ServeUserShareFileContent(uiRec, uiReq, 15, 4, 41)
+
+	if uiRec.Code != apiRec.Code || uiRec.Body.String() != apiRec.Body.String() {
+		t.Fatalf("UI content status/body = %d/%q, API = %d/%q", uiRec.Code, uiRec.Body.String(), apiRec.Code, apiRec.Body.String())
+	}
+	for _, header := range []string{"Content-Type", "Content-Length", "Content-Disposition", "ETag", "Cache-Control", "Accept-Ranges"} {
+		if uiRec.Header().Get(header) != apiRec.Header().Get(header) {
+			t.Fatalf("%s UI = %q, API = %q", header, uiRec.Header().Get(header), apiRec.Header().Get(header))
+		}
+	}
+
+	forbiddenRec := httptest.NewRecorder()
+	runtime.ServeUserShareFileContent(forbiddenRec, uiReq, 99, 4, 41)
+	if forbiddenRec.Code != http.StatusForbidden {
+		t.Fatalf("missing read permission status = %d body=%s, want %d", forbiddenRec.Code, forbiddenRec.Body.String(), http.StatusForbidden)
+	}
+}
+
 func TestServePublicShareFileContentRangeAndErrors(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "video.mp4"), []byte("0123456789"), 0o600); err != nil {
@@ -603,6 +658,47 @@ func TestServePublicShareFileContentRangeAndErrors(t *testing.T) {
 	runtime.ServePublicShares(rec, req)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("unsynchronized status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusConflict)
+	}
+}
+
+func TestServePublicShareFileContentRequiresAnonymousReadPermission(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "public.txt"), []byte("public"), 0o600); err != nil {
+		t.Fatalf("WriteFile(public) error = %v", err)
+	}
+	linkHash := "public-link"
+	runtime := newShareEndpointRuntime(t, "http://coordinator")
+	runtime.setLocalState(
+		[]apiclient.Replica{{ID: 3, InventoryID: 1, NodeID: "node-a", URI: root, Status: "active"}},
+		[]apiclient.Share{{
+			ID:                   1,
+			InventoryID:          1,
+			ReplicaID:            3,
+			Status:               "active",
+			LinkHash:             &linkHash,
+			AnonymousPermissions: []string{"update"},
+		}},
+		map[uint][]apiclient.ReplicaInventoryFile{
+			3: {
+				{FileID: 10, ReplicaID: 3, InventoryID: 1, RelativeURI: "public.txt", Size: 6, InventoryStatus: "active", InventoryVersion: 4, ReplicaStatus: "synchronized", ReplicaVersion: 4},
+			},
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/w/public-link/files/10/content", nil)
+	req.SetPathValue("link_hash", "public-link")
+	req.SetPathValue("file_id", "10")
+	rec := httptest.NewRecorder()
+	runtime.ServePublicShareFileContent(rec, req, "public-link", 10)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("missing anonymous read status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusForbidden)
+	}
+
+	runtime.shares[0].AnonymousPermissions = []string{"read"}
+	rec = httptest.NewRecorder()
+	runtime.ServePublicShareFileContent(rec, req, "public-link", 10)
+	if rec.Code != http.StatusOK || rec.Body.String() != "public" {
+		t.Fatalf("anonymous read status/body = %d/%q, want 200/public", rec.Code, rec.Body.String())
 	}
 }
 
