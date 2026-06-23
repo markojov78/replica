@@ -220,6 +220,47 @@ func TestTreeListAndGridRendering(t *testing.T) {
 	}
 }
 
+func TestTreeFileLabelsAreRelativeToCurrentFolder(t *testing.T) {
+	html := renderShareTemplate(t, treeTemplateData("list", "sub/videos", false))
+	if !strings.Contains(html, `>video01.mp4</a>`) {
+		t.Fatalf("tree nested html = %s, want basename file label", html)
+	}
+	if strings.Contains(html, `>sub/videos/video01.mp4</a>`) {
+		t.Fatalf("tree nested html = %s, want no full relative path file label", html)
+	}
+}
+
+func TestFlatFileLabelsShowRelativeURI(t *testing.T) {
+	file := fileView{
+		ReplicaInventoryFile: apiclient.ReplicaInventoryFile{FileID: 10, RelativeURI: "album/photo.jpg", Size: 100},
+		Name:                 "photo.jpg",
+		Type:                 "Image (JPG)",
+		ContentPath:          "/share/shares/4/files/10/content",
+		DownloadPath:         "/share/shares/4/files/10/content",
+	}
+	html := renderShareTemplate(t, pageData{
+		Title:          "Photos",
+		Authenticated:  true,
+		Share:          apiclient.Share{ID: 4, Name: "Photos"},
+		Files:          []fileView{file},
+		Permissions:    []string{"read"},
+		Page:           1,
+		Count:          20,
+		Total:          1,
+		BasePath:       "/share/shares/4",
+		APIBasePath:    "/api/share/shares/4",
+		ThumbnailSizes: []int{128, 256},
+		ThumbnailSize:  128,
+		ViewMode:       "list",
+		BrowseMode:     "flat",
+		ShowPagination: true,
+		HasEntries:     true,
+	})
+	if !strings.Contains(html, `>album/photo.jpg</a>`) {
+		t.Fatalf("flat html = %s, want relative URI file label", html)
+	}
+}
+
 func TestFlatModePaginationUnchangedAndTreePaginationHidden(t *testing.T) {
 	file := fileView{
 		ReplicaInventoryFile: apiclient.ReplicaInventoryFile{FileID: 10, RelativeURI: "photo.jpg", Size: 100},

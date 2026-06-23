@@ -186,7 +186,7 @@
             {{end}}
         </a>
         <div class="card-body">
-          <h2><a class="name-link" href="{{.ContentPath}}">{{.RelativeURI}}</a></h2>
+          <h2><a class="name-link" href="{{.ContentPath}}">{{if eq $.BrowseMode "tree"}}{{.Name}}{{else}}{{.RelativeURI}}{{end}}</a></h2>
           <p>{{formatBytes .Size}} · {{formatTime .Modified}}</p>
         </div>
         <div class="card-actions row-actions">
@@ -246,7 +246,7 @@
       <tr>
         <td>
           <a href="{{.ContentPath}}">{{if .ThumbnailURL}}<img class="thumb" src="{{.ThumbnailURL}}" alt="">{{else}}<span class="thumb" data-auth-src="{{$.APIBasePath}}/files/{{.FileID}}/thumbnail?size={{$.ThumbnailSize}}"></span>{{end}}</a>
-          <a class="name-link" href="{{.ContentPath}}">{{.RelativeURI}}</a>
+          <a class="name-link" href="{{.ContentPath}}">{{if eq $.BrowseMode "tree"}}{{.Name}}{{else}}{{.RelativeURI}}{{end}}</a>
         </td>
         <td>{{formatBytes .Size}}</td>
         <td>{{.Type}}</td>
