@@ -177,6 +177,7 @@
 
   function bindAuthenticatedPage() {
     applyFileViewPreferences();
+    bindActionsMenus();
     bindFolderTreePanel();
     fillCurrentUser();
     request("/share/auth/me")
@@ -232,7 +233,51 @@
 
   function bindPublicPage() {
     applyFileViewPreferences();
+    bindActionsMenus();
     bindFolderTreePanel();
+  }
+
+  function bindActionsMenus() {
+    document.body.addEventListener("click", (event) => {
+      const menuButton = event.target.closest("[data-actions-menu-button]");
+      if (menuButton) {
+        event.preventDefault();
+        const menu = menuButton.closest("[data-actions-menu]");
+        const popover = menu?.querySelector("[data-actions-menu-popover]");
+        if (!menu || !popover) {
+          return;
+        }
+        const opening = popover.hidden;
+        closeActionsMenus(menu);
+        popover.hidden = !opening;
+        menuButton.setAttribute("aria-expanded", opening ? "true" : "false");
+        return;
+      }
+      if (!event.target.closest("[data-actions-menu]")) {
+        closeActionsMenus();
+      }
+    });
+    document.body.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        closeActionsMenus();
+      }
+    });
+  }
+
+  function closeActionsMenus(except) {
+    for (const menu of document.querySelectorAll("[data-actions-menu]")) {
+      if (except && menu === except) {
+        continue;
+      }
+      const popover = menu.querySelector("[data-actions-menu-popover]");
+      const button = menu.querySelector("[data-actions-menu-button]");
+      if (popover) {
+        popover.hidden = true;
+      }
+      if (button) {
+        button.setAttribute("aria-expanded", "false");
+      }
+    }
   }
 
   async function authenticatedDownload(path, filename) {

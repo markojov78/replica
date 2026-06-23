@@ -130,7 +130,20 @@ func templateFuncs() template.FuncMap {
 		"viewURL":         viewURL,
 		"browseURL":       browseURL,
 		"thumbStyle":      thumbStyle,
+		"dict":            templateDict,
 	}
+}
+
+func templateDict(values ...any) map[string]any {
+	result := make(map[string]any, len(values)/2)
+	for i := 0; i+1 < len(values); i += 2 {
+		key, ok := values[i].(string)
+		if !ok {
+			continue
+		}
+		result[key] = values[i+1]
+	}
+	return result
 }
 
 func mustSub(embedded embed.FS, dir string) fs.FS {

@@ -40,7 +40,8 @@ func TestRegisterServesLoginAndStaticAssets(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `htmx:configRequest`) ||
 		!strings.Contains(rec.Body.String(), `Authorization`) ||
 		!strings.Contains(rec.Body.String(), `thumbnail_size`) ||
-		!strings.Contains(rec.Body.String(), `folder_tree_visible`) {
+		!strings.Contains(rec.Body.String(), `folder_tree_visible`) ||
+		!strings.Contains(rec.Body.String(), `data-actions-menu-button`) {
 		t.Fatalf("share.js body = %s, want HTMX auth header handling", rec.Body.String())
 	}
 }
@@ -109,6 +110,59 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 	} {
 		if !strings.Contains(grid, want) {
 			t.Fatalf("grid view = %s, want %q", grid, want)
+		}
+	}
+}
+
+func TestFileActionsMenuSharedByListAndGrid(t *testing.T) {
+	file := fileView{
+		ReplicaInventoryFile: apiclient.ReplicaInventoryFile{
+			FileID:           10,
+			RelativeURI:      "album/photo.jpg",
+			Size:             12345,
+			InventoryVersion: 4,
+			Modified:         time.Date(2026, 3, 17, 10, 30, 0, 0, time.UTC),
+		},
+		Name:         "photo.jpg",
+		Type:         "Image (JPG)",
+		ContentPath:  "/share/shares/4/files/10/content",
+		DownloadPath: "/api/share/shares/4/files/10/content",
+	}
+
+	base := pageData{
+		Title:          "Photos",
+		Authenticated:  true,
+		Share:          apiclient.Share{ID: 4, Name: "Photos"},
+		Files:          []fileView{file},
+		Permissions:    []string{"read", "update", "delete"},
+		Page:           1,
+		Count:          20,
+		Total:          1,
+		BasePath:       "/share/shares/4",
+		APIBasePath:    "/api/share/shares/4",
+		ThumbnailSizes: []int{128, 256},
+		ThumbnailSize:  128,
+		BrowseMode:     "flat",
+		ShowPagination: true,
+	}
+	for _, mode := range []string{"list", "grid"} {
+		data := base
+		data.ViewMode = mode
+		html := renderShareTemplate(t, data)
+		for _, want := range []string{
+			`data-actions-menu`,
+			`data-actions-menu-button`,
+			`data-actions-menu-popover`,
+			`data-auth-download="/api/share/shares/4/files/10/content"`,
+			`Replace`,
+			`Delete`,
+		} {
+			if !strings.Contains(html, want) {
+				t.Fatalf("%s view = %s, want %q", mode, html, want)
+			}
+		}
+		if strings.Count(html, `data-actions-menu-button`) != 1 {
+			t.Fatalf("%s view = %s, want one compact actions menu for one file", mode, html)
 		}
 	}
 }
