@@ -97,6 +97,35 @@ func TestReplicaServiceUpdateClearsUpstreamReplica(t *testing.T) {
 	}
 }
 
+func TestReplicaServiceUpdateStorageProfile(t *testing.T) {
+	database, svc, _, destination := newReconcileCommandTest(t)
+	profile := "backblaze"
+
+	updated, err := svc.Update(destination.ID, UpdateReplicaInput{StorageProfile: &profile})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if updated.StorageProfile != "backblaze" {
+		t.Fatalf("updated.StorageProfile = %q, want backblaze", updated.StorageProfile)
+	}
+
+	var replica model.Replica
+	if err := database.First(&replica, "id = ?", destination.ID).Error; err != nil {
+		t.Fatalf("First(replica) error = %v", err)
+	}
+	if replica.StorageProfile != "backblaze" {
+		t.Fatalf("replica.StorageProfile = %q, want backblaze", replica.StorageProfile)
+	}
+
+	var command model.Command
+	if err := database.First(&command, "node_id = ? AND type = ?", destination.NodeID, model.NodeCommandTypeRefreshState).Error; err != nil {
+		t.Fatalf("First(refresh_state command) error = %v", err)
+	}
+	if command.Status != model.NodeCommandStatusPending {
+		t.Fatalf("command.Status = %q, want %q", command.Status, model.NodeCommandStatusPending)
+	}
+}
+
 func TestReplicaServiceDeleteCreatesRefreshStateCommand(t *testing.T) {
 	database, svc, _, destination := newReconcileCommandTest(t)
 

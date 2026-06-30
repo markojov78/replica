@@ -140,6 +140,26 @@
     }
   }
 
+  function bindReplicaForms() {
+    for (const form of document.querySelectorAll("[data-replica-form]")) {
+      const typeSelect = form.querySelector("[data-replica-type]");
+      const profileField = form.querySelector("[data-storage-profile-field]");
+      const profileSelect = profileField?.querySelector("select");
+      const syncProfile = () => {
+        const enabled = typeSelect?.value === "storage";
+        if (profileSelect) {
+          profileSelect.disabled = !enabled;
+          if (!enabled) {
+            profileSelect.value = "";
+          }
+        }
+      };
+
+      typeSelect?.addEventListener("change", syncProfile);
+      syncProfile();
+    }
+  }
+
   async function authRequest(path, options = {}) {
     const headers = new Headers(options.headers);
     headers.set("X-API-Version", "1");
@@ -225,6 +245,7 @@
     bindDeletedFilters();
     bindChoiceFilters();
     bindShareForms();
+    bindReplicaForms();
     document.addEventListener("click", (event) => {
       const link = event.target.closest("a[href]");
       if (!link || link.origin !== window.location.origin || !link.pathname.startsWith("/dashboard")) {

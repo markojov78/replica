@@ -390,12 +390,13 @@ func TestClientListOwnReplicasUsesInternalReplicaEndpoint(t *testing.T) {
 			}
 			_ = json.NewEncoder(w).Encode([]Replica{
 				{
-					ID:          1,
-					InventoryID: 2,
-					NodeID:      "node-a",
-					URI:         "/data",
-					Status:      "active",
-					Type:        "filesystem",
+					ID:             1,
+					InventoryID:    2,
+					NodeID:         "node-a",
+					URI:            "/data",
+					Status:         "active",
+					Type:           "filesystem",
+					StorageProfile: "aws",
 				},
 			})
 		default:
@@ -427,6 +428,9 @@ func TestClientListOwnReplicasUsesInternalReplicaEndpoint(t *testing.T) {
 	}
 	if replicas[0].NodeID != "node-a" {
 		t.Fatalf("replicas[0].NodeID = %q, want %q", replicas[0].NodeID, "node-a")
+	}
+	if replicas[0].StorageProfile != "aws" {
+		t.Fatalf("replicas[0].StorageProfile = %q, want aws", replicas[0].StorageProfile)
 	}
 }
 

@@ -60,6 +60,7 @@ type InventoryReplicaDetails struct {
 	Status            string `json:"status"`
 	Type              string `json:"type"`
 	UpstreamReplicaID *uint  `json:"upstream_replica_id"`
+	StorageProfile    string `json:"storage_profile"`
 }
 
 type InventoryDetails struct {
@@ -171,6 +172,7 @@ type CreateReplicaInput struct {
 	URI               string
 	Type              string
 	UpstreamReplicaID *uint
+	StorageProfile    string
 }
 
 type UpdateInventoryInput struct {
@@ -191,6 +193,7 @@ type UpdateReplicaInput struct {
 	Status               *string
 	UpstreamReplicaID    *uint
 	UpstreamReplicaIDSet bool
+	StorageProfile       *string
 }
 
 type ReplicaFileChangeInput struct {
@@ -744,6 +747,7 @@ func toInventoryReplicaDetails(replica *model.Replica) *InventoryReplicaDetails 
 		Status:            string(replica.Status),
 		Type:              string(replica.Type),
 		UpstreamReplicaID: replica.UpstreamReplicaID,
+		StorageProfile:    replica.StorageProfile,
 	}
 }
 

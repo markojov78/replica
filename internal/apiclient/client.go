@@ -77,6 +77,7 @@ type Replica struct {
 	Status            string `json:"status"`
 	Type              string `json:"type"`
 	UpstreamReplicaID *uint  `json:"upstream_replica_id"`
+	StorageProfile    string `json:"storage_profile"`
 }
 
 type ReplicaFile struct {

@@ -112,6 +112,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 			URI:               input.Body.URI,
 			Type:              input.Body.Type,
 			UpstreamReplicaID: input.Body.UpstreamReplicaID,
+			StorageProfile:    input.Body.StorageProfile,
 		})
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
@@ -137,6 +138,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 			Status:               input.Body.Status,
 			UpstreamReplicaID:    upstreamReplicaID,
 			UpstreamReplicaIDSet: upstreamReplicaIDSet,
+			StorageProfile:       input.Body.StorageProfile,
 		})
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
@@ -187,6 +189,7 @@ type createReplicaInput struct {
 		URI               string `json:"uri" minLength:"1"`
 		Type              string `json:"type" minLength:"1"`
 		UpstreamReplicaID *uint  `json:"upstream_replica_id,omitempty"`
+		StorageProfile    string `json:"storage_profile,omitempty"`
 	}
 }
 
@@ -215,6 +218,7 @@ type updateReplicaInput struct {
 		Type              *string         `json:"type,omitempty"`
 		Status            *string         `json:"status,omitempty"`
 		UpstreamReplicaID json.RawMessage `json:"upstream_replica_id,omitempty"`
+		StorageProfile    *string         `json:"storage_profile,omitempty"`
 	}
 }
 

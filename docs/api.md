@@ -873,7 +873,8 @@ Example response:
       "uri": "/home/username/images/Vacation March 2026",
       "status": "active",
       "type": "filesystem",
-      "upstream_replica_id": null
+      "upstream_replica_id": null,
+      "storage_profile": ""
     }
   ],
   "page": 1,
@@ -898,6 +899,7 @@ Request body:
 - `uri` required
 - `type` required
 - `upstream_replica_id` optional, nullable; when set, the new replica is downstream/read-only from replication perspective and must reference a replica in the same inventory
+- `storage_profile` optional, storage profile name used by storage-backed replicas
 
 Example request:
 
@@ -907,7 +909,8 @@ Example request:
   "node_id": "node-2",
   "uri": "/mnt/backup/photos",
   "type": "filesystem",
-  "upstream_replica_id": 1
+  "upstream_replica_id": 1,
+  "storage_profile": ""
 }
 ```
 
@@ -930,6 +933,7 @@ Request body fields are optional:
 - `type`
 - `status`
 - `upstream_replica_id`
+- `storage_profile`
 
 #### DELETE /replicas/{id}
 Soft-deletes a replica by setting its status to `deleted`.
@@ -2253,7 +2257,9 @@ Example response:
     "node_id": "node-a",
     "uri": "/data/photos",
     "status": "active",
-    "type": "filesystem"
+    "type": "filesystem",
+    "upstream_replica_id": null,
+    "storage_profile": ""
   }
 ]
 ```

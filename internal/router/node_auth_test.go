@@ -494,11 +494,12 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 		t.Fatalf("Create(inventory) error = %v", err)
 	}
 	if err := database.Create(&model.Replica{
-		InventoryID: inventory.ID,
-		NodeID:      "node-a",
-		URI:         "/data/a",
-		Status:      model.ReplicaStatusActive,
-		Type:        model.ReplicaTypeFilesystem,
+		InventoryID:    inventory.ID,
+		NodeID:         "node-a",
+		URI:            "/data/a",
+		Status:         model.ReplicaStatusActive,
+		Type:           model.ReplicaTypeFilesystem,
+		StorageProfile: "aws",
 	}).Error; err != nil {
 		t.Fatalf("Create(replicaA) error = %v", err)
 	}
@@ -547,9 +548,10 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 	}
 
 	var body []struct {
-		NodeID        string `json:"node_id"`
-		URI           string `json:"uri"`
-		InventoryType string `json:"inventory_type"`
+		NodeID         string `json:"node_id"`
+		URI            string `json:"uri"`
+		InventoryType  string `json:"inventory_type"`
+		StorageProfile string `json:"storage_profile"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
@@ -565,6 +567,9 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 	}
 	if body[0].InventoryType != string(model.InventoryTypeFolder) {
 		t.Fatalf("body[0].InventoryType = %q, want %q", body[0].InventoryType, model.InventoryTypeFolder)
+	}
+	if body[0].StorageProfile != "aws" {
+		t.Fatalf("body[0].StorageProfile = %q, want aws", body[0].StorageProfile)
 	}
 }
 
@@ -1019,13 +1024,18 @@ func TestPublicReplicasListIsPaginated(t *testing.T) {
 	if err := database.Create(inventory).Error; err != nil {
 		t.Fatalf("Create(inventory) error = %v", err)
 	}
-	for _, uri := range []string{"/data/a", "/data/b"} {
+	for i, uri := range []string{"/data/a", "/data/b"} {
+		storageProfile := ""
+		if i == 0 {
+			storageProfile = "aws"
+		}
 		if err := database.Create(&model.Replica{
-			InventoryID: inventory.ID,
-			NodeID:      "node-a",
-			URI:         uri,
-			Status:      model.ReplicaStatusActive,
-			Type:        model.ReplicaTypeFilesystem,
+			InventoryID:    inventory.ID,
+			NodeID:         "node-a",
+			URI:            uri,
+			Status:         model.ReplicaStatusActive,
+			Type:           model.ReplicaTypeFilesystem,
+			StorageProfile: storageProfile,
 		}).Error; err != nil {
 			t.Fatalf("Create(replica %s) error = %v", uri, err)
 		}
@@ -1066,7 +1076,8 @@ func TestPublicReplicasListIsPaginated(t *testing.T) {
 
 	var body struct {
 		Items []struct {
-			URI string `json:"uri"`
+			URI            string `json:"uri"`
+			StorageProfile string `json:"storage_profile"`
 		} `json:"items"`
 		Page  int   `json:"page"`
 		Count int   `json:"count"`
@@ -1080,6 +1091,9 @@ func TestPublicReplicasListIsPaginated(t *testing.T) {
 	}
 	if body.Page != 1 || body.Count != 1 || body.Total != 2 {
 		t.Fatalf("pagination = page:%d count:%d total:%d, want 1/1/2", body.Page, body.Count, body.Total)
+	}
+	if body.Items[0].StorageProfile != "aws" {
+		t.Fatalf("body.Items[0].StorageProfile = %q, want aws", body.Items[0].StorageProfile)
 	}
 }
 
@@ -1437,7 +1451,7 @@ func TestPublicReplicaCreatePopulatesPendingFilesAndReconcileCommand(t *testing.
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/admin/replicas", strings.NewReader(`{"inventory_id":`+strconv.FormatUint(uint64(inventory.ID), 10)+`,"node_id":"node-b","uri":"s3://bucket/photos","type":"storage"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/replicas", strings.NewReader(`{"inventory_id":`+strconv.FormatUint(uint64(inventory.ID), 10)+`,"node_id":"node-b","uri":"s3://bucket/photos","type":"storage","storage_profile":"aws"}`))
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
@@ -1448,10 +1462,22 @@ func TestPublicReplicaCreatePopulatesPendingFilesAndReconcileCommand(t *testing.
 	if recorder.Code != http.StatusOK && recorder.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 200 or 201; body=%s", recorder.Code, recorder.Body.String())
 	}
+	var createdBody struct {
+		StorageProfile string `json:"storage_profile"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &createdBody); err != nil {
+		t.Fatalf("Unmarshal(created replica) error = %v", err)
+	}
+	if createdBody.StorageProfile != "aws" {
+		t.Fatalf("createdBody.StorageProfile = %q, want aws", createdBody.StorageProfile)
+	}
 
 	var replica model.Replica
 	if err := database.First(&replica, "node_id = ? AND inventory_id = ?", "node-b", inventory.ID).Error; err != nil {
 		t.Fatalf("First(replica) error = %v", err)
+	}
+	if replica.StorageProfile != "aws" {
+		t.Fatalf("replica.StorageProfile = %q, want aws", replica.StorageProfile)
 	}
 
 	var replicaFiles []model.ReplicaFile

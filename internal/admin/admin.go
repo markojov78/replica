@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"replica/internal/config"
 )
 
 var errUnauthorized = errors.New("unauthorized")
@@ -25,8 +27,10 @@ var errUnauthorized = errors.New("unauthorized")
 var assets embed.FS
 
 type Handler struct {
-	api   http.Handler
-	pages *template.Template
+	api               http.Handler
+	pages             *template.Template
+	storageProfiles   []string
+	storageProfileSet map[string]struct{}
 }
 
 type authContext struct {
@@ -55,6 +59,7 @@ type replica struct {
 	Status            string `json:"status"`
 	Type              string `json:"type"`
 	UpstreamReplicaID *uint  `json:"upstream_replica_id"`
+	StorageProfile    string `json:"storage_profile"`
 }
 
 type share struct {
@@ -222,12 +227,13 @@ type pageData struct {
 	Role                role
 	PermissionResources []rolePermissionResource
 	Settings            []configView
+	StorageProfiles     []string
 	IsEdit              bool
 	FolderURI           string
 	FileURIs            string
 }
 
-func Register(mux *http.ServeMux, api http.Handler) error {
+func Register(mux *http.ServeMux, api http.Handler, cfg config.Config) error {
 	pages, err := template.New("admin").Funcs(template.FuncMap{
 		"statusClass":            statusClass,
 		"formatTime":             formatTime,
@@ -249,9 +255,12 @@ func Register(mux *http.ServeMux, api http.Handler) error {
 		return err
 	}
 
+	storageProfiles := storageProfileNames(cfg.Storage)
 	handler := &Handler{
-		api:   api,
-		pages: pages,
+		api:               api,
+		pages:             pages,
+		storageProfiles:   storageProfiles,
+		storageProfileSet: storageProfileSet(storageProfiles),
 	}
 
 	mux.Handle("GET /dashboard/static/", http.StripPrefix("/dashboard/static/", http.FileServer(http.FS(mustSub(assets, "static")))))
@@ -567,7 +576,7 @@ func (h *Handler) newReplicaPage(w http.ResponseWriter, r *http.Request, sess au
 	}
 	h.render(w, "replica_form", pageData{
 		Title: "Add replica", Subtitle: "Add a physical location to " + inv.Name + ".",
-		Active: "inventories", Inventory: inv, Nodes: nodes,
+		Active: "inventories", Inventory: inv, Nodes: nodes, StorageProfiles: h.storageProfiles,
 	})
 }
 
@@ -577,11 +586,22 @@ func (h *Handler) createReplica(w http.ResponseWriter, r *http.Request, sess aut
 		return
 	}
 	inventoryID, _ := strconv.ParseUint(r.PathValue("id"), 10, 64)
+	replicaType := r.FormValue("type")
+	storageProfile := storageProfileForReplicaType(replicaType, r.FormValue("storage_profile"))
 	input := map[string]any{
-		"inventory_id": uint(inventoryID),
-		"node_id":      r.FormValue("node_id"),
-		"uri":          strings.TrimSpace(r.FormValue("uri")),
-		"type":         r.FormValue("type"),
+		"inventory_id":    uint(inventoryID),
+		"node_id":         r.FormValue("node_id"),
+		"uri":             strings.TrimSpace(r.FormValue("uri")),
+		"type":            replicaType,
+		"storage_profile": storageProfile,
+	}
+	if !h.validStorageProfile(storageProfile) {
+		h.replicaFormError(w, r, sess, false, replica{
+			InventoryID: uint(inventoryID), NodeID: r.FormValue("node_id"), URI: r.FormValue("uri"),
+			Type: replicaType, UpstreamReplicaID: optionalUint(r.FormValue("upstream_replica_id")),
+			StorageProfile: storageProfile,
+		}, "Storage profile must match a configured profile.")
+		return
 	}
 	if upstream := optionalUint(r.FormValue("upstream_replica_id")); upstream != nil {
 		input["upstream_replica_id"] = *upstream
@@ -593,7 +613,8 @@ func (h *Handler) createReplica(w http.ResponseWriter, r *http.Request, sess aut
 		}
 		h.replicaFormError(w, r, sess, false, replica{
 			InventoryID: uint(inventoryID), NodeID: r.FormValue("node_id"), URI: r.FormValue("uri"),
-			Type: r.FormValue("type"), UpstreamReplicaID: optionalUint(r.FormValue("upstream_replica_id")),
+			Type: replicaType, UpstreamReplicaID: optionalUint(r.FormValue("upstream_replica_id")),
+			StorageProfile: storageProfile,
 		}, apiMessage(err))
 		return
 	}
@@ -615,7 +636,7 @@ func (h *Handler) editReplicaPage(w http.ResponseWriter, r *http.Request, sess a
 	}
 	h.render(w, "replica_form", pageData{
 		Title: "Edit replica", Subtitle: fmt.Sprintf("Update replica #%d in %s.", item.ID, inv.Name),
-		Active: "inventories", Inventory: inv, Nodes: nodes, Replica: item, IsEdit: true,
+		Active: "inventories", Inventory: inv, Nodes: nodes, Replica: item, StorageProfiles: h.storageProfiles, IsEdit: true,
 	})
 }
 
@@ -625,14 +646,22 @@ func (h *Handler) updateReplica(w http.ResponseWriter, r *http.Request, sess aut
 		return
 	}
 	replicaID, _ := strconv.ParseUint(r.PathValue("replica_id"), 10, 64)
+	replicaType := r.FormValue("type")
+	storageProfile := storageProfileForReplicaType(replicaType, r.FormValue("storage_profile"))
 	item := replica{
-		ID: uint(replicaID), Type: r.FormValue("type"), Status: r.FormValue("status"),
+		ID: uint(replicaID), Type: replicaType, Status: r.FormValue("status"),
 		UpstreamReplicaID: optionalUint(r.FormValue("upstream_replica_id")),
+		StorageProfile:    storageProfile,
+	}
+	if !h.validStorageProfile(item.StorageProfile) {
+		h.replicaFormError(w, r, sess, true, item, "Storage profile must match a configured profile.")
+		return
 	}
 	input := map[string]any{
 		"type":                item.Type,
 		"status":              item.Status,
 		"upstream_replica_id": item.UpstreamReplicaID,
+		"storage_profile":     item.StorageProfile,
 	}
 	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/admin/replicas/"+r.PathValue("replica_id"), input, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
@@ -1207,8 +1236,48 @@ func (h *Handler) replicaFormError(w http.ResponseWriter, r *http.Request, sess 
 		title = "Edit replica"
 	}
 	h.render(w, "replica_form", pageData{
-		Title: title, Active: "inventories", Inventory: inv, Nodes: nodes, Replica: item, IsEdit: edit, Error: message,
+		Title: title, Active: "inventories", Inventory: inv, Nodes: nodes, Replica: item, StorageProfiles: h.storageProfiles, IsEdit: edit, Error: message,
 	})
+}
+
+func storageProfileNames(cfg config.StorageConfig) []string {
+	profiles := make([]string, 0, len(cfg.Profiles))
+	for name := range cfg.Profiles {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			profiles = append(profiles, name)
+		}
+	}
+	sort.Strings(profiles)
+	return profiles
+}
+
+func storageProfileSet(profiles []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(profiles))
+	for _, profile := range profiles {
+		set[profile] = struct{}{}
+	}
+	return set
+}
+
+func (h *Handler) validStorageProfile(profile string) bool {
+	profile = normalizeStorageProfileFormValue(profile)
+	if profile == "" {
+		return true
+	}
+	_, ok := h.storageProfileSet[profile]
+	return ok
+}
+
+func normalizeStorageProfileFormValue(profile string) string {
+	return strings.ToLower(strings.TrimSpace(profile))
+}
+
+func storageProfileForReplicaType(replicaType string, profile string) string {
+	if strings.TrimSpace(replicaType) != "storage" {
+		return ""
+	}
+	return normalizeStorageProfileFormValue(profile)
 }
 
 func (h *Handler) shareFormError(w http.ResponseWriter, r *http.Request, sess authContext, edit bool, item share, message string) {

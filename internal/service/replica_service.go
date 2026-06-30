@@ -76,6 +76,7 @@ func (s *ReplicaService) Create(input CreateReplicaInput) (*InventoryReplicaDeta
 		Status:            model.ReplicaStatusActive,
 		Type:              replicaType,
 		UpstreamReplicaID: input.UpstreamReplicaID,
+		StorageProfile:    strings.TrimSpace(input.StorageProfile),
 		Inventory:         *inventory,
 	}
 	command := &model.Command{
@@ -404,6 +405,11 @@ func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput) (*Inve
 		}
 		changed = changed || !uintPointersEqual(replica.UpstreamReplicaID, input.UpstreamReplicaID)
 		replica.UpstreamReplicaID = input.UpstreamReplicaID
+	}
+	if input.StorageProfile != nil {
+		storageProfile := strings.TrimSpace(*input.StorageProfile)
+		changed = changed || replica.StorageProfile != storageProfile
+		replica.StorageProfile = storageProfile
 	}
 
 	var command *model.Command

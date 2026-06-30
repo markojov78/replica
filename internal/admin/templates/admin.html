@@ -514,12 +514,13 @@
 <section class="card form-card">
   {{template "alert" .}}
   <div class="callout">Replica actions are scoped to <b>{{.Inventory.Name}}</b> · Inventory #{{.Inventory.ID}}.</div>
-  <form action="{{if .IsEdit}}/dashboard/inventories/{{.Inventory.ID}}/replicas/{{.Replica.ID}}{{else}}/dashboard/inventories/{{.Inventory.ID}}/replicas{{end}}" method="post" class="form-grid">
+  <form action="{{if .IsEdit}}/dashboard/inventories/{{.Inventory.ID}}/replicas/{{.Replica.ID}}{{else}}/dashboard/inventories/{{.Inventory.ID}}/replicas{{end}}" method="post" class="form-grid" data-replica-form>
     {{if not .IsEdit}}
       <label>Node<select name="node_id" required><option value="">Select node</option>{{range .Nodes}}<option value="{{.ID}}" {{if eq .ID $.Replica.NodeID}}selected{{end}}>{{.ID}} · {{.Status}}</option>{{end}}</select></label>
       <label class="full">URI<input name="uri" value="{{.Replica.URI}}" required></label>
     {{end}}
-    <label>Type<select name="type"><option value="filesystem" {{if or (eq .Replica.Type "") (eq .Replica.Type "filesystem")}}selected{{end}}>filesystem</option><option value="storage" {{if eq .Replica.Type "storage"}}selected{{end}}>storage</option><option value="removable" {{if eq .Replica.Type "removable"}}selected{{end}}>removable</option></select></label>
+    <label>Type<select name="type" data-replica-type><option value="filesystem" {{if or (eq .Replica.Type "") (eq .Replica.Type "filesystem")}}selected{{end}}>filesystem</option><option value="storage" {{if eq .Replica.Type "storage"}}selected{{end}}>storage</option><option value="removable" {{if eq .Replica.Type "removable"}}selected{{end}}>removable</option></select></label>
+    <label data-storage-profile-field>Storage profile<select name="storage_profile" {{if ne .Replica.Type "storage"}}disabled{{end}}><option value="" {{if eq .Replica.StorageProfile ""}}selected{{end}}>None</option>{{range .StorageProfiles}}<option value="{{.}}" {{if eq . $.Replica.StorageProfile}}selected{{end}}>{{.}}</option>{{end}}</select></label>
     {{if .IsEdit}}<label>Status<select name="status"><option value="active" {{if eq .Replica.Status "active"}}selected{{end}}>active</option><option value="deleted" {{if eq .Replica.Status "deleted"}}selected{{end}}>deleted</option></select></label>{{end}}
     <label>Upstream replica<select name="upstream_replica_id"><option value="">None · base replica</option>{{range .Inventory.Replicas}}{{if ne .ID $.Replica.ID}}<option value="{{.ID}}" {{if isUpstream .ID $.Replica.UpstreamReplicaID}}selected{{end}}>#{{.ID}} · {{.NodeID}}</option>{{end}}{{end}}</select></label>
     <div class="footer-actions full"><a class="btn" href="/dashboard/inventories/{{.Inventory.ID}}">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save replica{{else}}Create replica{{end}}</button></div>

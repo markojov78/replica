@@ -91,7 +91,7 @@ func New(
 		registerReplicaRoutes(adminGroup, svc)
 		registerShareRoutes(adminGroup, svc)
 		registerConfigRoutes(adminGroup, svc)
-		if err := admin.Register(mux, mux); err != nil {
+		if err := admin.Register(mux, mux, cfg); err != nil {
 			panic(err)
 		}
 	}

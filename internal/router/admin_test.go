@@ -57,7 +57,13 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		},
 	})
 	handler := New(
-		config.Config{App: config.AppConfig{Coordinator: true}},
+		config.Config{
+			App: config.AppConfig{Coordinator: true},
+			Storage: config.StorageConfig{Profiles: map[string]config.StorageProfileConfig{
+				"aws":       {},
+				"backblaze": {},
+			}},
+		},
 		buildinfo.Info{Version: "test"},
 		service.NewAuthService(
 			repository.NewUserRepository(database),
@@ -357,20 +363,48 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("inventory files custom page size response = %d body=%q", response.Code, response.Body.String())
 	}
 
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1/replicas/new", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `name="storage_profile"`) ||
+		!strings.Contains(response.Body.String(), `data-storage-profile-field>Storage profile`) ||
+		!strings.Contains(response.Body.String(), `name="storage_profile" disabled`) ||
+		!strings.Contains(response.Body.String(), `<option value="aws"`) ||
+		!strings.Contains(response.Body.String(), `<option value="backblaze"`) {
+		t.Fatalf("new replica form response = %d body=%q", response.Code, response.Body.String())
+	}
+
 	response = adminRequest(t, handler, http.MethodPost, "/dashboard/inventories/1/replicas", url.Values{
 		"node_id":             {"node-b"},
 		"uri":                 {"/backup/documents"},
-		"type":                {"filesystem"},
+		"type":                {"storage"},
 		"upstream_replica_id": {"1"},
+		"storage_profile":     {"aws"},
 	}, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/inventories/1" {
 		t.Fatalf("create replica response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
 	}
+	var createdReplica model.Replica
+	if err := database.First(&createdReplica, 2).Error; err != nil {
+		t.Fatalf("First(created replica) error = %v", err)
+	}
+	if createdReplica.StorageProfile != "aws" {
+		t.Fatalf("createdReplica.StorageProfile = %q, want aws", createdReplica.StorageProfile)
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1/replicas/2/edit", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `name="storage_profile"`) ||
+		!strings.Contains(response.Body.String(), `data-storage-profile-field`) ||
+		strings.Contains(response.Body.String(), `name="storage_profile" disabled`) ||
+		!strings.Contains(response.Body.String(), `<option value="aws" selected`) {
+		t.Fatalf("edit replica form response = %d body=%q", response.Code, response.Body.String())
+	}
 
 	response = adminRequest(t, handler, http.MethodPost, "/dashboard/inventories/1/replicas/2", url.Values{
-		"type":                {"filesystem"},
+		"type":                {"storage"},
 		"status":              {"active"},
 		"upstream_replica_id": {""},
+		"storage_profile":     {"backblaze"},
 	}, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/inventories/1" {
 		t.Fatalf("update replica response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
@@ -382,6 +416,26 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if updatedReplica.UpstreamReplicaID != nil {
 		t.Fatalf("updatedReplica.UpstreamReplicaID = %v, want nil", updatedReplica.UpstreamReplicaID)
 	}
+	if updatedReplica.StorageProfile != "backblaze" {
+		t.Fatalf("updatedReplica.StorageProfile = %q, want backblaze", updatedReplica.StorageProfile)
+	}
+
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/inventories/1/replicas/2", url.Values{
+		"type":                {"filesystem"},
+		"status":              {"active"},
+		"upstream_replica_id": {""},
+		"storage_profile":     {"backblaze"},
+	}, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/inventories/1" {
+		t.Fatalf("clear replica storage profile response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	if err := database.First(&updatedReplica, 2).Error; err != nil {
+		t.Fatalf("First(replica after profile clear) error = %v", err)
+	}
+	if updatedReplica.StorageProfile != "" {
+		t.Fatalf("updatedReplica.StorageProfile = %q, want empty for filesystem replica", updatedReplica.StorageProfile)
+	}
+
 	if err := database.Create(&model.Node{ID: "node-disabled", Status: model.NodeStatusDisabled, Secret: "ignored"}).Error; err != nil {
 		t.Fatalf("Create(disabled node) error = %v", err)
 	}
