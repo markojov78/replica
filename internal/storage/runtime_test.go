@@ -30,6 +30,7 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 	replicaCalls := 0
 	commandUpdateCalls := 0
 	wsConnections := 0
+	heartbeatPublicKey := ""
 
 	logOutput := captureLogs(t)
 
@@ -60,6 +61,13 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 			})
 		case "/node/nodes":
 			heartbeatCalls++
+			var body struct {
+				PublicKey string `json:"public_key"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("Decode(heartbeat) error = %v", err)
+			}
+			heartbeatPublicKey = body.PublicKey
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"node_id":   "node-a",
 				"address":   "http://node-a:8081",
@@ -137,6 +145,12 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
+	if runtime.nodeTransferPublicKey() == "" {
+		t.Fatal("runtime node public key is empty")
+	}
+	if runtime.nodeTransferPrivateKey() == "" {
+		t.Fatal("runtime node private key is empty")
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -147,10 +161,14 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 	for time.Now().Before(deadline) {
 		mu.Lock()
 		done := loginCalls >= 1 && refreshCalls >= 1 && heartbeatCalls >= 2 && replicaCalls >= 2 && commandUpdateCalls >= 1 && wsConnections >= 1
+		gotHeartbeatPublicKey := heartbeatPublicKey
 		mu.Unlock()
 		if done &&
 			strings.Contains(logOutput.String(), "got command id=7 type=refresh_state status=pending") &&
 			strings.Contains(logOutput.String(), "storage runtime command completed id=7") {
+			if gotHeartbeatPublicKey == "" {
+				t.Fatal("heartbeat public_key is empty")
+			}
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -158,6 +176,9 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
+	if heartbeatPublicKey == "" {
+		t.Fatal("heartbeat public_key is empty")
+	}
 	t.Fatalf("loginCalls=%d refreshCalls=%d heartbeatCalls=%d replicaCalls=%d commandUpdateCalls=%d wsConnections=%d logs=%q", loginCalls, refreshCalls, heartbeatCalls, replicaCalls, commandUpdateCalls, wsConnections, logOutput.String())
 }
 

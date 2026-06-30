@@ -56,6 +56,7 @@ type Client struct {
 	accessTokenExpiresAt  time.Time
 	refreshTokenExpiresAt time.Time
 	transferPublicKey     string
+	nodePublicKey         string
 }
 
 type NodeTokenPair struct {
@@ -220,6 +221,12 @@ func (c *Client) TransferTokenPublicKey() string {
 	return c.transferPublicKey
 }
 
+func (c *Client) SetNodePublicKey(publicKey string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.nodePublicKey = publicKey
+}
+
 func (c *Client) AccessToken(ctx context.Context) (string, error) {
 	return c.ensureAccessToken(ctx)
 }
@@ -288,9 +295,14 @@ func (c *Client) ReportAvailability(ctx context.Context) (*AvailabilityReport, e
 		return nil, err
 	}
 
+	c.mu.Lock()
+	nodePublicKey := c.nodePublicKey
+	c.mu.Unlock()
+
 	reqBody := map[string]any{
-		"address":  c.nodeAddress,
-		"interval": c.heartbeatInterval.Seconds(),
+		"address":    c.nodeAddress,
+		"interval":   c.heartbeatInterval.Seconds(),
+		"public_key": nodePublicKey,
 	}
 
 	var report AvailabilityReport

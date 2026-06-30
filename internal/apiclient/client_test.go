@@ -18,8 +18,9 @@ func TestClientAuthenticateAndReportAvailability(t *testing.T) {
 		Secret string `json:"secret"`
 	}
 	var gotAvailability struct {
-		Address  string  `json:"address"`
-		Interval float64 `json:"interval"`
+		Address   string  `json:"address"`
+		Interval  float64 `json:"interval"`
+		PublicKey string  `json:"public_key"`
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +72,7 @@ func TestClientAuthenticateAndReportAvailability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+	client.SetNodePublicKey("node-public-key")
 
 	report, err := client.ReportAvailability(context.Background())
 	if err != nil {
@@ -88,6 +90,9 @@ func TestClientAuthenticateAndReportAvailability(t *testing.T) {
 	}
 	if gotAvailability.Interval != 90 {
 		t.Fatalf("report.interval = %v, want 90", gotAvailability.Interval)
+	}
+	if gotAvailability.PublicKey != "node-public-key" {
+		t.Fatalf("report.public_key = %q, want node-public-key", gotAvailability.PublicKey)
 	}
 	if report.NodeID != "node-a" {
 		t.Fatalf("report.NodeID = %q, want %q", report.NodeID, "node-a")

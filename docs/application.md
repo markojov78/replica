@@ -123,6 +123,7 @@ fast read and remote updateable replica for update.
 status - online, unreachable, offline, disabled, revoked
 secret - hashed secret for node to coordinator authentication 
 address - node address reported to the coordinator
+public_key - storage node public key reported to the coordinator
 interval - heartbeat interval reported by the node, in seconds
 last_seen - last time the node reported to the coordinator
 

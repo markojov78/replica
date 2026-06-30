@@ -2080,6 +2080,7 @@ Behavior:
 - resolves the current node ID from the auth token
 - updates `nodes.address` from the request body
 - updates `nodes.interval` from the heartbeat interval in seconds
+- updates `nodes.public_key` from the storage node public key in the request body
 - updates `nodes.last_seen` to the current coordinator time
 - updates node status according to current WebSocket connectivity and heartbeat freshness
 - ensures each active replica assigned to the node with pending `replica_files` has a pending `reconcile_replica`
@@ -2091,13 +2092,15 @@ Behavior:
 Request body:
 - `address` required
 - `interval` required, greater than zero, heartbeat interval in seconds
+- `public_key` required, storage node public key PEM
 
 Example request:
 
 ```json
 {
   "address": "https://node-address:8081",
-  "interval": 600
+  "interval": 600,
+  "public_key": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"
 }
 ```
 

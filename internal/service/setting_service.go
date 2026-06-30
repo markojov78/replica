@@ -131,7 +131,7 @@ func (s *SettingService) EnsureTransferKeys() error {
 		return fmt.Errorf("%w: both %q and %q must exist or both must be absent", ErrIncompleteTransferKeys, SettingTransferKeyPublic, SettingTransferKeyPrivate)
 	}
 
-	publicKey, privateKey, err := generateTransferKeyPairPEM()
+	publicKey, privateKey, err := GenerateTransferKeyPairPEM()
 	if err != nil {
 		return err
 	}
@@ -156,7 +156,7 @@ func parseRSAPrivateKeyPEM(value string) (*rsa.PrivateKey, error) {
 	return privateKey, nil
 }
 
-func generateTransferKeyPairPEM() (string, string, error) {
+func GenerateTransferKeyPairPEM() (string, string, error) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 3072)
 	if err != nil {
 		return "", "", err

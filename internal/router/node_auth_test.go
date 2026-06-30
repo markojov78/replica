@@ -328,7 +328,7 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
+	req := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60,"public_key":"node-public-key"}`))
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
@@ -368,6 +368,9 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 	}
 	if stored.Address != "https://node-address:8081" {
 		t.Fatalf("stored.Address = %q, want %q", stored.Address, "https://node-address:8081")
+	}
+	if stored.PublicKey != "node-public-key" {
+		t.Fatalf("stored.PublicKey = %q, want node-public-key", stored.PublicKey)
 	}
 	if stored.LastSeen == nil {
 		t.Fatal("stored.LastSeen = nil, want timestamp")
@@ -426,7 +429,7 @@ func TestInternalNodesReportAvailabilityReturnsPendingCommands(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
+	req := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60,"public_key":"node-public-key"}`))
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
@@ -1297,7 +1300,7 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 		t.Fatalf("refreshCommand.Status = %q, want %q", refreshCommand.Status, model.NodeCommandStatusPending)
 	}
 
-	reportReq := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
+	reportReq := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60,"public_key":"node-public-key"}`))
 	reportReq.Header.Set("Authorization", "Bearer "+nodePair.AccessToken)
 	reportReq.Header.Set("X-API-Version", "1")
 	reportReq.Header.Set("Content-Type", "application/json")

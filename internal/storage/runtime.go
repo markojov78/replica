@@ -38,6 +38,8 @@ type Runtime struct {
 	config         []apiclient.ConfigItem
 	replicaFiles   map[uint][]apiclient.ReplicaInventoryFile
 	transferKey    string
+	nodePublicKey  string
+	nodePrivateKey string
 	transferTokens map[uint]string
 
 	shareAuthMu                sync.Mutex
@@ -74,12 +76,19 @@ func NewRuntime(cfg config.Config) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	nodePublicKey, nodePrivateKey, err := service.GenerateTransferKeyPairPEM()
+	if err != nil {
+		return nil, err
+	}
+	client.SetNodePublicKey(nodePublicKey)
 
 	return &Runtime{
 		client:                     client,
 		heartbeatInterval:          cfg.App.HeartbeatInterval,
 		wsDialer:                   websocket.DefaultDialer,
 		replicaFiles:               make(map[uint][]apiclient.ReplicaInventoryFile),
+		nodePublicKey:              nodePublicKey,
+		nodePrivateKey:             nodePrivateKey,
 		transferTokens:             make(map[uint]string),
 		shareTokenCache:            make(map[string]shareTokenCacheEntry),
 		shareAPITokenCacheDuration: cfg.Auth.ShareAPITokenCacheDuration,
@@ -420,6 +429,18 @@ func (r *Runtime) transferTokenPublicKey() string {
 	r.stateMu.RLock()
 	defer r.stateMu.RUnlock()
 	return r.transferKey
+}
+
+func (r *Runtime) nodeTransferPublicKey() string {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+	return r.nodePublicKey
+}
+
+func (r *Runtime) nodeTransferPrivateKey() string {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+	return r.nodePrivateKey
 }
 
 func (r *Runtime) setReplicaTransferToken(replicaID uint, token string) {

@@ -217,7 +217,7 @@ func (s *NodeService) Delete(id string) (*NodeDetails, error) {
 	})
 }
 
-func (s *NodeService) ReportAvailability(id, address string, interval float64) (*NodeAvailabilityReport, error) {
+func (s *NodeService) ReportAvailability(id, address string, interval float64, publicKey string) (*NodeAvailabilityReport, error) {
 	s.statusMu.Lock()
 	defer s.statusMu.Unlock()
 
@@ -228,6 +228,7 @@ func (s *NodeService) ReportAvailability(id, address string, interval float64) (
 
 	now := time.Now().UTC()
 	node.Address = address
+	node.PublicKey = publicKey
 	node.Interval = &interval
 	node.LastSeen = &now
 	s.applyAutomaticStatus(node, now)
