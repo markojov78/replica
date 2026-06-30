@@ -10,6 +10,7 @@ import (
 )
 
 func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
+	clearStorageProfileEnv(t)
 	t.Setenv("CONFIG_FILE", "")
 	t.Setenv("APP_NODE_ID", "")
 	t.Setenv("APP_COORDINATOR", "")
@@ -50,8 +51,8 @@ func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
 	if cfg.Database.Driver != "sqlite" {
 		t.Fatalf("Database.Driver = %q, want %q", cfg.Database.Driver, "sqlite")
 	}
-	if cfg.Database.DSN != "dropoutbox.db" {
-		t.Fatalf("Database.DSN = %q, want %q", cfg.Database.DSN, "dropoutbox.db")
+	if cfg.Database.DSN != "replica.db" {
+		t.Fatalf("Database.DSN = %q, want %q", cfg.Database.DSN, "replica.db")
 	}
 	if !cfg.Database.AutoMigrate {
 		t.Fatal("Database.AutoMigrate = false, want true")
@@ -71,9 +72,13 @@ func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
 	if cfg.Sharing.ThumbnailStorageLimitMB != 500 {
 		t.Fatalf("Sharing.ThumbnailStorageLimitMB = %d, want 500", cfg.Sharing.ThumbnailStorageLimitMB)
 	}
+	if len(cfg.Storage.Profiles) != 0 {
+		t.Fatalf("Storage.Profiles = %v, want empty", cfg.Storage.Profiles)
+	}
 }
 
 func TestLoadYAMLConfigWithEnvOverride(t *testing.T) {
+	clearStorageProfileEnv(t)
 	wd := t.TempDir()
 	prev, err := os.Getwd()
 	if err != nil {
@@ -114,6 +119,16 @@ database:
 seed:
   admin_name: root
   admin_password: secret
+storage:
+  profiles:
+    AWS:
+      access_key_id: "file-access"
+      secret_access_key: "file-secret-key"
+      region: "us-east-1"
+    backblaze:
+      access_key_id: "b2-file-access"
+      secret_access_key: "b2-file-secret"
+      endpoint: "s3.eu-central-003.backblazeb2.com"
 `
 	if err := os.WriteFile(filepath.Join(wd, "config.yaml"), []byte(configBody), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -125,6 +140,10 @@ seed:
 	t.Setenv("SHARING_VIDEO_INLINE_MAX_SIZE_MB", "30")
 	t.Setenv("SHARING_THUMBNAIL_STORAGE", "/env/replica/thumbs")
 	t.Setenv("SHARING_THUMBNAIL_STORAGE_LIMIT_MB", "750")
+	t.Setenv("STORAGE_PROFILES_AWS_REGION", "eu-west-1")
+	t.Setenv("STORAGE_PROFILES_BACKBLAZE_ENDPOINT", "s3.us-west-004.backblazeb2.com")
+	t.Setenv("STORAGE_PROFILES_ARCHIVE_ACCESS_KEY_ID", "archive-access")
+	t.Setenv("STORAGE_PROFILES_ARCHIVE_SECRET_ACCESS_KEY", "archive-secret")
 
 	cfg, err := Load()
 	if err != nil {
@@ -176,9 +195,37 @@ seed:
 	if cfg.Seed.AdminName != "root" {
 		t.Fatalf("Seed.AdminName = %q, want %q", cfg.Seed.AdminName, "root")
 	}
+	aws, ok := cfg.StorageProfile("aws")
+	if !ok {
+		t.Fatal("StorageProfile(aws) not found")
+	}
+	if aws.AccessKeyID != "file-access" {
+		t.Fatalf("aws.AccessKeyID = %q, want file value", aws.AccessKeyID)
+	}
+	if aws.SecretAccessKey != "file-secret-key" {
+		t.Fatalf("aws.SecretAccessKey = %q, want file value", aws.SecretAccessKey)
+	}
+	if aws.Region != "eu-west-1" {
+		t.Fatalf("aws.Region = %q, want env override", aws.Region)
+	}
+	backblaze, ok := cfg.StorageProfile("BACKBLAZE")
+	if !ok {
+		t.Fatal("StorageProfile(BACKBLAZE) not found")
+	}
+	if backblaze.Endpoint != "s3.us-west-004.backblazeb2.com" {
+		t.Fatalf("backblaze.Endpoint = %q, want env override", backblaze.Endpoint)
+	}
+	archive, ok := cfg.StorageProfile("archive")
+	if !ok {
+		t.Fatal("StorageProfile(archive) not found")
+	}
+	if archive.AccessKeyID != "archive-access" || archive.SecretAccessKey != "archive-secret" {
+		t.Fatalf("archive profile = %+v, want env-only credentials", archive)
+	}
 }
 
 func TestLoadFromExplicitTOMLConfigFile(t *testing.T) {
+	clearStorageProfileEnv(t)
 	wd := t.TempDir()
 	configPath := filepath.Join(wd, "dropoutbox.toml")
 	configBody := `
@@ -205,6 +252,11 @@ address = ":8181"
 driver = "sqlite"
 dsn = "custom.db"
 auto_migrate = false
+
+[storage.profiles.aws]
+access_key_id = "toml-access"
+secret_access_key = "toml-secret-access"
+region = "us-east-2"
 `
 	if err := os.WriteFile(configPath, []byte(configBody), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -244,6 +296,13 @@ auto_migrate = false
 	if cfg.Database.AutoMigrate {
 		t.Fatal("Database.AutoMigrate = true, want false")
 	}
+	aws, ok := cfg.StorageProfile("AWS")
+	if !ok {
+		t.Fatal("StorageProfile(AWS) not found")
+	}
+	if aws.Region != "us-east-2" {
+		t.Fatalf("aws.Region = %q, want TOML value", aws.Region)
+	}
 }
 
 func TestLoadRejectsMissingExplicitConfigFile(t *testing.T) {
@@ -255,6 +314,7 @@ func TestLoadRejectsMissingExplicitConfigFile(t *testing.T) {
 }
 
 func TestLoadAllowsMinimalStorageOnlyMode(t *testing.T) {
+	clearStorageProfileEnv(t)
 	t.Setenv("CONFIG_FILE", "")
 	t.Setenv("APP_NODE_ID", "node-a")
 	t.Setenv("APP_COORDINATOR", "false")
@@ -291,6 +351,16 @@ func TestLoadAllowsMinimalStorageOnlyMode(t *testing.T) {
 	}
 	if cfg.App.FileTransferTimeout != 2*time.Hour {
 		t.Fatalf("App.FileTransferTimeout = %s, want %s", cfg.App.FileTransferTimeout, 2*time.Hour)
+	}
+}
+
+func clearStorageProfileEnv(t *testing.T) {
+	t.Helper()
+	for _, item := range os.Environ() {
+		key, _, ok := strings.Cut(item, "=")
+		if ok && strings.HasPrefix(key, "STORAGE_PROFILES_") {
+			t.Setenv(key, "")
+		}
 	}
 }
 

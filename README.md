@@ -28,8 +28,9 @@ Build script will create `bin/replica` and `bin/replica-seed` files.
 ```bash
 cp config_sample.yaml config.yaml
 ```
-## Seed
+[Detailed configuration options](docs/config.md)
 
+## Seed
 ```bash
 go run ./cmd/seed
 ```

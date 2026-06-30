@@ -21,6 +21,7 @@ type Config struct {
 	HTTP     HTTPConfig
 	Database DatabaseConfig
 	Seed     SeedConfig
+	Storage  StorageConfig
 }
 
 type AppConfig struct {
@@ -68,6 +69,17 @@ type SeedConfig struct {
 	AdminPassword string
 }
 
+type StorageConfig struct {
+	Profiles map[string]StorageProfileConfig
+}
+
+type StorageProfileConfig struct {
+	AccessKeyID     string
+	SecretAccessKey string
+	Region          string
+	Endpoint        string
+}
+
 type rawConfig struct {
 	App      rawAppConfig      `json:"app" yaml:"app" toml:"app"`
 	Sharing  rawSharingConfig  `json:"sharing" yaml:"sharing" toml:"sharing"`
@@ -75,6 +87,7 @@ type rawConfig struct {
 	HTTP     rawHTTPConfig     `json:"http" yaml:"http" toml:"http"`
 	Database rawDatabaseConfig `json:"database" yaml:"database" toml:"database"`
 	Seed     rawSeedConfig     `json:"seed" yaml:"seed" toml:"seed"`
+	Storage  rawStorageConfig  `json:"storage" yaml:"storage" toml:"storage"`
 }
 
 type rawAppConfig struct {
@@ -120,6 +133,17 @@ type rawDatabaseConfig struct {
 type rawSeedConfig struct {
 	AdminName     *string `json:"admin_name" yaml:"admin_name" toml:"admin_name"`
 	AdminPassword *string `json:"admin_password" yaml:"admin_password" toml:"admin_password"`
+}
+
+type rawStorageConfig struct {
+	Profiles map[string]rawStorageProfileConfig `json:"profiles" yaml:"profiles" toml:"profiles"`
+}
+
+type rawStorageProfileConfig struct {
+	AccessKeyID     *string `json:"access_key_id" yaml:"access_key_id" toml:"access_key_id"`
+	SecretAccessKey *string `json:"secret_access_key" yaml:"secret_access_key" toml:"secret_access_key"`
+	Region          *string `json:"region" yaml:"region" toml:"region"`
+	Endpoint        *string `json:"endpoint" yaml:"endpoint" toml:"endpoint"`
 }
 
 var defaultConfigFiles = []string{
@@ -185,6 +209,9 @@ func Load() (Config, error) {
 			AdminName:     resolveString("SEED_ADMIN_NAME", fileCfg.Seed.AdminName, "admin"),
 			AdminPassword: resolveString("SEED_ADMIN_PASSWORD", fileCfg.Seed.AdminPassword, "change-me"),
 		},
+		Storage: StorageConfig{
+			Profiles: resolveStorageProfiles(fileCfg.Storage.Profiles),
+		},
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -194,14 +221,9 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
-func DatabaseSettingKeys() []string {
-	return []string{
-		SettingSharingThumbnailSizes,
-		SettingSharingThumbnailDefaultSize,
-		SettingSharingThumbnailsGenerateForVideo,
-		SettingSharingVideoInlineMaxSizeMB,
-		SettingSharingVideoPlaybackEnabled,
-	}
+func (c Config) StorageProfile(name string) (StorageProfileConfig, bool) {
+	profile, ok := c.Storage.Profiles[normalizeStorageProfileName(name)]
+	return profile, ok
 }
 
 func (c *Config) ApplyDatabaseSettings(settings map[string]string, logf func(string, ...any)) {
@@ -256,9 +278,9 @@ func logInvalidDatabaseSetting(logf func(string, ...any), key string, value stri
 func defaultDSN(driver string) string {
 	switch driver {
 	case "postgres":
-		return "host=localhost user=postgres password=postgres dbname=dropoutbox port=5432 sslmode=disable"
+		return "host=localhost user=postgres password=postgres dbname=replica port=5432 sslmode=disable"
 	default:
-		return "dropoutbox.db"
+		return "replica.db"
 	}
 }
 
@@ -412,6 +434,83 @@ func resolveDuration(key string, fileValue *string, fallback time.Duration) time
 	}
 
 	return fallback
+}
+
+func resolveStorageProfiles(fileProfiles map[string]rawStorageProfileConfig) map[string]StorageProfileConfig {
+	profiles := make(map[string]StorageProfileConfig)
+
+	for name, fileProfile := range fileProfiles {
+		normalized := normalizeStorageProfileName(name)
+		if normalized == "" {
+			continue
+		}
+		profiles[normalized] = StorageProfileConfig{
+			AccessKeyID:     optionalString(fileProfile.AccessKeyID),
+			SecretAccessKey: optionalString(fileProfile.SecretAccessKey),
+			Region:          optionalString(fileProfile.Region),
+			Endpoint:        optionalString(fileProfile.Endpoint),
+		}
+	}
+
+	for _, item := range os.Environ() {
+		key, value, ok := strings.Cut(item, "=")
+		if !ok || value == "" {
+			continue
+		}
+		profileName, field, ok := parseStorageProfileEnvKey(key)
+		if !ok {
+			continue
+		}
+
+		profile := profiles[profileName]
+		switch field {
+		case "access_key_id":
+			profile.AccessKeyID = strings.TrimSpace(value)
+		case "secret_access_key":
+			profile.SecretAccessKey = strings.TrimSpace(value)
+		case "region":
+			profile.Region = strings.TrimSpace(value)
+		case "endpoint":
+			profile.Endpoint = strings.TrimSpace(value)
+		}
+		profiles[profileName] = profile
+	}
+
+	return profiles
+}
+
+func parseStorageProfileEnvKey(key string) (string, string, bool) {
+	const prefix = "STORAGE_PROFILES_"
+	if !strings.HasPrefix(key, prefix) {
+		return "", "", false
+	}
+
+	remainder := strings.TrimPrefix(key, prefix)
+	for _, field := range []string{"ACCESS_KEY_ID", "SECRET_ACCESS_KEY", "REGION", "ENDPOINT"} {
+		suffix := "_" + field
+		if !strings.HasSuffix(remainder, suffix) {
+			continue
+		}
+		name := strings.TrimSuffix(remainder, suffix)
+		normalized := normalizeStorageProfileName(name)
+		if normalized == "" {
+			return "", "", false
+		}
+		return normalized, strings.ToLower(field), true
+	}
+
+	return "", "", false
+}
+
+func normalizeStorageProfileName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func optionalString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
 }
 
 func parseIntSlice(value string) ([]int, error) {

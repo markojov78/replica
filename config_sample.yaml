@@ -23,6 +23,7 @@ auth:
   node_secret: "change-me-node-secret"
   access_token_duration: "30m"
   refresh_token_duration: "8h"
+  share_api_token_cache_duration: "5m"
 
 http:
   address: ":8080"
@@ -38,3 +39,14 @@ database:
 seed:
   admin_name: admin
   admin_password: change-me
+
+storage:
+  profiles:
+    aws:
+      access_key_id: "change-me"
+      secret_access_key: "change-me"
+      region: "us-east-1"
+    backblaze:
+      access_key_id: "change-me"
+      secret_access_key: "change-me"
+      endpoint: "s3.eu-central-003.backblazeb2.com"
