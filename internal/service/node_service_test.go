@@ -117,7 +117,7 @@ func TestNodeServiceReportAvailabilityUpdatesAddressAndLastSeen(t *testing.T) {
 
 	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
 
-	report, err := nodeService.ReportAvailability("node-a", "https://node-address:8081", 60, "node-public-key")
+	report, err := nodeService.ReportAvailability("node-a", "https://node-address:8081", 60)
 	if err != nil {
 		t.Fatalf("ReportAvailability() error = %v", err)
 	}
@@ -138,8 +138,8 @@ func TestNodeServiceReportAvailabilityUpdatesAddressAndLastSeen(t *testing.T) {
 	if stored.Address != "https://node-address:8081" {
 		t.Fatalf("stored.Address = %q, want %q", stored.Address, "https://node-address:8081")
 	}
-	if stored.PublicKey != "node-public-key" {
-		t.Fatalf("stored.PublicKey = %q, want node-public-key", stored.PublicKey)
+	if stored.PublicKey != "" {
+		t.Fatalf("stored.PublicKey = %q, want empty", stored.PublicKey)
 	}
 	if stored.LastSeen == nil {
 		t.Fatal("stored.LastSeen = nil, want timestamp")
@@ -195,7 +195,7 @@ func TestNodeServiceReportAvailabilityIncludesPendingCommands(t *testing.T) {
 
 	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
 
-	report, err := nodeService.ReportAvailability("node-a", "https://node-address:8081", 60, "node-public-key")
+	report, err := nodeService.ReportAvailability("node-a", "https://node-address:8081", 60)
 	if err != nil {
 		t.Fatalf("ReportAvailability() error = %v", err)
 	}

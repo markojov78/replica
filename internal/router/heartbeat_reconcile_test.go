@@ -56,7 +56,7 @@ func TestHeartbeatCreatesMissingReconcileCommand(t *testing.T) {
 		t.Fatalf("EnsureTransferKeys() error = %v", err)
 	}
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-b", "node-secret")
+	pair, err := authService.NodeLogin("node-b", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -75,7 +75,7 @@ func TestHeartbeatCreatesMissingReconcileCommand(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://destination-current.example","interval":60,"public_key":"node-public-key"}`))
+	req := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://destination-current.example","interval":60}`))
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")

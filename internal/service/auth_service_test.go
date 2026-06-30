@@ -224,7 +224,7 @@ func TestAuthServiceMeRejectsNodeJWT(t *testing.T) {
 	}
 
 	authService := newTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -270,7 +270,7 @@ func TestAuthServiceNodeLoginReplacesExistingSession(t *testing.T) {
 
 	authService := newTestAuthService(database)
 
-	pair, err := authService.NodeLogin("node-a", "node-secret")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -348,7 +348,7 @@ func TestAuthServiceNodeRefreshRotatesRefreshToken(t *testing.T) {
 
 	authService := newTestAuthService(database)
 
-	firstPair, err := authService.NodeLogin("node-a", "node-secret")
+	firstPair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -425,7 +425,7 @@ func TestAuthServiceNodeLoginRejectsDisabledNode(t *testing.T) {
 
 	authService := newTestAuthService(database)
 
-	if _, err := authService.NodeLogin("node-a", "node-secret"); err != ErrDisabledNode {
+	if _, err := authService.NodeLogin("node-a", "node-secret", ""); err != ErrDisabledNode {
 		t.Fatalf("NodeLogin(disabled node) error = %v, want %v", err, ErrDisabledNode)
 	}
 }
@@ -458,7 +458,7 @@ func TestAuthServiceNodeLoginRejectsRevokedNode(t *testing.T) {
 
 	authService := newTestAuthService(database)
 
-	if _, err := authService.NodeLogin("node-a", "node-secret"); err != ErrRevokedNode {
+	if _, err := authService.NodeLogin("node-a", "node-secret", ""); err != ErrRevokedNode {
 		t.Fatalf("NodeLogin(revoked node) error = %v, want %v", err, ErrRevokedNode)
 	}
 }

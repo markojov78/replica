@@ -14,13 +14,13 @@ import (
 
 func TestClientAuthenticateAndReportAvailability(t *testing.T) {
 	var gotLoginAuth struct {
-		NodeID string `json:"node_id"`
-		Secret string `json:"secret"`
+		NodeID    string `json:"node_id"`
+		Secret    string `json:"secret"`
+		PublicKey string `json:"public_key"`
 	}
 	var gotAvailability struct {
-		Address   string  `json:"address"`
-		Interval  float64 `json:"interval"`
-		PublicKey string  `json:"public_key"`
+		Address  string  `json:"address"`
+		Interval float64 `json:"interval"`
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -85,14 +85,14 @@ func TestClientAuthenticateAndReportAvailability(t *testing.T) {
 	if gotLoginAuth.Secret != "node-secret" {
 		t.Fatalf("login.secret = %q, want %q", gotLoginAuth.Secret, "node-secret")
 	}
+	if gotLoginAuth.PublicKey != "node-public-key" {
+		t.Fatalf("login.public_key = %q, want node-public-key", gotLoginAuth.PublicKey)
+	}
 	if gotAvailability.Address != "https://node-address:8081" {
 		t.Fatalf("report.address = %q, want %q", gotAvailability.Address, "https://node-address:8081")
 	}
 	if gotAvailability.Interval != 90 {
 		t.Fatalf("report.interval = %v, want 90", gotAvailability.Interval)
-	}
-	if gotAvailability.PublicKey != "node-public-key" {
-		t.Fatalf("report.public_key = %q, want node-public-key", gotAvailability.PublicKey)
 	}
 	if report.NodeID != "node-a" {
 		t.Fatalf("report.NodeID = %q, want %q", report.NodeID, "node-a")

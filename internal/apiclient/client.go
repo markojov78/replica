@@ -254,9 +254,14 @@ func (c *Client) WebSocketURL(path string) (string, error) {
 }
 
 func (c *Client) Authenticate(ctx context.Context) (*NodeTokenPair, error) {
+	c.mu.Lock()
+	nodePublicKey := c.nodePublicKey
+	c.mu.Unlock()
+
 	reqBody := map[string]string{
-		"node_id": c.nodeID,
-		"secret":  c.nodeSecret,
+		"node_id":    c.nodeID,
+		"secret":     c.nodeSecret,
+		"public_key": nodePublicKey,
 	}
 
 	var pair NodeTokenPair
@@ -296,14 +301,9 @@ func (c *Client) ReportAvailability(ctx context.Context) (*AvailabilityReport, e
 		return nil, err
 	}
 
-	c.mu.Lock()
-	nodePublicKey := c.nodePublicKey
-	c.mu.Unlock()
-
 	reqBody := map[string]any{
-		"address":    c.nodeAddress,
-		"interval":   c.heartbeatInterval.Seconds(),
-		"public_key": nodePublicKey,
+		"address":  c.nodeAddress,
+		"interval": c.heartbeatInterval.Seconds(),
 	}
 
 	var report AvailabilityReport

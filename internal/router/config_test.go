@@ -126,7 +126,7 @@ func TestNodeConfigRouteRequiresNodeTokenAndReturnsArray(t *testing.T) {
 		t.Fatalf("Create(node) error = %v", err)
 	}
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}

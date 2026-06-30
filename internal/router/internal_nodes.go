@@ -23,7 +23,7 @@ func registerInternalNodeRoutes(api huma.API, svc services) {
 			return nil, mapNodeMeError(err)
 		}
 
-		report, err := svc.nodes.ReportAvailability(node.ID, input.Body.Address, input.Body.Interval, input.Body.PublicKey)
+		report, err := svc.nodes.ReportAvailability(node.ID, input.Body.Address, input.Body.Interval)
 		if err != nil {
 			return nil, mapNodeError(err, svc.nodes)
 		}
@@ -105,9 +105,8 @@ type reportNodeAvailabilityInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
 	Body          struct {
-		Address   string  `json:"address" minLength:"1"`
-		Interval  float64 `json:"interval" exclusiveMinimum:"0"`
-		PublicKey string  `json:"public_key" minLength:"1"`
+		Address  string  `json:"address" minLength:"1"`
+		Interval float64 `json:"interval" exclusiveMinimum:"0"`
 	}
 }
 

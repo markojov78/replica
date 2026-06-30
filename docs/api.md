@@ -1893,6 +1893,7 @@ Node authentication model:
 - node refresh tokens are rotated on successful refresh
 - `transfer_token_public_key` is the coordinator transfer-token verification public key
 - `node_id` and `secret` are used only to obtain a node token pair
+- `public_key` is transferred from node to the coordinator for later data encryption from the coordinator 
 - the node secret is stored hashed in the coordinator database and kept as plaintext only in node configuration
 - transfer token private key is never returned to storage nodes
 - node authentication does not update node address
@@ -1919,19 +1920,22 @@ Behavior:
 - returns a new opaque node refresh token
 - returns `transfer_token_public_key`, which storage nodes keep in volatile memory and use to verify coordinator-issued file transfer tokens
 - creates or replaces the node refresh-token session on the server
+- stores `public_key` in `nodes.public_key`
 - does not update node address
 - does not update node online/offline status
 
 Request body:
 - `node_id` required
 - `secret` required
+- `public_key` required, storage node public key PEM
 
 Example request:
 
 ```json
 {
   "node_id": "node-a",
-  "secret": "plaintext-node-secret-from-node-config"
+  "secret": "plaintext-node-secret-from-node-config",
+  "public_key": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"
 }
 ```
 
@@ -2084,7 +2088,6 @@ Behavior:
 - resolves the current node ID from the auth token
 - updates `nodes.address` from the request body
 - updates `nodes.interval` from the heartbeat interval in seconds
-- updates `nodes.public_key` from the storage node public key in the request body
 - updates `nodes.last_seen` to the current coordinator time
 - updates node status according to current WebSocket connectivity and heartbeat freshness
 - ensures each active replica assigned to the node with pending `replica_files` has a pending `reconcile_replica`
@@ -2096,15 +2099,13 @@ Behavior:
 Request body:
 - `address` required
 - `interval` required, greater than zero, heartbeat interval in seconds
-- `public_key` required, storage node public key PEM
 
 Example request:
 
 ```json
 {
   "address": "https://node-address:8081",
-  "interval": 600,
-  "public_key": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"
+  "interval": 600
 }
 ```
 

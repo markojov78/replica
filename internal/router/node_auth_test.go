@@ -41,7 +41,7 @@ func TestRequireAuthenticatedNodeAllowsNodeJWTAndSetsContext(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -105,6 +105,51 @@ func TestRequireAuthenticatedNodeRejectsUserJWT(t *testing.T) {
 
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestInternalNodeLoginStoresPublicKey(t *testing.T) {
+	database := openRouterTestDB(t)
+
+	hashedSecret, err := security.HashPassword("node-secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	if err := database.Create(&model.Node{
+		ID:     "node-a",
+		Status: model.NodeStatusOffline,
+		Secret: hashedSecret,
+	}).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+
+	handler := newInternalAuthTestHandler(t, database)
+	req := httptest.NewRequest(http.MethodPost, "/node/auth/login", strings.NewReader(`{"node_id":"node-a","secret":"node-secret","public_key":"node-public-key"}`))
+	req.Header.Set("X-API-Version", "1")
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+
+	var stored model.Node
+	if err := database.First(&stored, "id = ?", "node-a").Error; err != nil {
+		t.Fatalf("First(node) error = %v", err)
+	}
+	if stored.PublicKey != "node-public-key" {
+		t.Fatalf("stored.PublicKey = %q, want node-public-key", stored.PublicKey)
+	}
+	if stored.Address != "" {
+		t.Fatalf("stored.Address = %q, want empty", stored.Address)
+	}
+	if stored.LastSeen != nil {
+		t.Fatalf("stored.LastSeen = %v, want nil", stored.LastSeen)
+	}
+	if stored.Status != model.NodeStatusOffline {
+		t.Fatalf("stored.Status = %q, want %q", stored.Status, model.NodeStatusOffline)
 	}
 }
 
@@ -247,7 +292,7 @@ func TestInternalAuthMeReturnsAuthenticatedNode(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -310,7 +355,7 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -328,7 +373,7 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60,"public_key":"node-public-key"}`))
+	req := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
@@ -369,8 +414,8 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 	if stored.Address != "https://node-address:8081" {
 		t.Fatalf("stored.Address = %q, want %q", stored.Address, "https://node-address:8081")
 	}
-	if stored.PublicKey != "node-public-key" {
-		t.Fatalf("stored.PublicKey = %q, want node-public-key", stored.PublicKey)
+	if stored.PublicKey != "" {
+		t.Fatalf("stored.PublicKey = %q, want empty", stored.PublicKey)
 	}
 	if stored.LastSeen == nil {
 		t.Fatal("stored.LastSeen = nil, want timestamp")
@@ -409,7 +454,7 @@ func TestInternalNodesReportAvailabilityReturnsPendingCommands(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -429,7 +474,7 @@ func TestInternalNodesReportAvailabilityReturnsPendingCommands(t *testing.T) {
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60,"public_key":"node-public-key"}`))
+	req := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
@@ -514,7 +559,7 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -666,7 +711,7 @@ func TestInternalSharesReturnsOnlyAuthenticatedNodeShares(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -743,7 +788,7 @@ func TestInternalSharesReturnsEmptyListWhenNodeHasNoShares(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -870,7 +915,7 @@ func TestInternalReplicaFilesReturnsInventoryAndReplicaMetadata(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -1115,7 +1160,7 @@ func TestInternalNodesWebSocketAcceptsAuthenticatedNode(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -1214,7 +1259,7 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
-	nodePair, err := authService.NodeLogin("node-a", "node-secret")
+	nodePair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -1314,7 +1359,7 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 		t.Fatalf("refreshCommand.Status = %q, want %q", refreshCommand.Status, model.NodeCommandStatusPending)
 	}
 
-	reportReq := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60,"public_key":"node-public-key"}`))
+	reportReq := httptest.NewRequest(http.MethodPost, "/node/nodes", strings.NewReader(`{"address":"https://node-address:8081","interval":60}`))
 	reportReq.Header.Set("Authorization", "Bearer "+nodePair.AccessToken)
 	reportReq.Header.Set("X-API-Version", "1")
 	reportReq.Header.Set("Content-Type", "application/json")
@@ -1538,7 +1583,7 @@ func TestInternalCommandsPatchUpdatesOwnedCommandStatus(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -1670,7 +1715,7 @@ func TestInternalReplicaFilesReportUpdatesCoordinatorState(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -1894,7 +1939,7 @@ func newInternalReplicaFileStatusTestHandler(t *testing.T, database *gorm.DB) (h
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -1977,7 +2022,7 @@ func newInternalReplicaFilesFilterTestHandler(t *testing.T, database *gorm.DB) (
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -2099,7 +2144,7 @@ func createValidateUserTokenCredentials(t *testing.T, database *gorm.DB, userSta
 			t.Fatalf("GenerateUserAccessToken() error = %v", err)
 		}
 	}
-	nodePair, err := authService.NodeLogin("node-a", "node-secret")
+	nodePair, err := authService.NodeLogin("node-a", "node-secret", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
