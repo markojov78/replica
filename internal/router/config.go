@@ -91,6 +91,26 @@ func registerInternalConfigRoutes(api huma.API, svc services) {
 		}
 		return &nodeConfigResponse{Body: configs.Items}, nil
 	})
+
+	huma.Get(api, "/config/storage-profiles", func(ctx context.Context, input *nodeConfigInput) (*nodeStorageProfilesResponse, error) {
+		accessToken, err := bearerToken(input.Authorization)
+		if err != nil {
+			return nil, huma.Error401Unauthorized("missing authenticated node")
+		}
+		node, err := svc.auth.Node(accessToken)
+		if err != nil {
+			return nil, mapNodeMeError(err)
+		}
+		if svc.profiles == nil {
+			return nil, huma.Error500InternalServerError("config request failed")
+		}
+
+		profiles, err := svc.profiles.ListForNode(node.ID, node.PublicKey)
+		if err != nil {
+			return nil, mapConfigError(err)
+		}
+		return &nodeStorageProfilesResponse{Body: profiles}, nil
+	})
 }
 
 func mapConfigError(err error) error {
@@ -101,6 +121,10 @@ func mapConfigError(err error) error {
 		return huma.Error400BadRequest("unknown configuration key")
 	case errors.Is(err, service.ErrInvalidConfigValue), errors.Is(err, service.ErrInvalidConfigSetting):
 		return huma.Error400BadRequest("invalid configuration value")
+	case errors.Is(err, service.ErrNodePublicKeyNotRegistered):
+		return huma.Error409Conflict("node encryption public key not registered")
+	case errors.Is(err, service.ErrStorageProfileEncryption):
+		return huma.Error500InternalServerError("failed to encrypt storage profile credentials", err)
 	default:
 		return huma.Error500InternalServerError("config request failed", err)
 	}
@@ -136,6 +160,10 @@ type adminConfigResponse struct {
 
 type nodeConfigResponse struct {
 	Body []service.ConfigItem
+}
+
+type nodeStorageProfilesResponse struct {
+	Body []service.StorageProfileDetails
 }
 
 type deleteConfigResponse struct {

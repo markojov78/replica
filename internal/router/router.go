@@ -30,6 +30,7 @@ type services struct {
 	replicas    *service.ReplicaService
 	shares      *service.ShareService
 	configs     *service.ConfigService
+	profiles    *service.StorageProfileService
 	storage     *storage.Runtime
 }
 
@@ -54,6 +55,10 @@ func New(
 	if len(configServices) > 0 {
 		configService = configServices[0]
 	}
+	var profileService *service.StorageProfileService
+	if replicaService != nil {
+		profileService = service.NewStorageProfileService(replicaService, cfg.Storage)
+	}
 
 	svc := services{
 		auth:        authService,
@@ -64,6 +69,7 @@ func New(
 		replicas:    replicaService,
 		shares:      shareService,
 		configs:     configService,
+		profiles:    profileService,
 		storage:     storageRuntime,
 	}
 

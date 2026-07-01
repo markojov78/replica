@@ -46,6 +46,10 @@ func (s *ReplicaService) List() ([]model.Replica, error) {
 	return s.repo.List()
 }
 
+func (s *ReplicaService) ListByNodeID(nodeID string) ([]model.Replica, error) {
+	return s.repo.ListByNodeID(nodeID)
+}
+
 func (s *ReplicaService) Create(input CreateReplicaInput) (*InventoryReplicaDetails, error) {
 	inventory, err := s.inventories.FindByID(input.InventoryID)
 	if err != nil {

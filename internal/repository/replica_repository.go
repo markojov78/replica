@@ -363,6 +363,12 @@ func (r *ReplicaRepository) ListFiltered(filter ReplicaListFilter) ([]model.Repl
 	return replicas, err
 }
 
+func (r *ReplicaRepository) ListByNodeID(nodeID string) ([]model.Replica, error) {
+	var replicas []model.Replica
+	err := r.db.Where("node_id = ?", strings.TrimSpace(nodeID)).Order("id asc").Find(&replicas).Error
+	return replicas, err
+}
+
 func (r *ReplicaRepository) ListPage(page, perPage int, filter ReplicaListFilter) ([]model.Replica, int64, error) {
 	query := r.db.Model(&model.Replica{})
 	if filter.InventoryID != nil {

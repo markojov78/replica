@@ -2580,6 +2580,88 @@ Possible errors:
 - `403` disabled node
 - `403` revoked node
 
+### /config/storage-profiles endpoint
+This endpoint is node-authenticated and returns storage profiles referenced by replicas assigned to the authenticated node.
+
+#### GET /config/storage-profiles
+Returns storage connection profiles required by replicas assigned to the authenticated node.
+
+Behavior:
+- validates the bearer node JWT
+- resolves the current node from the auth token
+- loads all replicas assigned to the authenticated node
+- collects all distinct non-empty `storage_profile` values referenced by those replicas
+- returns only storage profiles referenced by those replicas
+- returns each storage profile at most once
+- returns the storage profile name in plaintext
+- encrypts the complete storage profile separately for the authenticated node
+- uses the node public key (`nodes.public_key` value) saved on node login
+- fails if the authenticated node has no public key
+- encrypts each storage profile independently
+- returns an empty array when the node has no replicas requiring storage profiles
+- does not return unused storage profiles
+- storage profile names are unique
+- storage profile ordering is implementation-defined
+
+Encryption:
+- each storage profile is encrypted specifically for the authenticated node
+- coordinator uses the node public key associated with the authenticated node
+- storage node decrypts the payload using its corresponding private key
+- storage profiles are encrypted using envelope encryption
+- storage profile plaintext is encrypted with a randomly generated symmetric key using authenticated encryption
+- the symmetric key is encrypted with the node RSA public key using RSA-OAEP with SHA-256
+- the encrypted payload contains all data required to reconstruct the storage profile after decryption
+- encrypted profile data is opaque to API callers and must not be modified
+
+Example request:
+```http request
+GET /node/config/storage-profiles
+Authorization: Bearer node-access-token-value
+X-API-Version: 1
+```
+Example response:
+```json
+[
+  {
+    "name": "backblaze",
+    "encrypted_key": "lA7Y5EG4/qfxePh...OpEKjr",
+    "nonce": "WaDLPNB2aGp/ul/9",
+    "payload": "wAQv4Hay...lUoK1E="
+  },
+  {
+    "name": "aws",
+    "encrypted_key": "...",
+    "nonce": "erNgvSKjWtb9dR8",
+    "payload": "..."
+  }
+]
+```
+
+Values:
+- `name`: profile name
+- `encrypted_key`: base64 rsa oaep sha256 encrypted symmetric key
+- `nonce`: base64 aes gcm nonce
+- `payload`: base64 aes gcm ciphertext
+
+The decrypted plaintext represented by payload contains the complete storage profile required by the storage driver, 
+for example:
+```json
+{
+  "endpoint": "https://s3.eu-central-003.backblazeb2.com",
+  "region": "eu-central-003",
+  "access_key_id": "...",
+  "secret_access_key": "..."
+}
+```
+Storage drivers must ignore unknown fields to allow future extensibility.
+
+Possible errors:
+- `401` missing authenticated node
+- `403` disabled node
+- `403` revoked node
+- `409` node encryption public key not registered
+- `500` failed to encrypt storage profile
+
 ## Storage Transfer API
 This API is exposed on the storage nodes and used for ndoe-to-node file transfer.
 
