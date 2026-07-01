@@ -311,9 +311,8 @@ func (r *Runtime) setLocalConfig(items []apiclient.ConfigItem, storageProfiles m
 	defer r.stateMu.Unlock()
 
 	r.config = append([]apiclient.ConfigItem(nil), items...)
-	r.storageProfiles = cloneStorageProfiles(storageProfiles)
+	r.storageProfiles = mergeStorageProfiles(r.cfg.Storage.Profiles, storageProfiles)
 	r.cfg = configFromNodeItems(r.cfg, items)
-	r.cfg.Storage.Profiles = cloneStorageProfiles(storageProfiles)
 	r.thumbnail = service.NewThumbnailService(r.cfg)
 }
 
@@ -321,12 +320,6 @@ func (r *Runtime) configSnapshot() []apiclient.ConfigItem {
 	r.stateMu.RLock()
 	defer r.stateMu.RUnlock()
 	return append([]apiclient.ConfigItem(nil), r.config...)
-}
-
-func (r *Runtime) storageProfilesSnapshot() map[string]config.StorageProfileConfig {
-	r.stateMu.RLock()
-	defer r.stateMu.RUnlock()
-	return cloneStorageProfiles(r.storageProfiles)
 }
 
 func (r *Runtime) thumbnailSnapshot() (*service.ThumbnailService, config.Config) {
@@ -1394,6 +1387,14 @@ func cloneStorageProfiles(profiles map[string]config.StorageProfileConfig) map[s
 		cloned[name] = profile
 	}
 	return cloned
+}
+
+func mergeStorageProfiles(base map[string]config.StorageProfileConfig, overrides map[string]config.StorageProfileConfig) map[string]config.StorageProfileConfig {
+	merged := cloneStorageProfiles(base)
+	for name, profile := range overrides {
+		merged[name] = profile
+	}
+	return merged
 }
 
 func formatFileState(state *FileState) string {

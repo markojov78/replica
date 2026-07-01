@@ -1070,13 +1070,86 @@ func TestRuntimeRefreshConfigCommandReloadsConfigAndCompletes(t *testing.T) {
 	if len(items) != 1 || items[0].Key != "sharing.video_inline_max_size_mb" || string(items[0].Value) != "50" {
 		t.Fatalf("configSnapshot() = %+v, want stored config item", items)
 	}
-	profiles := runtime.storageProfilesSnapshot()
-	if got := profiles["aws"]; got.Endpoint != "https://s3.example" || got.Region != "eu-central-1" || got.AccessKeyID != "aws-access" || got.SecretAccessKey != "aws-secret" {
-		t.Fatalf("storageProfilesSnapshot()[aws] = %+v, want decrypted profile", got)
+	_, cfg := runtime.thumbnailSnapshot()
+	if _, ok := cfg.Storage.Profiles["aws"]; ok {
+		t.Fatalf("runtime config contains coordinator storage profile; config profiles should not be changed: %+v", cfg.Storage.Profiles)
+	}
+}
+
+func TestRuntimeStorageProfilesMergeLocalAndCoordinatorProfilesWithoutChangingConfigProfiles(t *testing.T) {
+	var runtime *Runtime
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/node/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":                  "node-a",
+				"access_token":             "access-token",
+				"refresh_token":            "refresh-token",
+				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
+				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/node/config":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config/storage-profiles":
+			_ = json.NewEncoder(w).Encode([]apiclient.EncryptedStorageProfile{
+				encryptStorageProfileForTest(t, runtime.nodePublicKey, "shared", config.StorageProfileConfig{
+					Endpoint:        "https://coordinator.example",
+					Region:          "eu-central-1",
+					AccessKeyID:     "coordinator-access",
+					SecretAccessKey: "coordinator-secret",
+				}),
+				encryptStorageProfileForTest(t, runtime.nodePublicKey, "coordinator-only", config.StorageProfileConfig{
+					Endpoint:        "https://coordinator-only.example",
+					Region:          "us-east-1",
+					AccessKeyID:     "coordinator-only-access",
+					SecretAccessKey: "coordinator-only-secret",
+				}),
+			})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var err error
+	runtime, err = NewRuntime(config.Config{
+		App: config.AppConfig{
+			NodeID:            "node-a",
+			CoordinatorURL:    server.URL,
+			NodeAddress:       "http://node-a:8081",
+			HeartbeatInterval: time.Hour,
+		},
+		Auth: config.AuthConfig{
+			NodeSecret: "node-secret",
+		},
+		Storage: config.StorageConfig{Profiles: map[string]config.StorageProfileConfig{
+			"local-only": {
+				Endpoint:        "https://local.example",
+				Region:          "local-region",
+				AccessKeyID:     "local-access",
+				SecretAccessKey: "local-secret",
+			},
+			"shared": {
+				Endpoint:        "https://local-shared.example",
+				Region:          "local-shared-region",
+				AccessKeyID:     "local-shared-access",
+				SecretAccessKey: "local-shared-secret",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v", err)
+	}
+
+	if err := runtime.refreshLocalConfig(context.Background()); err != nil {
+		t.Fatalf("refreshLocalConfig() error = %v", err)
 	}
 	_, cfg := runtime.thumbnailSnapshot()
-	if got := cfg.Storage.Profiles["aws"]; got.Endpoint != "https://s3.example" || got.Region != "eu-central-1" || got.AccessKeyID != "aws-access" || got.SecretAccessKey != "aws-secret" {
-		t.Fatalf("runtime config storage profile = %+v, want decrypted profile", got)
+	if got := cfg.Storage.Profiles["shared"]; got.Endpoint != "https://local-shared.example" || got.AccessKeyID != "local-shared-access" {
+		t.Fatalf("config shared profile = %+v, want unchanged local config profile", got)
+	}
+	if _, ok := cfg.Storage.Profiles["coordinator-only"]; ok {
+		t.Fatalf("config contains coordinator-only profile; config profiles should not be changed: %+v", cfg.Storage.Profiles)
 	}
 }
 
