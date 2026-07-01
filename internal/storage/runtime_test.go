@@ -3,7 +3,15 @@ package storage
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"log"
 	"net/http"
@@ -84,6 +92,8 @@ func TestRuntimeAuthenticatesRefreshesAndReportsHeartbeat(t *testing.T) {
 		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/config":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config/storage-profiles":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			replicaCalls++
@@ -223,6 +233,8 @@ func TestRuntimeProcessesFallbackCommandsWhenWebSocketUnavailable(t *testing.T) 
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/config":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config/storage-profiles":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		default:
@@ -291,6 +303,8 @@ func TestRuntimeDeduplicatesCompletedRefreshStateCommand(t *testing.T) {
 		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/config":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config/storage-profiles":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			mu.Lock()
@@ -490,6 +504,8 @@ func TestRuntimeScanReplicaReportsCreatedAndChangedFiles(t *testing.T) {
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/config":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config/storage-profiles":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
@@ -686,6 +702,8 @@ func TestRuntimeScanReplicaRefreshesLocalStateBeforeScan(t *testing.T) {
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/config":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config/storage-profiles":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
@@ -879,6 +897,8 @@ func TestRuntimeRefreshLocalStateSkipsDeletedReplicaFiles(t *testing.T) {
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/config":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config/storage-profiles":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
@@ -966,6 +986,8 @@ func TestRuntimeRefreshLocalStateSkipsDeletedReplicaFiles(t *testing.T) {
 func TestRuntimeRefreshConfigCommandReloadsConfigAndCompletes(t *testing.T) {
 	commandCompleted := false
 	configCalls := 0
+	storageProfileCalls := 0
+	var runtime *Runtime
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/node/auth/login":
@@ -984,6 +1006,19 @@ func TestRuntimeRefreshConfigCommandReloadsConfigAndCompletes(t *testing.T) {
 			configCalls++
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"key": "sharing.video_inline_max_size_mb", "value": 50},
+			})
+		case "/node/config/storage-profiles":
+			if r.Method != http.MethodGet {
+				t.Fatalf("storage profiles method = %s, want GET", r.Method)
+			}
+			storageProfileCalls++
+			_ = json.NewEncoder(w).Encode([]apiclient.EncryptedStorageProfile{
+				encryptStorageProfileForTest(t, runtime.nodePublicKey, "aws", config.StorageProfileConfig{
+					Endpoint:        "https://s3.example",
+					Region:          "eu-central-1",
+					AccessKeyID:     "aws-access",
+					SecretAccessKey: "aws-secret",
+				}),
 			})
 		case "/node/commands/121":
 			var body struct {
@@ -1011,7 +1046,7 @@ func TestRuntimeRefreshConfigCommandReloadsConfigAndCompletes(t *testing.T) {
 	}))
 	defer server.Close()
 
-	runtime := newRuntimeForTest(t, server.URL)
+	runtime = newRuntimeForTest(t, server.URL)
 	ok := runtime.handleCommand(context.Background(), apiclient.Command{
 		ID:      121,
 		NodeID:  "node-a",
@@ -1028,9 +1063,20 @@ func TestRuntimeRefreshConfigCommandReloadsConfigAndCompletes(t *testing.T) {
 	if configCalls != 1 {
 		t.Fatalf("configCalls = %d, want 1", configCalls)
 	}
+	if storageProfileCalls != 1 {
+		t.Fatalf("storageProfileCalls = %d, want 1", storageProfileCalls)
+	}
 	items := runtime.configSnapshot()
 	if len(items) != 1 || items[0].Key != "sharing.video_inline_max_size_mb" || string(items[0].Value) != "50" {
 		t.Fatalf("configSnapshot() = %+v, want stored config item", items)
+	}
+	profiles := runtime.storageProfilesSnapshot()
+	if got := profiles["aws"]; got.Endpoint != "https://s3.example" || got.Region != "eu-central-1" || got.AccessKeyID != "aws-access" || got.SecretAccessKey != "aws-secret" {
+		t.Fatalf("storageProfilesSnapshot()[aws] = %+v, want decrypted profile", got)
+	}
+	_, cfg := runtime.thumbnailSnapshot()
+	if got := cfg.Storage.Profiles["aws"]; got.Endpoint != "https://s3.example" || got.Region != "eu-central-1" || got.AccessKeyID != "aws-access" || got.SecretAccessKey != "aws-secret" {
+		t.Fatalf("runtime config storage profile = %+v, want decrypted profile", got)
 	}
 }
 
@@ -1184,6 +1230,8 @@ func TestRuntimeReconcileReplicaTransfersPendingFiles(t *testing.T) {
 		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/config":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config/storage-profiles":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
@@ -1350,6 +1398,8 @@ func TestRuntimeReconcileReplicaDeletesPendingDeletedFiles(t *testing.T) {
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/config":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config/storage-profiles":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": 4, "inventory_id": 2, "node_id": "node-a", "uri": destinationRoot, "status": "active", "type": "filesystem"},
@@ -1453,6 +1503,8 @@ func TestRuntimeReconcileReplicaDeletesUnknownDownstreamFiles(t *testing.T) {
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/config":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config/storage-profiles":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": 4, "inventory_id": 2, "node_id": "node-a", "uri": destinationRoot, "status": "active", "type": "filesystem", "upstream_replica_id": 3},
@@ -1520,6 +1572,8 @@ func TestRuntimeReconcileReplicaMarksTerminalFileErrorAndContinues(t *testing.T)
 		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/config":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config/storage-profiles":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
@@ -1621,6 +1675,8 @@ func TestRuntimeReconcileReplicaAuthErrorStopsWithoutFileStatusUpdates(t *testin
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/config":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config/storage-profiles":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": 4, "inventory_id": 2, "node_id": "node-a", "uri": destinationRoot, "status": "active", "type": "filesystem"},
@@ -1682,6 +1738,67 @@ func newRuntimeForTest(t *testing.T, coordinatorURL string) *Runtime {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 	return runtime
+}
+
+func encryptStorageProfileForTest(t *testing.T, publicKeyPEM string, name string, profile config.StorageProfileConfig) apiclient.EncryptedStorageProfile {
+	t.Helper()
+
+	block, _ := pem.Decode([]byte(publicKeyPEM))
+	if block == nil {
+		t.Fatal("public key PEM missing block")
+	}
+	key, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		t.Fatalf("ParsePKIXPublicKey() error = %v", err)
+	}
+	publicKey, ok := key.(*rsa.PublicKey)
+	if !ok {
+		t.Fatal("public key is not RSA")
+	}
+
+	plaintext, err := json.Marshal(struct {
+		Endpoint        string `json:"endpoint"`
+		Region          string `json:"region"`
+		AccessKeyID     string `json:"access_key_id"`
+		SecretAccessKey string `json:"secret_access_key"`
+	}{
+		Endpoint:        profile.Endpoint,
+		Region:          profile.Region,
+		AccessKeyID:     profile.AccessKeyID,
+		SecretAccessKey: profile.SecretAccessKey,
+	})
+	if err != nil {
+		t.Fatalf("Marshal(profile) error = %v", err)
+	}
+
+	symmetricKey := make([]byte, 32)
+	if _, err := rand.Read(symmetricKey); err != nil {
+		t.Fatalf("Read(symmetric key) error = %v", err)
+	}
+	blockCipher, err := aes.NewCipher(symmetricKey)
+	if err != nil {
+		t.Fatalf("NewCipher() error = %v", err)
+	}
+	gcm, err := cipher.NewGCM(blockCipher)
+	if err != nil {
+		t.Fatalf("NewGCM() error = %v", err)
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		t.Fatalf("Read(nonce) error = %v", err)
+	}
+	payload := gcm.Seal(nil, nonce, plaintext, nil)
+	encryptedKey, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, publicKey, symmetricKey, nil)
+	if err != nil {
+		t.Fatalf("EncryptOAEP() error = %v", err)
+	}
+
+	return apiclient.EncryptedStorageProfile{
+		Name:         name,
+		EncryptedKey: base64.StdEncoding.EncodeToString(encryptedKey),
+		Nonce:        base64.StdEncoding.EncodeToString(nonce),
+		Payload:      base64.StdEncoding.EncodeToString(payload),
+	}
 }
 
 func reconcilePayloadForTest(t *testing.T, sourceNodeAddress string) json.RawMessage {
@@ -1865,6 +1982,8 @@ func TestRuntimeStartsReplicaWatcherAndLogsChanges(t *testing.T) {
 		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/config":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config/storage-profiles":
 			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case "/node/replicas":
 			_ = json.NewEncoder(w).Encode([]map[string]any{

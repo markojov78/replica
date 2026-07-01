@@ -294,6 +294,48 @@ func TestClientGetConfigUsesNodeConfigEndpoint(t *testing.T) {
 	}
 }
 
+func TestClientGetStorageProfilesUsesNodeConfigStorageProfilesEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/node/auth/login":
+			_ = json.NewEncoder(w).Encode(NodeTokenPair{
+				NodeID:                "node-a",
+				AccessToken:           "access-token",
+				RefreshToken:          "refresh-token",
+				AccessTokenExpiresAt:  time.Now().UTC().Add(30 * time.Minute),
+				RefreshTokenExpiresAt: time.Now().UTC().Add(8 * time.Hour),
+			})
+		case "/node/config/storage-profiles":
+			if r.Method != http.MethodGet {
+				t.Fatalf("method = %s, want GET", r.Method)
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
+				t.Fatalf("Authorization = %q, want %q", got, "Bearer access-token")
+			}
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"name":          "aws",
+					"encrypted_key": "encrypted-key",
+					"nonce":         "nonce",
+					"payload":       "payload",
+				},
+			})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	profiles, err := client.GetStorageProfiles(context.Background())
+	if err != nil {
+		t.Fatalf("GetStorageProfiles() error = %v", err)
+	}
+	if len(profiles) != 1 || profiles[0].Name != "aws" || profiles[0].EncryptedKey != "encrypted-key" || profiles[0].Nonce != "nonce" || profiles[0].Payload != "payload" {
+		t.Fatalf("GetStorageProfiles() = %+v, want encrypted profile", profiles)
+	}
+}
+
 func TestClientUpdateCommandUsesInternalEndpoint(t *testing.T) {
 	var gotBody struct {
 		Status string `json:"status"`

@@ -182,6 +182,10 @@ func TestRuntimeRefreshLocalStateLoadsShareAssignments(t *testing.T) {
 				"status":                "active",
 				"anonymous_permissions": []string{"read"},
 			}})
+		case "/node/config":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/config/storage-profiles":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		default:
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}

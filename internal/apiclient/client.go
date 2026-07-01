@@ -164,6 +164,13 @@ type ConfigItem struct {
 	Value json.RawMessage `json:"value"`
 }
 
+type EncryptedStorageProfile struct {
+	Name         string `json:"name"`
+	EncryptedKey string `json:"encrypted_key"`
+	Nonce        string `json:"nonce"`
+	Payload      string `json:"payload"`
+}
+
 type ValidatedUserToken struct {
 	UserID               uint      `json:"user_id"`
 	Username             string    `json:"username"`
@@ -425,6 +432,30 @@ func (c *Client) GetConfig(ctx context.Context) ([]ConfigItem, error) {
 	}
 
 	return items, nil
+}
+
+func (c *Client) GetStorageProfiles(ctx context.Context) ([]EncryptedStorageProfile, error) {
+	accessToken, err := c.ensureAccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var profiles []EncryptedStorageProfile
+	if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/node/config/storage-profiles", nil, accessToken, &profiles); err != nil {
+		if apiErr, ok := err.(*APIError); ok && apiErr.StatusCode == http.StatusUnauthorized {
+			accessToken, err = c.refreshOrAuthenticate(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.doAuthenticatedJSON(ctx, http.MethodGet, "/node/config/storage-profiles", nil, accessToken, &profiles); err != nil {
+				return nil, err
+			}
+			return profiles, nil
+		}
+		return nil, err
+	}
+
+	return profiles, nil
 }
 
 func (c *Client) ValidateUserToken(ctx context.Context, accessToken string) (*ValidatedUserToken, error) {

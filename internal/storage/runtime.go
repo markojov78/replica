@@ -2,9 +2,16 @@ package storage
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log"
@@ -32,15 +39,16 @@ type Runtime struct {
 	wsConnected       atomic.Bool
 	wsDialer          *websocket.Dialer
 
-	stateMu        sync.RWMutex
-	replicas       []apiclient.Replica
-	shares         []apiclient.Share
-	config         []apiclient.ConfigItem
-	replicaFiles   map[uint][]apiclient.ReplicaInventoryFile
-	transferKey    string
-	nodePublicKey  string
-	nodePrivateKey string
-	transferTokens map[uint]string
+	stateMu         sync.RWMutex
+	replicas        []apiclient.Replica
+	shares          []apiclient.Share
+	config          []apiclient.ConfigItem
+	storageProfiles map[string]config.StorageProfileConfig
+	replicaFiles    map[uint][]apiclient.ReplicaInventoryFile
+	transferKey     string
+	nodePublicKey   string
+	nodePrivateKey  string
+	transferTokens  map[uint]string
 
 	shareAuthMu                sync.Mutex
 	shareTokenCache            map[string]shareTokenCacheEntry
@@ -86,6 +94,7 @@ func NewRuntime(cfg config.Config) (*Runtime, error) {
 		client:                     client,
 		heartbeatInterval:          cfg.App.HeartbeatInterval,
 		wsDialer:                   websocket.DefaultDialer,
+		storageProfiles:            make(map[string]config.StorageProfileConfig),
 		replicaFiles:               make(map[uint][]apiclient.ReplicaInventoryFile),
 		nodePublicKey:              nodePublicKey,
 		nodePrivateKey:             nodePrivateKey,
@@ -148,13 +157,6 @@ func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []ap
 			log.Printf("storage runtime state bootstrap failed: %v", err)
 			continue
 		}
-		if err := r.refreshLocalConfig(ctx); err != nil {
-			if !sleepContext(ctx, bootstrapRetryInterval) {
-				return nil, nil, nil, false
-			}
-			log.Printf("storage runtime config bootstrap failed: %v", err)
-			continue
-		}
 		if err := r.reportStartupLocalChanges(ctx); err != nil {
 			if !sleepContext(ctx, bootstrapRetryInterval) {
 				return nil, nil, nil, false
@@ -190,6 +192,9 @@ func (r *Runtime) refreshLocalState(ctx context.Context) error {
 	}
 
 	r.setLocalState(replicas, shares, replicaFiles)
+	if err := r.refreshLocalConfig(ctx); err != nil {
+		return err
+	}
 	log.Printf("storage runtime refreshed local state replicas=%d shares=%d", len(replicas), len(shares))
 	return nil
 }
@@ -199,8 +204,16 @@ func (r *Runtime) refreshLocalConfig(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	r.setLocalConfig(items)
-	log.Printf("storage runtime refreshed config items=%d", len(items))
+	encryptedProfiles, err := r.client.GetStorageProfiles(ctx)
+	if err != nil {
+		return err
+	}
+	profiles, err := decryptStorageProfiles(r.nodePrivateKey, encryptedProfiles)
+	if err != nil {
+		return err
+	}
+	r.setLocalConfig(items, profiles)
+	log.Printf("storage runtime refreshed config items=%d storage_profiles=%d", len(items), len(profiles))
 	return nil
 }
 
@@ -293,12 +306,14 @@ func (r *Runtime) setLocalState(replicas []apiclient.Replica, shares []apiclient
 	}
 }
 
-func (r *Runtime) setLocalConfig(items []apiclient.ConfigItem) {
+func (r *Runtime) setLocalConfig(items []apiclient.ConfigItem, storageProfiles map[string]config.StorageProfileConfig) {
 	r.stateMu.Lock()
 	defer r.stateMu.Unlock()
 
 	r.config = append([]apiclient.ConfigItem(nil), items...)
+	r.storageProfiles = cloneStorageProfiles(storageProfiles)
 	r.cfg = configFromNodeItems(r.cfg, items)
+	r.cfg.Storage.Profiles = cloneStorageProfiles(storageProfiles)
 	r.thumbnail = service.NewThumbnailService(r.cfg)
 }
 
@@ -306,6 +321,12 @@ func (r *Runtime) configSnapshot() []apiclient.ConfigItem {
 	r.stateMu.RLock()
 	defer r.stateMu.RUnlock()
 	return append([]apiclient.ConfigItem(nil), r.config...)
+}
+
+func (r *Runtime) storageProfilesSnapshot() map[string]config.StorageProfileConfig {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+	return cloneStorageProfiles(r.storageProfiles)
 }
 
 func (r *Runtime) thumbnailSnapshot() (*service.ThumbnailService, config.Config) {
@@ -1285,6 +1306,94 @@ func formatPayload(payload json.RawMessage) string {
 		return "{}"
 	}
 	return string(payload)
+}
+
+func decryptStorageProfiles(privateKeyPEM string, encryptedProfiles []apiclient.EncryptedStorageProfile) (map[string]config.StorageProfileConfig, error) {
+	privateKey, err := parseStorageProfilePrivateKey(privateKeyPEM)
+	if err != nil {
+		return nil, err
+	}
+
+	profiles := make(map[string]config.StorageProfileConfig, len(encryptedProfiles))
+	for _, encryptedProfile := range encryptedProfiles {
+		name := strings.TrimSpace(encryptedProfile.Name)
+		if name == "" {
+			continue
+		}
+		profile, err := decryptStorageProfile(privateKey, encryptedProfile)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt storage profile %q: %w", name, err)
+		}
+		profiles[name] = profile
+	}
+	return profiles, nil
+}
+
+func parseStorageProfilePrivateKey(value string) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode([]byte(strings.TrimSpace(value)))
+	if block == nil {
+		return nil, errors.New("missing storage profile private key")
+	}
+	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	return privateKey, nil
+}
+
+func decryptStorageProfile(privateKey *rsa.PrivateKey, encryptedProfile apiclient.EncryptedStorageProfile) (config.StorageProfileConfig, error) {
+	encryptedKey, err := base64.StdEncoding.DecodeString(encryptedProfile.EncryptedKey)
+	if err != nil {
+		return config.StorageProfileConfig{}, err
+	}
+	key, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, privateKey, encryptedKey, nil)
+	if err != nil {
+		return config.StorageProfileConfig{}, err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return config.StorageProfileConfig{}, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return config.StorageProfileConfig{}, err
+	}
+	nonce, err := base64.StdEncoding.DecodeString(encryptedProfile.Nonce)
+	if err != nil {
+		return config.StorageProfileConfig{}, err
+	}
+	payload, err := base64.StdEncoding.DecodeString(encryptedProfile.Payload)
+	if err != nil {
+		return config.StorageProfileConfig{}, err
+	}
+	plaintext, err := gcm.Open(nil, nonce, payload, nil)
+	if err != nil {
+		return config.StorageProfileConfig{}, err
+	}
+
+	var plaintextProfile struct {
+		Endpoint        string `json:"endpoint"`
+		Region          string `json:"region"`
+		AccessKeyID     string `json:"access_key_id"`
+		SecretAccessKey string `json:"secret_access_key"`
+	}
+	if err := json.Unmarshal(plaintext, &plaintextProfile); err != nil {
+		return config.StorageProfileConfig{}, err
+	}
+	return config.StorageProfileConfig{
+		Endpoint:        plaintextProfile.Endpoint,
+		Region:          plaintextProfile.Region,
+		AccessKeyID:     plaintextProfile.AccessKeyID,
+		SecretAccessKey: plaintextProfile.SecretAccessKey,
+	}, nil
+}
+
+func cloneStorageProfiles(profiles map[string]config.StorageProfileConfig) map[string]config.StorageProfileConfig {
+	cloned := make(map[string]config.StorageProfileConfig, len(profiles))
+	for name, profile := range profiles {
+		cloned[name] = profile
+	}
+	return cloned
 }
 
 func formatFileState(state *FileState) string {
