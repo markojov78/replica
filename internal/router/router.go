@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"replica/internal/admin"
 	"replica/internal/buildinfo"
 	"replica/internal/config"
 	"replica/internal/service"
-	"replica/internal/shareui"
 	"replica/internal/storage"
+	"replica/internal/ui/dashboard"
+	"replica/internal/ui/share"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -77,7 +77,7 @@ func New(
 	if cfg.App.Storage && storageRuntime != nil {
 		registerInternalStorageTransferRoutes(mux, svc)
 		registerStorageShareRoutes(mux, svc)
-		if err := shareui.Register(mux, storageRuntime, authService); err != nil {
+		if err := share.Register(mux, storageRuntime, authService); err != nil {
 			panic(err)
 		}
 	}
@@ -97,7 +97,7 @@ func New(
 		registerReplicaRoutes(adminGroup, svc)
 		registerShareRoutes(adminGroup, svc)
 		registerConfigRoutes(adminGroup, svc)
-		if err := admin.Register(mux, mux, cfg); err != nil {
+		if err := dashboard.Register(mux, mux, cfg); err != nil {
 			panic(err)
 		}
 	}

@@ -90,7 +90,7 @@ func TestServeReplicaFileContentStreamsS3ReplicaThroughReader(t *testing.T) {
 
 	original := getTransferReader
 	t.Cleanup(func() { getTransferReader = original })
-	getTransferReader = func(_ context.Context, uri string) (Reader, error) {
+	getTransferReader = func(_ context.Context, uri string, profile *config.StorageProfileConfig) (Reader, error) {
 		if uri != "s3://bucket/root" {
 			t.Fatalf("reader uri = %q, want s3://bucket/root", uri)
 		}

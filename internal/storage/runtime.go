@@ -258,7 +258,7 @@ func (r *Runtime) reportStartupLocalChanges(ctx context.Context) error {
 			continue
 		}
 
-		scanner, err := GetScanner(ctx, replica.URI)
+		scanner, err := GetScanner(ctx, replica.URI, r.GetPprofile(replica.StorageProfile))
 		if err != nil {
 			return fmt.Errorf("startup scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
 		}
@@ -500,7 +500,7 @@ func (r *Runtime) ensureReplicaWatcher(ctx context.Context, replica apiclient.Re
 		return nil
 	}
 
-	watcher, err := GetWatcher(ctx, replica.URI)
+	watcher, err := GetWatcher(ctx, replica.URI, r.GetPprofile(replica.StorageProfile))
 	if err != nil {
 		return err
 	}
@@ -669,7 +669,7 @@ func (r *Runtime) reportWatcherChange(ctx context.Context, replica apiclient.Rep
 }
 
 func (r *Runtime) currentFileState(ctx context.Context, replica apiclient.Replica, relativeURI string, oldStates map[string]FileState) (FileState, bool, error) {
-	scanner, err := GetScanner(ctx, replica.URI)
+	scanner, err := GetScanner(ctx, replica.URI, r.GetPprofile(replica.StorageProfile))
 	if err != nil {
 		return FileState{}, false, err
 	}
@@ -928,7 +928,7 @@ func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Comman
 		return nil
 	}
 
-	writer, err := GetWriter(ctx, destination.URI)
+	writer, err := GetWriter(ctx, destination.URI, r.GetPprofile(destination.StorageProfile))
 	if err != nil {
 		return err
 	}
@@ -1124,7 +1124,7 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 		return err
 	}
 
-	scanner, err := GetScanner(ctx, replica.URI)
+	scanner, err := GetScanner(ctx, replica.URI, r.GetPprofile(replica.StorageProfile))
 	if err != nil {
 		return err
 	}
@@ -1284,6 +1284,17 @@ func (r *Runtime) markCommandFailed(ctx context.Context, commandID uint, command
 		return
 	}
 	log.Printf("storage runtime command failed id=%d error=%v", commandID, commandErr)
+}
+
+func (r *Runtime) GetPprofile(name string) *config.StorageProfileConfig {
+	var profile *config.StorageProfileConfig
+	if name != "" {
+		if p, ok := r.cfg.Storage.Profiles[name]; ok {
+			profile = &p
+		}
+	}
+
+	return profile
 }
 
 func formatPayload(payload json.RawMessage) string {

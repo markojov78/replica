@@ -9,7 +9,7 @@ import (
 )
 
 func TestGetWriterReturnsFilesystemWriter(t *testing.T) {
-	writer, err := GetWriter(context.Background(), t.TempDir())
+	writer, err := GetWriter(context.Background(), t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("GetWriter() error = %v", err)
 	}
@@ -19,7 +19,7 @@ func TestGetWriterReturnsFilesystemWriter(t *testing.T) {
 }
 
 func TestGetWriterRejectsUnsupportedScheme(t *testing.T) {
-	if _, err := GetWriter(context.Background(), "ftp://example/path"); err == nil {
+	if _, err := GetWriter(context.Background(), "ftp://example/path", nil); err == nil {
 		t.Fatal("GetWriter() error = nil, want unsupported scheme error")
 	}
 }

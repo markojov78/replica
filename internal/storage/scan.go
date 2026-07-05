@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"replica/internal/config"
 	"sort"
 	"time"
 )
@@ -150,7 +151,7 @@ func compareSnapshots(previous, current []FileState) []FileChange {
 var s3Provider = &S3ClientProvider{}
 
 // Scanner factory to resolve scanner implementation from uri scheme
-func GetScanner(ctx context.Context, uri string) (Scanner, error) {
+func GetScanner(ctx context.Context, uri string, profile *config.StorageProfileConfig) (Scanner, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
@@ -158,7 +159,7 @@ func GetScanner(ctx context.Context, uri string) (Scanner, error) {
 
 	switch u.Scheme {
 	case "s3":
-		s3client, err := s3Provider.Client(ctx)
+		s3client, err := s3Provider.Client(ctx, profile)
 		if err != nil {
 			return nil, err
 		}
@@ -170,7 +171,7 @@ func GetScanner(ctx context.Context, uri string) (Scanner, error) {
 	}
 }
 
-func GetWatcher(ctx context.Context, uri string) (Watcher, error) {
+func GetWatcher(ctx context.Context, uri string, profile *config.StorageProfileConfig) (Watcher, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
@@ -178,7 +179,7 @@ func GetWatcher(ctx context.Context, uri string) (Watcher, error) {
 
 	switch u.Scheme {
 	case "s3":
-		client, err := s3Provider.Client(ctx)
+		client, err := s3Provider.Client(ctx, profile)
 		if err != nil {
 			return nil, err
 		}
@@ -195,7 +196,7 @@ func GetWatcher(ctx context.Context, uri string) (Watcher, error) {
 	}
 }
 
-func GetWriter(ctx context.Context, uri string) (Writer, error) {
+func GetWriter(ctx context.Context, uri string, profile *config.StorageProfileConfig) (Writer, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
@@ -203,7 +204,7 @@ func GetWriter(ctx context.Context, uri string) (Writer, error) {
 
 	switch u.Scheme {
 	case "s3":
-		client, err := s3Provider.Client(ctx)
+		client, err := s3Provider.Client(ctx, profile)
 		if err != nil {
 			return nil, err
 		}
@@ -217,7 +218,7 @@ func GetWriter(ctx context.Context, uri string) (Writer, error) {
 	}
 }
 
-func GetReader(ctx context.Context, uri string) (Reader, error) {
+func GetReader(ctx context.Context, uri string, profile *config.StorageProfileConfig) (Reader, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
@@ -225,7 +226,7 @@ func GetReader(ctx context.Context, uri string) (Reader, error) {
 
 	switch u.Scheme {
 	case "s3":
-		client, err := s3Provider.Client(ctx)
+		client, err := s3Provider.Client(ctx, profile)
 		if err != nil {
 			return nil, err
 		}
