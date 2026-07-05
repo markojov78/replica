@@ -375,7 +375,11 @@ func (r *Runtime) createShareFileOperation(ctx context.Context, share apiclient.
 	if r.activeShareFileExists(share, replica.ID, cleanRelativeURI) {
 		return errShareFileAlreadyExists
 	}
-	writer, err := GetWriter(ctx, replica.URI, r.GetPprofile(replica.StorageProfile))
+	profile, err := r.GetPprofile(replica.StorageProfile)
+	if err != nil {
+		return err
+	}
+	writer, err := GetWriter(ctx, replica.URI, profile)
 	if err != nil {
 		return err
 	}
@@ -393,7 +397,11 @@ func (r *Runtime) replaceShareFileContentOperation(ctx context.Context, share ap
 	if err := validateShareIfMatchValue(ifMatch, file.InventoryVersion); err != nil {
 		return err
 	}
-	writer, err := GetWriter(ctx, replica.URI, r.GetPprofile(replica.StorageProfile))
+	profile, err := r.GetPprofile(replica.StorageProfile)
+	if err != nil {
+		return err
+	}
+	writer, err := GetWriter(ctx, replica.URI, profile)
 	if err != nil {
 		return err
 	}
@@ -411,7 +419,11 @@ func (r *Runtime) deleteShareFileOperation(ctx context.Context, share apiclient.
 	if err := validateShareIfMatchValue(ifMatch, file.InventoryVersion); err != nil {
 		return err
 	}
-	writer, err := GetWriter(ctx, replica.URI, r.GetPprofile(replica.StorageProfile))
+	profile, err := r.GetPprofile(replica.StorageProfile)
+	if err != nil {
+		return err
+	}
+	writer, err := GetWriter(ctx, replica.URI, profile)
 	if err != nil {
 		return err
 	}

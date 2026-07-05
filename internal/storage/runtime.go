@@ -15,8 +15,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -93,7 +95,7 @@ func NewRuntime(cfg config.Config) (*Runtime, error) {
 		client:                     client,
 		heartbeatInterval:          cfg.App.HeartbeatInterval,
 		wsDialer:                   websocket.DefaultDialer,
-		storageProfiles:            make(map[string]config.StorageProfileConfig),
+		storageProfiles:            cloneStorageProfiles(cfg.Storage.Profiles),
 		replicaFiles:               make(map[uint][]apiclient.ReplicaInventoryFile),
 		nodePublicKey:              nodePublicKey,
 		nodePrivateKey:             nodePrivateKey,
@@ -156,6 +158,7 @@ func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []ap
 			log.Printf("storage runtime state bootstrap failed: %v", err)
 			continue
 		}
+		log.Printf("known storage profiles: %v", slices.Collect(maps.Keys(r.cfg.Storage.Profiles)))
 		if err := r.reportStartupLocalChanges(ctx); err != nil {
 			if !sleepContext(ctx, bootstrapRetryInterval) {
 				return nil, nil, nil, false
@@ -258,7 +261,11 @@ func (r *Runtime) reportStartupLocalChanges(ctx context.Context) error {
 			continue
 		}
 
-		scanner, err := GetScanner(ctx, replica.URI, r.GetPprofile(replica.StorageProfile))
+		profile, err := r.GetPprofile(replica.StorageProfile)
+		if err != nil {
+			return fmt.Errorf("startup scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
+		}
+		scanner, err := GetScanner(ctx, replica.URI, profile)
 		if err != nil {
 			return fmt.Errorf("startup scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
 		}
@@ -500,7 +507,11 @@ func (r *Runtime) ensureReplicaWatcher(ctx context.Context, replica apiclient.Re
 		return nil
 	}
 
-	watcher, err := GetWatcher(ctx, replica.URI, r.GetPprofile(replica.StorageProfile))
+	profile, err := r.GetPprofile(replica.StorageProfile)
+	if err != nil {
+		return err
+	}
+	watcher, err := GetWatcher(ctx, replica.URI, profile)
 	if err != nil {
 		return err
 	}
@@ -669,7 +680,11 @@ func (r *Runtime) reportWatcherChange(ctx context.Context, replica apiclient.Rep
 }
 
 func (r *Runtime) currentFileState(ctx context.Context, replica apiclient.Replica, relativeURI string, oldStates map[string]FileState) (FileState, bool, error) {
-	scanner, err := GetScanner(ctx, replica.URI, r.GetPprofile(replica.StorageProfile))
+	profile, err := r.GetPprofile(replica.StorageProfile)
+	if err != nil {
+		return FileState{}, false, err
+	}
+	scanner, err := GetScanner(ctx, replica.URI, profile)
 	if err != nil {
 		return FileState{}, false, err
 	}
@@ -928,7 +943,11 @@ func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Comman
 		return nil
 	}
 
-	writer, err := GetWriter(ctx, destination.URI, r.GetPprofile(destination.StorageProfile))
+	profile, err := r.GetPprofile(destination.StorageProfile)
+	if err != nil {
+		return err
+	}
+	writer, err := GetWriter(ctx, destination.URI, profile)
 	if err != nil {
 		return err
 	}
@@ -1124,7 +1143,11 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 		return err
 	}
 
-	scanner, err := GetScanner(ctx, replica.URI, r.GetPprofile(replica.StorageProfile))
+	profile, err := r.GetPprofile(replica.StorageProfile)
+	if err != nil {
+		return err
+	}
+	scanner, err := GetScanner(ctx, replica.URI, profile)
 	if err != nil {
 		return err
 	}
@@ -1286,15 +1309,19 @@ func (r *Runtime) markCommandFailed(ctx context.Context, commandID uint, command
 	log.Printf("storage runtime command failed id=%d error=%v", commandID, commandErr)
 }
 
-func (r *Runtime) GetPprofile(name string) *config.StorageProfileConfig {
-	var profile *config.StorageProfileConfig
-	if name != "" {
-		if p, ok := r.cfg.Storage.Profiles[name]; ok {
-			profile = &p
-		}
+func (r *Runtime) GetPprofile(name string) (*config.StorageProfileConfig, error) {
+	if name == "" {
+		return nil, nil
 	}
 
-	return profile
+	r.stateMu.RLock()
+	profile, ok := r.storageProfiles[name]
+	r.stateMu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("storage profile %q not found", name)
+	}
+
+	return &profile, nil
 }
 
 func formatPayload(payload json.RawMessage) string {

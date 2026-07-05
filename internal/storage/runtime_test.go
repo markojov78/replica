@@ -1152,6 +1152,40 @@ func TestRuntimeStorageProfilesMergeLocalAndCoordinatorProfilesWithoutChangingCo
 	}
 }
 
+func TestRuntimeGetPprofileRequiresExistingNamedProfile(t *testing.T) {
+	runtime := &Runtime{
+		storageProfiles: map[string]config.StorageProfileConfig{
+			"aws": {
+				Endpoint:        "https://s3.example",
+				Region:          "eu-central-1",
+				AccessKeyID:     "access",
+				SecretAccessKey: "secret",
+			},
+		},
+	}
+
+	profile, err := runtime.GetPprofile("")
+	if err != nil {
+		t.Fatalf("GetPprofile(empty) error = %v", err)
+	}
+	if profile != nil {
+		t.Fatalf("GetPprofile(empty) = %+v, want nil", profile)
+	}
+
+	profile, err = runtime.GetPprofile("aws")
+	if err != nil {
+		t.Fatalf("GetPprofile(aws) error = %v", err)
+	}
+	if profile == nil || profile.AccessKeyID != "access" || profile.SecretAccessKey != "secret" {
+		t.Fatalf("GetPprofile(aws) = %+v, want configured profile", profile)
+	}
+
+	_, err = runtime.GetPprofile("missing")
+	if err == nil || !strings.Contains(err.Error(), `storage profile "missing" not found`) {
+		t.Fatalf("GetPprofile(missing) error = %v, want missing profile error", err)
+	}
+}
+
 func TestRuntimeStopReplicaWatcherIsIdempotent(t *testing.T) {
 	runtime := &Runtime{watchers: make(map[uint]*runningReplicaWatcher)}
 	cancelCalls := 0

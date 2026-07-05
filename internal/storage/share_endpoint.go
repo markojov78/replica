@@ -647,7 +647,11 @@ func (r *Runtime) openShareFileContent(req *http.Request, share apiclient.Share,
 		return apiclient.ReplicaInventoryFile{}, nil, 0, err
 	}
 
-	reader, err := GetReader(req.Context(), replica.URI, r.GetPprofile(replica.StorageProfile))
+	profile, err := r.GetPprofile(replica.StorageProfile)
+	if err != nil {
+		return apiclient.ReplicaInventoryFile{}, nil, 0, err
+	}
+	reader, err := GetReader(req.Context(), replica.URI, profile)
 	if err != nil {
 		return apiclient.ReplicaInventoryFile{}, nil, 0, err
 	}
@@ -798,7 +802,11 @@ func (r *Runtime) thumbnailSource(ctx context.Context, replica apiclient.Replica
 			return nil, err
 		}
 
-		client, err := s3Provider.Client(ctx, r.GetPprofile(replica.StorageProfile))
+		profile, err := r.GetPprofile(replica.StorageProfile)
+		if err != nil {
+			return nil, err
+		}
+		client, err := s3Provider.Client(ctx, profile)
 		if err != nil {
 			return nil, err
 		}

@@ -104,7 +104,11 @@ func (r *Runtime) openReplicaFileContent(req *http.Request, token string, replic
 		return nil, 0, errTransferVersionConflict
 	}
 
-	reader, err := getTransferReader(req.Context(), replica.URI, r.GetPprofile(replica.StorageProfile))
+	profile, err := r.GetPprofile(replica.StorageProfile)
+	if err != nil {
+		return nil, 0, err
+	}
+	reader, err := getTransferReader(req.Context(), replica.URI, profile)
 	if err != nil {
 		return nil, 0, err
 	}
