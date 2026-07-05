@@ -1066,11 +1066,10 @@ func TestRuntimeRefreshConfigCommandReloadsConfigAndCompletes(t *testing.T) {
 	if storageProfileCalls != 1 {
 		t.Fatalf("storageProfileCalls = %d, want 1", storageProfileCalls)
 	}
-	items := runtime.configSnapshot()
-	if len(items) != 1 || items[0].Key != "sharing.video_inline_max_size_mb" || string(items[0].Value) != "50" {
-		t.Fatalf("configSnapshot() = %+v, want stored config item", items)
-	}
 	_, cfg := runtime.thumbnailSnapshot()
+	if cfg.Sharing.VideoInlineMaxSizeMB != 50 {
+		t.Fatalf("cfg.Sharing.VideoInlineMaxSizeMB = %d, want 50", cfg.Sharing.VideoInlineMaxSizeMB)
+	}
 	if _, ok := cfg.Storage.Profiles["aws"]; ok {
 		t.Fatalf("runtime config contains coordinator storage profile; config profiles should not be changed: %+v", cfg.Storage.Profiles)
 	}

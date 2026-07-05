@@ -42,7 +42,6 @@ type Runtime struct {
 	stateMu         sync.RWMutex
 	replicas        []apiclient.Replica
 	shares          []apiclient.Share
-	config          []apiclient.ConfigItem
 	storageProfiles map[string]config.StorageProfileConfig
 	replicaFiles    map[uint][]apiclient.ReplicaInventoryFile
 	transferKey     string
@@ -310,16 +309,9 @@ func (r *Runtime) setLocalConfig(items []apiclient.ConfigItem, storageProfiles m
 	r.stateMu.Lock()
 	defer r.stateMu.Unlock()
 
-	r.config = append([]apiclient.ConfigItem(nil), items...)
 	r.storageProfiles = mergeStorageProfiles(r.cfg.Storage.Profiles, storageProfiles)
 	r.cfg = configFromNodeItems(r.cfg, items)
-	r.thumbnail = service.NewThumbnailService(r.cfg)
-}
-
-func (r *Runtime) configSnapshot() []apiclient.ConfigItem {
-	r.stateMu.RLock()
-	defer r.stateMu.RUnlock()
-	return append([]apiclient.ConfigItem(nil), r.config...)
+	r.thumbnail = service.NewThumbnailService(r.cfg) // re-create thumbnail service after config change
 }
 
 func (r *Runtime) thumbnailSnapshot() (*service.ThumbnailService, config.Config) {

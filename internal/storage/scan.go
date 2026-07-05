@@ -13,8 +13,6 @@ const (
 	FileChangeTypeCreated        = "created"
 	FileChangeTypeModified       = "modified"
 	FileChangeTypeDeleted        = "deleted"
-	FileChangeTypeRenamed        = "renamed"
-	FileChangeTypeUnknown        = "unknown"
 	FileChangeTypeRescanRequired = "rescan_required"
 )
 
