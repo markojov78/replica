@@ -418,6 +418,35 @@ func (r *ReplicaRepository) ListPage(page, perPage int, filter ReplicaListFilter
 	return replicas, total, nil
 }
 
+func (r *ReplicaRepository) ReplicaFileStatusCounts(replicaIDs []uint) (map[uint]map[model.ReplicaFileStatus]int64, error) {
+	counts := make(map[uint]map[model.ReplicaFileStatus]int64, len(replicaIDs))
+	if len(replicaIDs) == 0 {
+		return counts, nil
+	}
+
+	var rows []struct {
+		ReplicaID uint
+		Status    model.ReplicaFileStatus
+		Count     int64
+	}
+	if err := r.db.
+		Model(&model.ReplicaFile{}).
+		Select("replica_id, status, count(*) AS count").
+		Where("replica_id IN ?", replicaIDs).
+		Group("replica_id, status").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	for _, row := range rows {
+		if counts[row.ReplicaID] == nil {
+			counts[row.ReplicaID] = make(map[model.ReplicaFileStatus]int64)
+		}
+		counts[row.ReplicaID][row.Status] = row.Count
+	}
+	return counts, nil
+}
+
 func (r *ReplicaRepository) ListFiles(replicaID uint, page, perPage int, filter ReplicaFileListFilter) ([]model.ReplicaFile, int64, error) {
 	query := r.db.Model(&model.ReplicaFile{}).Where("replica_id = ?", replicaID)
 	if filter.Status != "" {

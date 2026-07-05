@@ -101,7 +101,7 @@ func (s *ReplicaService) Create(input CreateReplicaInput) (*InventoryReplicaDeta
 		s.nodes.PublishCommand(refreshCommand)
 	}
 
-	return toInventoryReplicaDetails(replica), nil
+	return s.replicaDetails(replica)
 }
 
 func (s *ReplicaService) reconcilePayloadBuilder() repository.ReconcilePayloadBuilder {
@@ -154,7 +154,7 @@ func (s *ReplicaService) Get(replicaID uint) (*InventoryReplicaDetails, error) {
 		return nil, err
 	}
 
-	return toInventoryReplicaDetails(replica), nil
+	return s.replicaDetails(replica)
 }
 
 func (s *ReplicaService) GetFile(replicaID, fileID uint) (*ReplicaFileDetails, error) {
@@ -224,9 +224,14 @@ func (s *ReplicaService) ListPage(page, perPage int, filter ReplicaListFilter) (
 		return nil, err
 	}
 
+	syncStatuses, err := s.replicaSyncStatuses(replicas)
+	if err != nil {
+		return nil, err
+	}
+
 	items := make([]InventoryReplicaDetails, 0, len(replicas))
 	for _, replica := range replicas {
-		items = append(items, *toInventoryReplicaDetails(&replica))
+		items = append(items, *toInventoryReplicaDetailsWithSyncStatus(&replica, syncStatuses[replica.ID]))
 	}
 
 	return &ReplicaList{
@@ -247,6 +252,46 @@ func validateReplicaListFilter(filter *ReplicaListFilter) error {
 	}
 	filter.Status = string(status)
 	return nil
+}
+
+func (s *ReplicaService) replicaDetails(replica *model.Replica) (*InventoryReplicaDetails, error) {
+	syncStatuses, err := s.replicaSyncStatuses([]model.Replica{*replica})
+	if err != nil {
+		return nil, err
+	}
+	return toInventoryReplicaDetailsWithSyncStatus(replica, syncStatuses[replica.ID]), nil
+}
+
+func (s *ReplicaService) replicaSyncStatuses(replicas []model.Replica) (map[uint]string, error) {
+	replicaIDs := make([]uint, 0, len(replicas))
+	for _, replica := range replicas {
+		replicaIDs = append(replicaIDs, replica.ID)
+	}
+
+	counts, err := s.repo.ReplicaFileStatusCounts(replicaIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[uint]string, len(replicas))
+	for _, replica := range replicas {
+		result[replica.ID] = replicaSyncStatus(counts[replica.ID])
+	}
+	return result, nil
+}
+
+func replicaSyncStatus(counts map[model.ReplicaFileStatus]int64) string {
+	for _, status := range []model.ReplicaFileStatus{
+		model.ReplicaFileStatusError,
+		model.ReplicaFileStatusConflict,
+		model.ReplicaFileStatusPending,
+		model.ReplicaFileStatusChanged,
+	} {
+		if counts[status] > 0 {
+			return string(status)
+		}
+	}
+	return string(model.ReplicaFileStatusSynchronized)
 }
 
 func (s *ReplicaService) ListFiles(replicaID uint, page, perPage int, filter ReplicaFileListFilter) (*ReplicaFileList, error) {
@@ -431,7 +476,7 @@ func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput) (*Inve
 		s.nodes.PublishCommand(command)
 	}
 
-	return toInventoryReplicaDetails(replica), nil
+	return s.replicaDetails(replica)
 }
 
 func uintPointersEqual(left, right *uint) bool {

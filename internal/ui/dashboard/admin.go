@@ -57,9 +57,17 @@ type replica struct {
 	NodeID            string `json:"node_id"`
 	URI               string `json:"uri"`
 	Status            string `json:"status"`
+	SyncStatus        string `json:"sync_status"`
 	Type              string `json:"type"`
 	UpstreamReplicaID *uint  `json:"upstream_replica_id"`
 	StorageProfile    string `json:"storage_profile"`
+}
+
+type replicaList struct {
+	Items []replica `json:"items"`
+	Page  int       `json:"page"`
+	Count int       `json:"count"`
+	Total int64     `json:"total"`
 }
 
 type share struct {
@@ -236,6 +244,7 @@ type pageData struct {
 func Register(mux *http.ServeMux, api http.Handler, cfg config.Config) error {
 	pages, err := template.New("admin").Funcs(template.FuncMap{
 		"statusClass":            statusClass,
+		"syncStatusClass":        syncStatusClass,
 		"formatTime":             formatTime,
 		"pathEscape":             url.PathEscape,
 		"isUpstream":             isUpstream,
@@ -481,6 +490,10 @@ func (h *Handler) renderInventoryPage(w http.ResponseWriter, r *http.Request, se
 		h.renderInventoryPageLoadError(w, r, sess, err, message)
 		return
 	}
+	if err := h.loadInventoryReplicaSyncStatuses(r.Context(), &sess, &item); err != nil {
+		h.renderInventoryPageLoadError(w, r, sess, err, message)
+		return
+	}
 	page := positiveInt(r.URL.Query().Get("page"), 1)
 	count := filePageSize(r.URL.Query().Get("count"))
 	var files inventoryFileList
@@ -499,6 +512,32 @@ func (h *Handler) renderInventoryPage(w http.ResponseWriter, r *http.Request, se
 		Title: item.Name, Subtitle: fmt.Sprintf("Inventory #%d · %s · %s", item.ID, item.Type, item.Status),
 		Active: "inventories", Error: message, Inventory: item, Files: newFilePage(files),
 	})
+}
+
+func (h *Handler) loadInventoryReplicaSyncStatuses(ctx context.Context, sess *authContext, item *inventory) error {
+	if len(item.Replicas) == 0 {
+		return nil
+	}
+
+	syncStatuses := make(map[uint]string, len(item.Replicas))
+	for page := 1; ; page++ {
+		var list replicaList
+		path := fmt.Sprintf("/api/admin/replicas?inventory_id=%d&page=%d&count=100", item.ID, page)
+		if err := h.apiAuthJSON(ctx, sess, http.MethodGet, path, nil, &list); err != nil {
+			return err
+		}
+		for _, replica := range list.Items {
+			syncStatuses[replica.ID] = replica.SyncStatus
+		}
+		if int64(page*list.Count) >= list.Total || len(list.Items) == 0 {
+			break
+		}
+	}
+
+	for i := range item.Replicas {
+		item.Replicas[i].SyncStatus = syncStatuses[item.Replicas[i].ID]
+	}
+	return nil
 }
 
 func (h *Handler) renderInventoryPageLoadError(w http.ResponseWriter, r *http.Request, sess authContext, loadErr error, message string) {
@@ -2010,6 +2049,19 @@ func statusClass(status string) string {
 	case "unreachable", "offline", "pending":
 		return "warn"
 	case "disabled", "revoked", "deleted", "error", "conflict":
+		return "danger"
+	default:
+		return "neutral"
+	}
+}
+
+func syncStatusClass(status string) string {
+	switch status {
+	case "synchronized":
+		return "ok"
+	case "changed", "pending":
+		return "warn"
+	case "error", "conflict":
 		return "danger"
 	default:
 		return "neutral"

@@ -538,14 +538,15 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 	if err := database.Create(inventory).Error; err != nil {
 		t.Fatalf("Create(inventory) error = %v", err)
 	}
-	if err := database.Create(&model.Replica{
+	replicaA := model.Replica{
 		InventoryID:    inventory.ID,
 		NodeID:         "node-a",
 		URI:            "/data/a",
 		Status:         model.ReplicaStatusActive,
 		Type:           model.ReplicaTypeFilesystem,
 		StorageProfile: "aws",
-	}).Error; err != nil {
+	}
+	if err := database.Create(&replicaA).Error; err != nil {
 		t.Fatalf("Create(replicaA) error = %v", err)
 	}
 	if err := database.Create(&model.Replica{
@@ -556,6 +557,21 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 		Type:        model.ReplicaTypeFilesystem,
 	}).Error; err != nil {
 		t.Fatalf("Create(replicaB) error = %v", err)
+	}
+	inventoryFile := model.InventoryFile{
+		InventoryID: inventory.ID,
+		RelativeURI: "pending.txt",
+		Status:      model.InventoryFileStatusActive,
+	}
+	if err := database.Create(&inventoryFile).Error; err != nil {
+		t.Fatalf("Create(inventory file) error = %v", err)
+	}
+	if err := database.Create(&model.ReplicaFile{
+		FileID:    inventoryFile.ID,
+		ReplicaID: replicaA.ID,
+		Status:    model.ReplicaFileStatusPending,
+	}).Error; err != nil {
+		t.Fatalf("Create(replica file) error = %v", err)
 	}
 
 	authService := newRouterTestAuthService(database)
@@ -615,6 +631,13 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 	}
 	if body[0].StorageProfile != "aws" {
 		t.Fatalf("body[0].StorageProfile = %q, want aws", body[0].StorageProfile)
+	}
+	var rawBody []map[string]json.RawMessage
+	if err := json.Unmarshal(recorder.Body.Bytes(), &rawBody); err != nil {
+		t.Fatalf("Unmarshal(raw) error = %v", err)
+	}
+	if _, ok := rawBody[0]["sync_status"]; ok {
+		t.Fatalf("/node/replicas response contains sync_status: %s", recorder.Body.String())
 	}
 }
 

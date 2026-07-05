@@ -418,7 +418,7 @@
         <td class="mono">#{{.ID}}</td><td class="mono">{{.NodeID}}</td><td class="mono">{{.URI}}</td>
         <td><span class="pill neutral">{{.Type}}</span></td>
         <td>{{if .UpstreamReplicaID}}downstream from #{{.UpstreamReplicaID}}{{else}}base{{end}}</td>
-        <td><span class="pill {{statusClass .Status}}">{{.Status}}</span></td>
+        <td><span class="status-pair"><span class="pill {{statusClass .Status}}">{{.Status}}</span>{{if and (eq .Status "active") .SyncStatus}}<span class="status-separator">/</span><span class="pill {{syncStatusClass .SyncStatus}}">{{.SyncStatus}}</span>{{end}}</span></td>
         <td class="row-actions">
           <a class="btn" href="/dashboard/inventories/{{$.Inventory.ID}}/replicas/{{.ID}}/edit">Edit</a>
           {{if ne .Status "deleted"}}<form action="/dashboard/inventories/{{$.Inventory.ID}}/replicas/{{.ID}}/delete" method="post"><button class="danger" type="submit">Delete</button></form>{{end}}

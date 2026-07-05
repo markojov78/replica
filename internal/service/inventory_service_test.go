@@ -922,6 +922,84 @@ func TestInventoryAndReplicaListsFilterByStatus(t *testing.T) {
 	}
 }
 
+func TestReplicaListIncludesSyncStatusSummary(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "replica-sync-status.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	inventory := model.Inventory{Name: "Documents", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(&inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	files := []model.InventoryFile{
+		{InventoryID: inventory.ID, RelativeURI: "error.txt", Status: model.InventoryFileStatusActive},
+		{InventoryID: inventory.ID, RelativeURI: "conflict.txt", Status: model.InventoryFileStatusActive},
+		{InventoryID: inventory.ID, RelativeURI: "pending.txt", Status: model.InventoryFileStatusActive},
+		{InventoryID: inventory.ID, RelativeURI: "changed.txt", Status: model.InventoryFileStatusActive},
+		{InventoryID: inventory.ID, RelativeURI: "sync.txt", Status: model.InventoryFileStatusActive},
+	}
+	if err := database.Create(&files).Error; err != nil {
+		t.Fatalf("Create(files) error = %v", err)
+	}
+	replicas := []model.Replica{
+		{InventoryID: inventory.ID, NodeID: "node-a", URI: "/error", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeFilesystem},
+		{InventoryID: inventory.ID, NodeID: "node-b", URI: "/conflict", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeFilesystem},
+		{InventoryID: inventory.ID, NodeID: "node-c", URI: "/pending", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeFilesystem},
+		{InventoryID: inventory.ID, NodeID: "node-d", URI: "/changed", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeFilesystem},
+		{InventoryID: inventory.ID, NodeID: "node-e", URI: "/synchronized", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeFilesystem},
+	}
+	if err := database.Create(&replicas).Error; err != nil {
+		t.Fatalf("Create(replicas) error = %v", err)
+	}
+	replicaFiles := []model.ReplicaFile{
+		{FileID: files[0].ID, ReplicaID: replicas[0].ID, Status: model.ReplicaFileStatusError},
+		{FileID: files[1].ID, ReplicaID: replicas[0].ID, Status: model.ReplicaFileStatusConflict},
+		{FileID: files[1].ID, ReplicaID: replicas[1].ID, Status: model.ReplicaFileStatusConflict},
+		{FileID: files[2].ID, ReplicaID: replicas[1].ID, Status: model.ReplicaFileStatusPending},
+		{FileID: files[2].ID, ReplicaID: replicas[2].ID, Status: model.ReplicaFileStatusPending},
+		{FileID: files[3].ID, ReplicaID: replicas[2].ID, Status: model.ReplicaFileStatusChanged},
+		{FileID: files[3].ID, ReplicaID: replicas[3].ID, Status: model.ReplicaFileStatusChanged},
+		{FileID: files[4].ID, ReplicaID: replicas[4].ID, Status: model.ReplicaFileStatusSynchronized},
+	}
+	if err := database.Create(&replicaFiles).Error; err != nil {
+		t.Fatalf("Create(replicaFiles) error = %v", err)
+	}
+
+	replicaService := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
+	replicaList, err := replicaService.ListPage(1, 20, ReplicaListFilter{})
+	if err != nil {
+		t.Fatalf("ListPage(replicas) error = %v", err)
+	}
+
+	want := map[uint]string{
+		replicas[0].ID: string(model.ReplicaFileStatusError),
+		replicas[1].ID: string(model.ReplicaFileStatusConflict),
+		replicas[2].ID: string(model.ReplicaFileStatusPending),
+		replicas[3].ID: string(model.ReplicaFileStatusChanged),
+		replicas[4].ID: string(model.ReplicaFileStatusSynchronized),
+	}
+	for _, item := range replicaList.Items {
+		if item.SyncStatus != want[item.ID] {
+			t.Fatalf("replica %d sync_status = %q, want %q", item.ID, item.SyncStatus, want[item.ID])
+		}
+	}
+
+	replica, err := replicaService.Get(replicas[0].ID)
+	if err != nil {
+		t.Fatalf("Get(replica) error = %v", err)
+	}
+	if replica.SyncStatus != string(model.ReplicaFileStatusError) {
+		t.Fatalf("Get(replica).SyncStatus = %q, want error", replica.SyncStatus)
+	}
+}
+
 func TestInventoryServiceGetReplicaFile(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
 		Driver: "sqlite",

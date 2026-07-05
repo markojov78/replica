@@ -849,6 +849,7 @@ Replica topology:
 - `upstream_replica_id: null` means the replica is a base replica and may be treated as an authoritative source for local changes.
 - `upstream_replica_id` set to another replica id means the replica is downstream/read-only from replication perspective.
 - upstream replicas must be active, belong to the same inventory and a replica cannot reference itself as upstream.
+- `sync_status` is computed from replica file statuses. Priority is `error`, then `conflict`, then `pending`, then `changed`; otherwise it is `synchronized` when all files are synchronized.
 
 #### GET /replicas
 Returns a paginated list of replicas filtered by optional query parameters.
@@ -872,6 +873,7 @@ Example response:
       "node_id": "node-1",
       "uri": "/home/username/images/Vacation March 2026",
       "status": "active",
+      "sync_status": "synchronized",
       "type": "filesystem",
       "upstream_replica_id": null,
       "storage_profile": ""
@@ -885,6 +887,7 @@ Example response:
 
 #### GET /replicas/{id}
 Returns a single replica.
+The response includes the same replica fields as `GET /replicas`, including computed `sync_status`.
 
 #### POST /replicas
 Creates a replica.

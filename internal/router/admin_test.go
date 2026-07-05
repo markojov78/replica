@@ -339,6 +339,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), "Replicas") ||
 		!strings.Contains(response.Body.String(), `data-hide-deleted="replicas"`) ||
 		!strings.Contains(response.Body.String(), `data-filter-item="replicas"`) ||
+		!strings.Contains(response.Body.String(), `>active</span><span class="status-separator">/</span><span class="pill ok">synchronized</span>`) ||
 		!strings.Contains(response.Body.String(), "Inventory files") ||
 		!strings.Contains(response.Body.String(), "file-1.txt") ||
 		!strings.Contains(response.Body.String(), "20 of 21 files, page 1 of 2") ||
@@ -456,6 +457,14 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		Type:        model.ReplicaTypeFilesystem,
 	}).Error; err != nil {
 		t.Fatalf("Create(deleted replica) error = %v", err)
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `/deleted/documents`) ||
+		!strings.Contains(response.Body.String(), `>deleted</span></span></td>`) ||
+		strings.Contains(response.Body.String(), `>deleted</span><span class="status-separator">/</span>`) {
+		t.Fatalf("deleted replica status response = %d body=%q", response.Code, response.Body.String())
 	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/shares", nil, accessToken)

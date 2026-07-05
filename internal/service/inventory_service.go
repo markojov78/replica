@@ -58,6 +58,7 @@ type InventoryReplicaDetails struct {
 	NodeID            string `json:"node_id"`
 	URI               string `json:"uri"`
 	Status            string `json:"status"`
+	SyncStatus        string `json:"sync_status,omitempty"`
 	Type              string `json:"type"`
 	UpstreamReplicaID *uint  `json:"upstream_replica_id"`
 	StorageProfile    string `json:"storage_profile"`
@@ -738,6 +739,10 @@ func mapUserPermissionDetails(input []repository.UserPermissionDetails) []UserPe
 }
 
 func toInventoryReplicaDetails(replica *model.Replica) *InventoryReplicaDetails {
+	return toInventoryReplicaDetailsWithSyncStatus(replica, "")
+}
+
+func toInventoryReplicaDetailsWithSyncStatus(replica *model.Replica, syncStatus string) *InventoryReplicaDetails {
 	return &InventoryReplicaDetails{
 		ID:                replica.ID,
 		InventoryID:       replica.InventoryID,
@@ -745,6 +750,7 @@ func toInventoryReplicaDetails(replica *model.Replica) *InventoryReplicaDetails 
 		NodeID:            replica.NodeID,
 		URI:               replica.URI,
 		Status:            string(replica.Status),
+		SyncStatus:        syncStatus,
 		Type:              string(replica.Type),
 		UpstreamReplicaID: replica.UpstreamReplicaID,
 		StorageProfile:    replica.StorageProfile,
