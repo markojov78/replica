@@ -1,4 +1,4 @@
-package shareui
+package share
 
 import (
 	"bytes"
