@@ -74,6 +74,7 @@ type StorageConfig struct {
 }
 
 type StorageProfileConfig struct {
+	ProfileName     string
 	AccessKeyID     string
 	SecretAccessKey string
 	Region          string
@@ -445,6 +446,7 @@ func resolveStorageProfiles(fileProfiles map[string]rawStorageProfileConfig) map
 			continue
 		}
 		profiles[normalized] = StorageProfileConfig{
+			ProfileName:     normalized,
 			AccessKeyID:     optionalString(fileProfile.AccessKeyID),
 			SecretAccessKey: optionalString(fileProfile.SecretAccessKey),
 			Region:          optionalString(fileProfile.Region),
@@ -463,6 +465,7 @@ func resolveStorageProfiles(fileProfiles map[string]rawStorageProfileConfig) map
 		}
 
 		profile := profiles[profileName]
+		profile.ProfileName = profileName
 		switch field {
 		case "access_key_id":
 			profile.AccessKeyID = strings.TrimSpace(value)

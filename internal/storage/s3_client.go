@@ -12,16 +12,20 @@ import (
 )
 
 type S3ClientProvider struct {
-	mu     sync.Mutex
-	client *s3.Client
+	mu      sync.Mutex
+	clients map[string]*s3.Client
 }
 
 func (p *S3ClientProvider) Client(ctx context.Context, profile *config.StorageProfileConfig) (*s3.Client, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.client != nil {
-		return p.client, nil
+	key := s3ClientCacheKey(profile)
+	if p.clients == nil {
+		p.clients = make(map[string]*s3.Client)
+	}
+	if client := p.clients[key]; client != nil {
+		return client, nil
 	}
 
 	options := make([]func(*awsConfig.LoadOptions) error, 0, 2)
@@ -48,6 +52,14 @@ func (p *S3ClientProvider) Client(ctx context.Context, profile *config.StoragePr
 		})
 	}
 
-	p.client = s3.NewFromConfig(cfg, clientOptions...)
-	return p.client, nil
+	client := s3.NewFromConfig(cfg, clientOptions...)
+	p.clients[key] = client
+	return client, nil
+}
+
+func s3ClientCacheKey(profile *config.StorageProfileConfig) string {
+	if profile == nil {
+		return "default"
+	}
+	return "profile:" + profile.ProfileName
 }

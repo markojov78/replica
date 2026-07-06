@@ -158,7 +158,7 @@ func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []ap
 			log.Printf("storage runtime state bootstrap failed: %v", err)
 			continue
 		}
-		log.Printf("known storage profiles: %v", slices.Collect(maps.Keys(r.cfg.Storage.Profiles)))
+		log.Printf("known storage profiles: %v", r.storageProfileNames())
 		if err := r.reportStartupLocalChanges(ctx); err != nil {
 			if !sleepContext(ctx, bootstrapRetryInterval) {
 				return nil, nil, nil, false
@@ -170,6 +170,13 @@ func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []ap
 		log.Printf("storage runtime connected to coordinator as node_id=%s replicas=%d", r.client.NodeID(), len(r.replicas))
 		return pair, r.replicas, report.Commands, true
 	}
+}
+
+func (r *Runtime) storageProfileNames() []string {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+
+	return slices.Collect(maps.Keys(r.storageProfiles))
 }
 
 func (r *Runtime) refreshLocalState(ctx context.Context) error {
@@ -1347,6 +1354,7 @@ func decryptStorageProfiles(privateKeyPEM string, encryptedProfiles []apiclient.
 		if err != nil {
 			return nil, fmt.Errorf("decrypt storage profile %q: %w", name, err)
 		}
+		profile.ProfileName = name
 		profiles[name] = profile
 	}
 	return profiles, nil
@@ -1414,6 +1422,7 @@ func decryptStorageProfile(privateKey *rsa.PrivateKey, encryptedProfile apiclien
 func cloneStorageProfiles(profiles map[string]config.StorageProfileConfig) map[string]config.StorageProfileConfig {
 	cloned := make(map[string]config.StorageProfileConfig, len(profiles))
 	for name, profile := range profiles {
+		profile.ProfileName = name
 		cloned[name] = profile
 	}
 	return cloned
@@ -1422,6 +1431,7 @@ func cloneStorageProfiles(profiles map[string]config.StorageProfileConfig) map[s
 func mergeStorageProfiles(base map[string]config.StorageProfileConfig, overrides map[string]config.StorageProfileConfig) map[string]config.StorageProfileConfig {
 	merged := cloneStorageProfiles(base)
 	for name, profile := range overrides {
+		profile.ProfileName = name
 		merged[name] = profile
 	}
 	return merged
