@@ -2533,8 +2533,7 @@ Possible errors:
 - `400` invalid JSON payload
 - `400` invalid file action
 - `401` missing authenticated node
-- `403` disabled node
-- `403` revoked node
+- `403` disabled or revoked node
 - `403` replica does not belong to authenticated node
 - `400` invalid replica file update
 - `404` replica not found
@@ -2578,8 +2577,7 @@ Possible errors:
 - `400` invalid replica file status
 - `400` invalid replica file update
 - `401` missing authenticated node
-- `403` disabled node
-- `403` revoked node
+- `403` disabled or revoked node
 - `403` replica does not belong to authenticated node
 - `404` replica not found
 - `404` replica file not found
@@ -2610,14 +2608,17 @@ Example response:
   {
     "key": "sharing.video_playback_enabled",
     "value": true
+  },
+  {
+    "key": "sharing.enabled",
+    "value": true
   }
 ]
 ```
 
 Possible errors:
 - `401` missing authenticated node
-- `403` disabled node
-- `403` revoked node
+- `403` disabled or revoked node
 
 ### /config/storage-profiles endpoint
 This endpoint is node-authenticated and returns storage profiles referenced by replicas assigned to the authenticated node.
@@ -2696,8 +2697,7 @@ Storage drivers must ignore unknown fields to allow future extensibility.
 
 Possible errors:
 - `401` missing authenticated node
-- `403` disabled node
-- `403` revoked node
+- `403` disabled or revoked node
 - `409` node encryption public key not registered
 - `500` failed to encrypt storage profile
 

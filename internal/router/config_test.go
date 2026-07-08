@@ -130,7 +130,7 @@ func TestNodeConfigRouteRequiresNodeTokenAndReturnsArray(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HashPassword(node) error = %v", err)
 	}
-	if err := database.Create(&model.Node{ID: "node-a", Status: model.NodeStatusOnline, Secret: hashedSecret}).Error; err != nil {
+	if err := database.Create(&model.Node{ID: "node-a", Status: model.NodeStatusOnline, Secret: hashedSecret, Sharing: true}).Error; err != nil {
 		t.Fatalf("Create(node) error = %v", err)
 	}
 	authService := newRouterTestAuthService(database)
@@ -152,11 +152,14 @@ func TestNodeConfigRouteRequiresNodeTokenAndReturnsArray(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &items); err != nil {
 		t.Fatalf("Unmarshal(response) error = %v", err)
 	}
-	if len(items) != 5 {
-		t.Fatalf("items = %d, want 5", len(items))
+	if len(items) != 6 {
+		t.Fatalf("items = %d, want 6", len(items))
 	}
 	if items[0].Key != config.SettingSharingThumbnailSizes {
 		t.Fatalf("first key = %q, want %q", items[0].Key, config.SettingSharingThumbnailSizes)
+	}
+	if got := configItemBool(t, items, "sharing.enabled"); !got {
+		t.Fatal("sharing.enabled = false, want true")
 	}
 }
 
@@ -547,4 +550,19 @@ func configItemNumberSlice(t *testing.T, items []service.ConfigItem, key string)
 	}
 	t.Fatalf("missing item %s", key)
 	return nil
+}
+
+func configItemBool(t *testing.T, items []service.ConfigItem, key string) bool {
+	t.Helper()
+	for _, item := range items {
+		if item.Key == key {
+			value, ok := item.Value.(bool)
+			if !ok {
+				t.Fatalf("item %s has type %T", key, item.Value)
+			}
+			return value
+		}
+	}
+	t.Fatalf("missing item %s", key)
+	return false
 }

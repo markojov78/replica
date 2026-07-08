@@ -50,9 +50,10 @@ type AuthenticatedUser struct {
 }
 
 type AuthenticatedNode struct {
-	ID        string
-	Status    string
-	PublicKey string
+	ID             string
+	Status         string
+	PublicKey      string
+	SharingEnabled bool
 }
 
 type ValidatedUserToken struct {
@@ -357,9 +358,10 @@ func (s *AuthService) Node(accessToken string) (*AuthenticatedNode, error) {
 	}
 
 	return &AuthenticatedNode{
-		ID:        node.ID,
-		Status:    string(node.Status),
-		PublicKey: node.PublicKey,
+		ID:             node.ID,
+		Status:         string(node.Status),
+		PublicKey:      node.PublicKey,
+		SharingEnabled: node.Sharing,
 	}, nil
 }
 

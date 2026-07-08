@@ -81,7 +81,8 @@ func registerInternalConfigRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated node")
 		}
-		if _, err := svc.auth.Node(accessToken); err != nil {
+		node, err := svc.auth.Node(accessToken)
+		if err != nil {
 			return nil, mapNodeMeError(err)
 		}
 
@@ -89,7 +90,9 @@ func registerInternalConfigRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, mapConfigError(err)
 		}
-		return &nodeConfigResponse{Body: configs.Items}, nil
+		items := append([]service.ConfigItem(nil), configs.Items...)
+		items = append(items, service.ConfigItem{Key: "sharing.enabled", Value: node.SharingEnabled})
+		return &nodeConfigResponse{Body: items}, nil
 	})
 
 	huma.Get(api, "/config/storage-profiles", func(ctx context.Context, input *nodeConfigInput) (*nodeStorageProfilesResponse, error) {
