@@ -434,6 +434,11 @@ func configFromNodeItems(cfg config.Config, items []apiclient.ConfigItem) config
 			if err := json.Unmarshal(item.Value, &value); err == nil {
 				cfg.Sharing.VideoPlaybackEnabled = value
 			}
+		case config.SettingSharingEnabled:
+			var value bool
+			if err := json.Unmarshal(item.Value, &value); err == nil {
+				cfg.Sharing.Enabled = value
+			}
 		}
 	}
 	return cfg

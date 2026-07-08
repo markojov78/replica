@@ -36,6 +36,7 @@ type AppConfig struct {
 }
 
 type SharingConfig struct {
+	Enabled                    bool
 	ThumbnailSizes             []int
 	ThumbnailDefaultSize       int
 	ThumbnailsGenerateForVideo bool
@@ -155,6 +156,7 @@ var defaultConfigFiles = []string{
 }
 
 const (
+	SettingSharingEnabled                    = "sharing.enabled"
 	SettingSharingThumbnailSizes             = "sharing.thumbnail_sizes"
 	SettingSharingThumbnailDefaultSize       = "sharing.thumbnail_default_size"
 	SettingSharingThumbnailsGenerateForVideo = "sharing.thumbnails_generate_for_video"
@@ -182,6 +184,7 @@ func Load() (Config, error) {
 			FileTransferTimeout: resolveDuration("APP_FILE_TRANSFER_TIMEOUT", fileCfg.App.FileTransferTimeout, 30*time.Minute),
 		},
 		Sharing: SharingConfig{
+			Enabled:                    false,
 			ThumbnailSizes:             resolveIntSlice("SHARING_THUMBNAIL_SIZES", fileCfg.Sharing.ThumbnailSizes, []int{256, 512, 1024}),
 			ThumbnailDefaultSize:       resolveInt("SHARING_THUMBNAIL_DEFAULT_SIZE", fileCfg.Sharing.ThumbnailDefaultSize, 256),
 			ThumbnailsGenerateForVideo: resolveBool("SHARING_THUMBNAILS_GENERATE_FOR_VIDEO", fileCfg.Sharing.ThumbnailsGenerateForVideo, true),
