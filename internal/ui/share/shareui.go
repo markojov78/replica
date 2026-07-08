@@ -94,24 +94,38 @@ func Register(mux *http.ServeMux, runtime *storage.Runtime, authServices ...*ser
 		auth = authServices[0]
 	}
 	handler := &Handler{runtime: runtime, auth: auth, pages: pages}
+	gate := handler.sharingGate
+	gateFunc := func(next http.HandlerFunc) http.HandlerFunc {
+		return gate(next).ServeHTTP
+	}
 
-	mux.Handle("GET /share/static/", http.StripPrefix("/share/static/", http.FileServer(http.FS(mustSub(assets, "static")))))
-	mux.HandleFunc("GET /share", handler.loginPage)
-	mux.HandleFunc("POST /share/auth/login", handler.login)
-	mux.HandleFunc("GET /share/auth/me", handler.protected(handler.me))
-	mux.HandleFunc("POST /share/logout", handler.logout)
-	mux.HandleFunc("GET /share/shares", handler.protected(handler.shareListPage))
-	mux.HandleFunc("GET /share/shares/{id}", handler.protected(handler.shareFilesPage))
-	mux.HandleFunc("POST /share/shares/{id}/files", handler.protected(handler.uploadShareFile))
-	mux.HandleFunc("GET /share/shares/{id}/files/{file_id}/content", handler.protected(handler.shareFileContent))
-	mux.HandleFunc("POST /share/shares/{id}/files/{file_id}/replace", handler.protected(handler.replaceShareFile))
-	mux.HandleFunc("POST /share/shares/{id}/files/{file_id}/delete", handler.protected(handler.deleteShareFile))
-	mux.HandleFunc("GET /w/{link_hash}", handler.publicSharePage)
-	mux.HandleFunc("GET /w/{link_hash}/files/{file_id}/content", handler.publicShareFileContent)
-	mux.HandleFunc("POST /w/{link_hash}/files", handler.uploadPublicFile)
-	mux.HandleFunc("POST /w/{link_hash}/files/{file_id}/replace", handler.replacePublicFile)
-	mux.HandleFunc("POST /w/{link_hash}/files/{file_id}/delete", handler.deletePublicFile)
+	mux.Handle("GET /share/static/", gate(http.StripPrefix("/share/static/", http.FileServer(http.FS(mustSub(assets, "static"))))))
+	mux.HandleFunc("GET /share", gateFunc(handler.loginPage))
+	mux.HandleFunc("POST /share/auth/login", gateFunc(handler.login))
+	mux.HandleFunc("GET /share/auth/me", gateFunc(handler.protected(handler.me)))
+	mux.HandleFunc("POST /share/logout", gateFunc(handler.logout))
+	mux.HandleFunc("GET /share/shares", gateFunc(handler.protected(handler.shareListPage)))
+	mux.HandleFunc("GET /share/shares/{id}", gateFunc(handler.protected(handler.shareFilesPage)))
+	mux.HandleFunc("POST /share/shares/{id}/files", gateFunc(handler.protected(handler.uploadShareFile)))
+	mux.HandleFunc("GET /share/shares/{id}/files/{file_id}/content", gateFunc(handler.protected(handler.shareFileContent)))
+	mux.HandleFunc("POST /share/shares/{id}/files/{file_id}/replace", gateFunc(handler.protected(handler.replaceShareFile)))
+	mux.HandleFunc("POST /share/shares/{id}/files/{file_id}/delete", gateFunc(handler.protected(handler.deleteShareFile)))
+	mux.HandleFunc("GET /w/{link_hash}", gateFunc(handler.publicSharePage))
+	mux.HandleFunc("GET /w/{link_hash}/files/{file_id}/content", gateFunc(handler.publicShareFileContent))
+	mux.HandleFunc("POST /w/{link_hash}/files", gateFunc(handler.uploadPublicFile))
+	mux.HandleFunc("POST /w/{link_hash}/files/{file_id}/replace", gateFunc(handler.replacePublicFile))
+	mux.HandleFunc("POST /w/{link_hash}/files/{file_id}/delete", gateFunc(handler.deletePublicFile))
 	return nil
+}
+
+func (h *Handler) sharingGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.runtime != nil && !h.runtime.SharingEnabled() {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func templateFuncs() template.FuncMap {

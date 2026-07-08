@@ -659,6 +659,7 @@ func newShareUIRuntime(t *testing.T) *storage.Runtime {
 			ShareAPITokenCacheDuration: 5 * time.Minute,
 		},
 		Sharing: config.SharingConfig{
+			Enabled:                    true,
 			ThumbnailSizes:             []int{128, 256},
 			ThumbnailDefaultSize:       128,
 			ThumbnailsGenerateForVideo: false,

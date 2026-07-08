@@ -24,6 +24,7 @@ func TestCoordinatorStorageNamespacesCoexistAndOldRoutesAreRemoved(t *testing.T)
 		Auth: config.AuthConfig{
 			NodeSecret: "node-secret",
 		},
+		Sharing: config.SharingConfig{Enabled: true},
 	}
 	runtime, err := storage.NewRuntime(cfg)
 	if err != nil {

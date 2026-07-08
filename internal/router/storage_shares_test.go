@@ -46,6 +46,7 @@ func TestStorageOnlyAuthLoginProxiesToCoordinator(t *testing.T) {
 		Auth: config.AuthConfig{
 			NodeSecret: "node-secret",
 		},
+		Sharing: config.SharingConfig{Enabled: true},
 	}
 	runtime, err := storage.NewRuntime(cfg)
 	if err != nil {
@@ -181,7 +182,8 @@ func TestCoordinatorStorageShareAuthUsesLocalAuthService(t *testing.T) {
 			CoordinatorURL:    "http://coordinator.invalid",
 			HeartbeatInterval: time.Minute,
 		},
-		Auth: config.AuthConfig{NodeSecret: "node-secret"},
+		Auth:    config.AuthConfig{NodeSecret: "node-secret"},
+		Sharing: config.SharingConfig{Enabled: true},
 	}
 	runtime, err := storage.NewRuntime(cfg)
 	if err != nil {
@@ -218,6 +220,54 @@ func TestCoordinatorStorageShareAuthUsesLocalAuthService(t *testing.T) {
 	}
 }
 
+func TestStorageSharingDisabledGatesSharingRoutesOnly(t *testing.T) {
+	cfg := config.Config{
+		App: config.AppConfig{
+			Storage:           true,
+			NodeID:            "node-a",
+			NodeAddress:       "http://node-a",
+			CoordinatorURL:    "http://coordinator.invalid",
+			HeartbeatInterval: time.Minute,
+		},
+		Auth: config.AuthConfig{
+			NodeSecret: "node-secret",
+		},
+	}
+	runtime, err := storage.NewRuntime(cfg)
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v", err)
+	}
+	handler := New(cfg, buildinfo.Info{Version: "test"}, nil, nil, nil, nil, nil, nil, nil, runtime)
+
+	for _, tc := range []struct {
+		name   string
+		method string
+		path   string
+		api    bool
+	}{
+		{name: "authenticated API", method: http.MethodGet, path: "/api/share/shares", api: true},
+		{name: "anonymous API", method: http.MethodGet, path: "/s/public-link", api: true},
+		{name: "sharing UI", method: http.MethodGet, path: "/share"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(tc.method, tc.path, nil))
+			if recorder.Code != http.StatusNotFound {
+				t.Fatalf("status = %d body=%s, want %d", recorder.Code, recorder.Body.String(), http.StatusNotFound)
+			}
+			if tc.api && !strings.Contains(recorder.Header().Get("Content-Type"), "application/json") {
+				t.Fatalf("Content-Type = %q, want JSON error response", recorder.Header().Get("Content-Type"))
+			}
+		})
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/transfer/replicas/1/files/1/content?version=1", nil))
+	if recorder.Code == http.StatusNotFound {
+		t.Fatalf("transfer status = %d body=%s, want transfer route not gated by sharing", recorder.Code, recorder.Body.String())
+	}
+}
+
 func newStorageOnlyShareAuthHandler(t *testing.T, coordinatorURL string) http.Handler {
 	t.Helper()
 	cfg := config.Config{
@@ -231,6 +281,7 @@ func newStorageOnlyShareAuthHandler(t *testing.T, coordinatorURL string) http.Ha
 		Auth: config.AuthConfig{
 			NodeSecret: "node-secret",
 		},
+		Sharing: config.SharingConfig{Enabled: true},
 	}
 	runtime, err := storage.NewRuntime(cfg)
 	if err != nil {

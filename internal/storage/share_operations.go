@@ -132,6 +132,10 @@ func (r *Runtime) SharingConfig() config.SharingConfig {
 	return cfg.Sharing
 }
 
+func (r *Runtime) SharingEnabled() bool {
+	return r.SharingConfig().Enabled
+}
+
 func (r *Runtime) ListUserShares(userID uint, page, count int, filter ShareListFilter) (ShareListResult, error) {
 	page, count = normalizeSharePagination(page, count)
 	shares := r.readableSharesForUser(userID)

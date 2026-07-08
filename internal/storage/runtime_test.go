@@ -1075,6 +1075,27 @@ func TestRuntimeRefreshConfigCommandReloadsConfigAndCompletes(t *testing.T) {
 	}
 }
 
+func TestRuntimeSharingEnabledReflectsCurrentConfig(t *testing.T) {
+	runtime := &Runtime{cfg: config.Config{}}
+	if runtime.SharingEnabled() {
+		t.Fatal("SharingEnabled() = true, want initial false")
+	}
+
+	runtime.setLocalConfig([]apiclient.ConfigItem{
+		{Key: config.SettingSharingEnabled, Value: json.RawMessage(`true`)},
+	}, nil)
+	if !runtime.SharingEnabled() {
+		t.Fatal("SharingEnabled() = false, want true after config update")
+	}
+
+	runtime.setLocalConfig([]apiclient.ConfigItem{
+		{Key: config.SettingSharingEnabled, Value: json.RawMessage(`false`)},
+	}, nil)
+	if runtime.SharingEnabled() {
+		t.Fatal("SharingEnabled() = true, want false after config update")
+	}
+}
+
 func TestRuntimeStorageProfilesMergeLocalAndCoordinatorProfilesWithoutChangingConfigProfiles(t *testing.T) {
 	var runtime *Runtime
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
