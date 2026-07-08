@@ -136,6 +136,56 @@ func TestNodeServiceUpdateSharingEnabled(t *testing.T) {
 	}
 }
 
+func TestNodeServiceUpdateCreatesRefreshConfigCommand(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "node-update-refresh-config.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	if err := database.Create(&model.Node{
+		ID:     "node-a",
+		Status: model.NodeStatusOffline,
+		Secret: "ignored",
+	}).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+
+	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	commands, unsubscribe := nodeService.Subscribe("node-a")
+	defer unsubscribe()
+
+	address := "https://node-a.example"
+	if _, err := nodeService.Update("node-a", UpdateNodeInput{Address: &address}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	var command model.Command
+	if err := database.First(&command, "node_id = ? AND type = ?", "node-a", model.NodeCommandTypeRefreshConfig).Error; err != nil {
+		t.Fatalf("First(refresh_config command) error = %v", err)
+	}
+	if command.Status != model.NodeCommandStatusPending {
+		t.Fatalf("command.Status = %q, want %q", command.Status, model.NodeCommandStatusPending)
+	}
+	if string(command.Payload) != "{}" {
+		t.Fatalf("command.Payload = %s, want {}", command.Payload)
+	}
+
+	select {
+	case published := <-commands:
+		if published.ID != command.ID || published.Type != string(model.NodeCommandTypeRefreshConfig) {
+			t.Fatalf("published command = %+v, want refresh_config id %d", published, command.ID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for published refresh_config command")
+	}
+}
+
 func TestNodeServiceReportAvailabilityUpdatesAddressAndLastSeen(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
 		Driver: "sqlite",

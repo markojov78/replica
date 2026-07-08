@@ -57,10 +57,11 @@ type NodeCommand struct {
 }
 
 type UpdateNodeInput struct {
-	Secret         *string
-	Address        *string
-	Status         *string
-	SharingEnabled *bool
+	Secret                   *string
+	Address                  *string
+	Status                   *string
+	SharingEnabled           *bool
+	skipRefreshConfigCommand bool
 }
 
 type UpdateNodeCommandInput struct {
@@ -215,12 +216,26 @@ func (s *NodeService) Update(id string, input UpdateNodeInput) (*NodeDetails, er
 		return nil, err
 	}
 
+	if !input.skipRefreshConfigCommand {
+		command := &model.Command{
+			NodeID:  node.ID,
+			Type:    model.NodeCommandTypeRefreshConfig,
+			Status:  model.NodeCommandStatusPending,
+			Payload: json.RawMessage(`{}`),
+		}
+		if err := s.commands.Create(command); err != nil {
+			return nil, err
+		}
+		s.PublishCommand(command)
+	}
+
 	return toNodeDetails(node), nil
 }
 
 func (s *NodeService) Delete(id string) (*NodeDetails, error) {
 	return s.Update(id, UpdateNodeInput{
-		Status: stringPtr(string(model.NodeStatusRevoked)),
+		Status:                   stringPtr(string(model.NodeStatusRevoked)),
+		skipRefreshConfigCommand: true,
 	})
 }
 
