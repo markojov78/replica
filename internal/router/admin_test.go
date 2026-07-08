@@ -636,7 +636,10 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/nodes", nil, accessToken)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "node-a") {
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "node-a") ||
+		!strings.Contains(response.Body.String(), "<th>Sharing</th>") ||
+		!strings.Contains(response.Body.String(), `<span class="pill ok">enabled</span>`) {
 		t.Fatalf("nodes response = %d body=%q", response.Code, response.Body.String())
 	}
 
@@ -661,6 +664,11 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}, accessToken)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"sharing_enabled":false`) {
 		t.Fatalf("patch API node response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/nodes", nil, accessToken)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `<span class="pill neutral">disabled</span>`) {
+		t.Fatalf("nodes sharing disabled response = %d body=%q", response.Code, response.Body.String())
 	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/nodes/new", nil, accessToken)
