@@ -172,9 +172,9 @@ func Load() (Config, error) {
 
 	cfg := Config{
 		App: AppConfig{
-			NodeID:              resolveString("APP_NODE_ID", fileCfg.App.NodeID, "node-1"),
-			Coordinator:         resolveBool("APP_COORDINATOR", fileCfg.App.Coordinator, true),
-			Storage:             resolveBool("APP_STORAGE", fileCfg.App.Storage, true),
+			NodeID:              resolveString("APP_NODE_ID", fileCfg.App.NodeID, ""),
+			Coordinator:         resolveBool("APP_COORDINATOR", fileCfg.App.Coordinator, false),
+			Storage:             resolveBool("APP_STORAGE", fileCfg.App.Storage, false),
 			CoordinatorURL:      resolveString("APP_COORDINATOR_URL", fileCfg.App.CoordinatorURL, ""),
 			NodeAddress:         resolveString("APP_NODE_ADDRESS", fileCfg.App.NodeAddress, ""),
 			HeartbeatInterval:   resolveDuration("APP_HEARTBEAT_INTERVAL", fileCfg.App.HeartbeatInterval, 10*time.Minute),
@@ -189,10 +189,10 @@ func Load() (Config, error) {
 			VideoInlineMaxSizeMB:       resolveInt("SHARING_VIDEO_INLINE_MAX_SIZE_MB", fileCfg.Sharing.VideoInlineMaxSizeMB, 25),
 			VideoPlaybackEnabled:       resolveBool("SHARING_VIDEO_PLAYBACK_ENABLED", fileCfg.Sharing.VideoPlaybackEnabled, true),
 			ThumbnailStorage:           resolveString("SHARING_THUMBNAIL_STORAGE", fileCfg.Sharing.ThumbnailStorage, "/tmp/replica_thumbnails"),
-			ThumbnailStorageLimitMB:    resolveInt("SHARING_THUMBNAIL_STORAGE_LIMIT_MB", fileCfg.Sharing.ThumbnailStorageLimitMB, 500),
+			ThumbnailStorageLimitMB:    resolveInt("SHARING_THUMBNAIL_STORAGE_LIMIT_MB", fileCfg.Sharing.ThumbnailStorageLimitMB, 250),
 		},
 		Auth: AuthConfig{
-			JWTSecret:                  resolveString("AUTH_JWT_SECRET", fileCfg.Auth.JWTSecret, "change-me"),
+			JWTSecret:                  resolveString("AUTH_JWT_SECRET", fileCfg.Auth.JWTSecret, ""),
 			NodeSecret:                 resolveString("AUTH_NODE_SECRET", fileCfg.Auth.NodeSecret, ""),
 			AccessTokenDuration:        resolveDuration("AUTH_ACCESS_TOKEN_DURATION", fileCfg.Auth.AccessTokenDuration, 30*time.Minute),
 			RefreshTokenDuration:       resolveDuration("AUTH_REFRESH_TOKEN_DURATION", fileCfg.Auth.RefreshTokenDuration, 8*time.Hour),
