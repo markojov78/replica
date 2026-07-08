@@ -38,11 +38,12 @@ type authContext struct {
 }
 
 type node struct {
-	ID       string   `json:"id"`
-	Status   string   `json:"status"`
-	Address  string   `json:"address"`
-	Interval *float64 `json:"interval"`
-	LastSeen *string  `json:"last_seen"`
+	ID             string   `json:"id"`
+	Status         string   `json:"status"`
+	Address        string   `json:"address"`
+	SharingEnabled bool     `json:"sharing_enabled"`
+	Interval       *float64 `json:"interval"`
+	LastSeen       *string  `json:"last_seen"`
 }
 
 type nodeList struct {
@@ -355,17 +356,18 @@ func (h *Handler) createNode(w http.ResponseWriter, r *http.Request, sess authCo
 		return
 	}
 	input := map[string]any{
-		"id":      strings.TrimSpace(r.FormValue("id")),
-		"secret":  r.FormValue("secret"),
-		"address": strings.TrimSpace(r.FormValue("address")),
-		"status":  r.FormValue("status"),
+		"id":              strings.TrimSpace(r.FormValue("id")),
+		"secret":          r.FormValue("secret"),
+		"address":         strings.TrimSpace(r.FormValue("address")),
+		"status":          r.FormValue("status"),
+		"sharing_enabled": r.FormValue("sharing_enabled") == "on",
 	}
 	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/admin/nodes", input, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {
 			h.renderError(w, r, sess, err)
 			return
 		}
-		h.nodeFormError(w, false, node{ID: r.FormValue("id"), Address: r.FormValue("address"), Status: r.FormValue("status")}, apiMessage(err))
+		h.nodeFormError(w, false, node{ID: r.FormValue("id"), Address: r.FormValue("address"), Status: r.FormValue("status"), SharingEnabled: r.FormValue("sharing_enabled") == "on"}, apiMessage(err))
 		return
 	}
 	http.Redirect(w, r, "/dashboard/nodes", http.StatusSeeOther)
@@ -387,7 +389,8 @@ func (h *Handler) updateNode(w http.ResponseWriter, r *http.Request, sess authCo
 		return
 	}
 	input := map[string]any{
-		"address": strings.TrimSpace(r.FormValue("address")),
+		"address":         strings.TrimSpace(r.FormValue("address")),
+		"sharing_enabled": r.FormValue("sharing_enabled") == "on",
 	}
 	if status := r.FormValue("status"); status != "" {
 		input["status"] = status
@@ -401,7 +404,7 @@ func (h *Handler) updateNode(w http.ResponseWriter, r *http.Request, sess authCo
 			h.renderError(w, r, sess, err)
 			return
 		}
-		h.nodeFormError(w, true, node{ID: id, Address: r.FormValue("address"), Status: r.FormValue("status")}, apiMessage(err))
+		h.nodeFormError(w, true, node{ID: id, Address: r.FormValue("address"), Status: r.FormValue("status"), SharingEnabled: r.FormValue("sharing_enabled") == "on"}, apiMessage(err))
 		return
 	}
 	http.Redirect(w, r, "/dashboard/nodes", http.StatusSeeOther)

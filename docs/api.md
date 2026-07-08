@@ -591,7 +591,8 @@ Example response:
       "status": "offline",
       "address": "http://node-a:8081",
       "interval": 600,
-      "last_seen": "2026-05-20T12:00:00Z"
+      "last_seen": "2026-05-20T12:00:00Z",
+      "sharing_enabled": true
     }
   ],
   "page": 1,
@@ -600,8 +601,29 @@ Example response:
 }
 ```
 
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+
 #### GET /nodes/{id}
 Returns a single node.
+
+Example response:
+```json
+{
+  "id": "node-a",
+  "status": "offline",
+  "address": "http://node-a:8081",
+  "sharing_enabled": true,
+  "interval": null,
+  "last_seen": null
+}
+```
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `404` node not found
 
 #### POST /nodes
 Creates a node.
@@ -610,6 +632,7 @@ Request body:
 - `id` required
 - `secret` required
 - `address` optional
+- `sharing_enabled` optional, default false
 - `status` optional, defaults to `offline`
   - allowed values are `offline`, `disabled` and `revoked`
 
@@ -620,7 +643,8 @@ Example request:
   "id": "node-a",
   "secret": "plaintext-node-secret",
   "address": "http://node-a:8081",
-  "status": "offline"
+  "status": "offline",
+  "sharing_enabled": true
 }
 ```
 
@@ -631,10 +655,16 @@ Example response:
   "id": "node-a",
   "status": "offline",
   "address": "http://node-a:8081",
+  "sharing_enabled": true,
   "interval": null,
   "last_seen": null
 }
 ```
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `409` node already exists
 
 #### PATCH /nodes/{id}
 Updates a node.
@@ -645,6 +675,7 @@ Request body fields are optional:
 - `status`
   - may be set to `disabled` or `revoked`
   - may be set to `offline` only to re-enable a `disabled` or `revoked` node
+- `sharing_enabled`
 
 Example request:
 
@@ -655,6 +686,12 @@ Example request:
 }
 ```
 
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `404` node not found
+- `400` invalid node status
+
 #### DELETE /nodes/{id}
 Revokes a node by setting its status to `revoked`.
 
@@ -663,7 +700,6 @@ Possible errors:
 - `403` missing required permission
 - `404` node not found
 - `400` invalid node status
-- `409` node already exists
 
 ### /inventories endpoint
 

@@ -109,6 +109,7 @@
       </select>
       <small>Online and unreachable statuses are assigned automatically.</small>
     </label>
+    <label class="checkbox-field"><input name="sharing_enabled" type="checkbox" {{if .Node.SharingEnabled}}checked{{end}}> Enable sharing</label>
     <div class="footer-actions full"><a class="btn" href="/dashboard/nodes">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save node{{else}}Create node{{end}}</button></div>
   </form>
 </section>

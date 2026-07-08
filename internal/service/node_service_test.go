@@ -28,7 +28,7 @@ func TestNodeServiceCreateHashesSecretAndDefaultsOffline(t *testing.T) {
 
 	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
 
-	node, err := nodeService.Create("node-a", "plain-secret", "http://node-a:8081", nil)
+	node, err := nodeService.Create("node-a", "plain-secret", "http://node-a:8081", nil, true)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -38,6 +38,9 @@ func TestNodeServiceCreateHashesSecretAndDefaultsOffline(t *testing.T) {
 	}
 	if node.Status != string(model.NodeStatusOffline) {
 		t.Fatalf("node.Status = %q, want %q", node.Status, model.NodeStatusOffline)
+	}
+	if !node.SharingEnabled {
+		t.Fatal("node.SharingEnabled = false, want true")
 	}
 
 	var stored model.Node
@@ -49,6 +52,9 @@ func TestNodeServiceCreateHashesSecretAndDefaultsOffline(t *testing.T) {
 	}
 	if err := security.CheckPassword(stored.Secret, "plain-secret"); err != nil {
 		t.Fatalf("CheckPassword() error = %v", err)
+	}
+	if !stored.Sharing {
+		t.Fatal("stored.Sharing = false, want true")
 	}
 }
 
@@ -86,6 +92,47 @@ func TestNodeServiceDeleteRevokesNode(t *testing.T) {
 
 	if node.Status != string(model.NodeStatusRevoked) {
 		t.Fatalf("node.Status = %q, want %q", node.Status, model.NodeStatusRevoked)
+	}
+}
+
+func TestNodeServiceUpdateSharingEnabled(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "node-update-sharing.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	if err := database.Create(&model.Node{
+		ID:      "node-a",
+		Status:  model.NodeStatusOffline,
+		Secret:  "ignored",
+		Sharing: true,
+	}).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+
+	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+
+	disabled := false
+	node, err := nodeService.Update("node-a", UpdateNodeInput{SharingEnabled: &disabled})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if node.SharingEnabled {
+		t.Fatal("node.SharingEnabled = true, want false")
+	}
+
+	var stored model.Node
+	if err := database.First(&stored, "id = ?", "node-a").Error; err != nil {
+		t.Fatalf("First(node) error = %v", err)
+	}
+	if stored.Sharing {
+		t.Fatal("stored.Sharing = true, want false")
 	}
 }
 

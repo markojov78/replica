@@ -23,11 +23,12 @@ var ErrNodeCommandOwnership = errors.New("node command ownership mismatch")
 const nodeStatusCheckInterval = 5 * time.Second
 
 type NodeDetails struct {
-	ID       string   `json:"id"`
-	Status   string   `json:"status"`
-	Address  string   `json:"address"`
-	Interval *float64 `json:"interval,omitempty"`
-	LastSeen *string  `json:"last_seen,omitempty"`
+	ID             string   `json:"id"`
+	Status         string   `json:"status"`
+	Address        string   `json:"address"`
+	SharingEnabled bool     `json:"sharing_enabled"`
+	Interval       *float64 `json:"interval,omitempty"`
+	LastSeen       *string  `json:"last_seen,omitempty"`
 }
 
 type NodeList struct {
@@ -56,9 +57,10 @@ type NodeCommand struct {
 }
 
 type UpdateNodeInput struct {
-	Secret  *string
-	Address *string
-	Status  *string
+	Secret         *string
+	Address        *string
+	Status         *string
+	SharingEnabled *bool
 }
 
 type UpdateNodeCommandInput struct {
@@ -106,7 +108,7 @@ func (s *NodeService) Start(ctx context.Context) {
 	}()
 }
 
-func (s *NodeService) Create(id, secret, address string, status *string) (*NodeDetails, error) {
+func (s *NodeService) Create(id, secret, address string, status *string, sharingEnabled bool) (*NodeDetails, error) {
 	hashedSecret, err := security.HashPassword(secret)
 	if err != nil {
 		return nil, err
@@ -125,6 +127,7 @@ func (s *NodeService) Create(id, secret, address string, status *string) (*NodeD
 		Status:  nodeStatus,
 		Secret:  hashedSecret,
 		Address: address,
+		Sharing: sharingEnabled,
 	}
 
 	if err := s.nodes.Create(node); err != nil {
@@ -202,6 +205,10 @@ func (s *NodeService) Update(id string, input UpdateNodeInput) (*NodeDetails, er
 		if status == model.NodeStatusOffline {
 			s.applyAutomaticStatus(node, time.Now().UTC())
 		}
+	}
+
+	if input.SharingEnabled != nil {
+		node.Sharing = *input.SharingEnabled
 	}
 
 	if err := s.nodes.Update(node); err != nil {
@@ -422,11 +429,12 @@ func (s *NodeService) IsNotFound(err error) bool {
 
 func toNodeDetails(node *model.Node) *NodeDetails {
 	return &NodeDetails{
-		ID:       node.ID,
-		Status:   string(node.Status),
-		Address:  node.Address,
-		Interval: node.Interval,
-		LastSeen: timePtr(node.LastSeen),
+		ID:             node.ID,
+		Status:         string(node.Status),
+		Address:        node.Address,
+		SharingEnabled: node.Sharing,
+		Interval:       node.Interval,
+		LastSeen:       timePtr(node.LastSeen),
 	}
 }
 

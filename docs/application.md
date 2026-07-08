@@ -71,13 +71,13 @@ of actions allowed to perform for an inventory or share.
 Replicas do not have explicit user's permissions - what can be done to an replica depends on an inventory permissions 
 and replica type
 
-### Key architectural principles
-1. Coordinator database is the source of truth.
-2. Storage services never persist authoritative state.
-3. Node communication is coordinator-centric.
-4. Nodes initiate all coordinator communication.
-5. Replication is orchestrated by coordinator.
-6. Data integrity has priority over availability.
+### Design principles
+- Coordinator database is the source of truth.
+- Storage services never persist authoritative state.
+- Node communication is coordinator-centric.
+- Nodes initiate all coordinator communication.
+- Replication is orchestrated by coordinator.
+- Data integrity has priority over availability.
 
 ## Deployment model
 Even though this is a distributed service that works with the distributed data, the main design goal is data integrity 
@@ -120,17 +120,18 @@ fast read and remote updateable replica for update.
 ### Tables and fields descriptions
 
 #### nodes
-status - online, unreachable, offline, disabled, revoked
-secret - hashed secret for node to coordinator authentication 
-address - node address reported to the coordinator
-public_key - storage node public key reported to the coordinator
-interval - heartbeat interval reported by the node, in seconds
-last_seen - last time the node reported to the coordinator
+status - online, unreachable, offline, disabled, revoked  
+secret - hashed secret for node to coordinator authentication   
+address - node address reported to the coordinator  
+sharing - flag to enable sharing API and UI on the node  
+public_key - storage node public key reported to the coordinator  
+interval - heartbeat interval reported by the node, in seconds  
+last_seen - last time the node reported to the coordinator  
 
 #### inventories
 name - if not specified, will use folder or file name  
 status - active, deleted  
-type - file, folder
+type - file, folder  
 
 #### inventory_files
 relative_uri - file uri from the replica root. replica uri + relative_uri make full file path  
@@ -139,10 +140,9 @@ status - active, deleted
 
 #### file_journal
 action - crud action: created, updated, modified, deleted, restored  
-replica_id - replica on which action occurred  
+replica_id - replica from which file changing action originates  
 version - version on which action has been performed (old version)  
 timestamp - action timestamp  
-replica_id - replica on which action occurred  
 
 #### replicas
 node_id - id of the service node on which replica exists  
@@ -154,11 +154,11 @@ upstream_replica_id - nullable reference to another replica in the same inventor
 #### replica_files
 version - last file version in the replica  
 status - changed, pending, synchronized, conflict, error:  
- -changed - local change that needs to be propagated in the case of multi-directional replication or overridden in case of read-only replication  
- -pending - waiting for remote changes to be applied to the local copy  
- -synchronized - all changes reconciled, nothing to do  
- -conflict - multiple changes detected, requires manual fix  
- -error - problems other than conflict, for example permission problem
+ - changed - local change that needs to be propagated in the case of multi-directional replication or overridden in case of read-only replication  
+ - pending - waiting for remote changes to be applied to the local copy  
+ - synchronized - all changes reconciled, nothing to do  
+ - conflict - multiple changes detected, requires manual fix  
+ - error - problems other than conflict, for example permission problem
 
 #### shares
 name - if not specified, will use inventory name  
@@ -337,20 +337,108 @@ coordinator node-control token introspection. In coordinator + storage mode, `/a
 
 Deleted replicas may still be returned to storage nodes as runtime assignments. Storage nodes use deleted replica records to stop or avoid runtime work, but they do not scan, watch, reconcile, report files for, or fetch replica file lists for deleted replicas. Physical files for deleted replicas are not removed by storage nodes.
 
+#### Coordinator commands
+Here is the description of each command type and the payload that the coordinator can send to the storage node:
+
+Coordinator commands are durable rows in the coordinator database. A command is assigned to exactly one storage node
+through `commands.node_id` and is delivered to that node through the WebSocket orchestration channel or, as a fallback,
+in the heartbeat response. Delivery does not remove or mutate the command. The storage node reports the final command
+status back to the coordinator.
+
+Command statuses:
+- `pending` - command is waiting to be processed by the assigned storage node
+- `completed` - storage node finished the command successfully
+- `failed` - storage node attempted the command and reported an error
+- `canceled` - command was canceled and should not be processed
+
+Only `pending` commands are delivered to storage nodes.
+
+##### `refresh_state`
+Refreshes storage-node runtime state from the coordinator.
+
+Payload:
+
+```json
+{}
+```
+
+The storage node reloads assigned replicas, assigned shares and other coordinator-owned runtime state. It also stops
+watchers for replicas that are no longer active runtime work, including replicas whose status is `deleted`.
+
+The coordinator creates `refresh_state` commands after changes that affect storage-node assignments or share state,
+including replica creation or update and share create, update or delete operations.
+
+##### `refresh_config`
+Refreshes coordinator-managed runtime configuration on the storage node.
+
+Payload: empty
+
+The storage node reloads node-visible configuration from the coordinator, such as sharing configuration and encrypted
+storage profile data. The command does not carry the configuration values directly; it tells the node to fetch current
+configuration through the node-control API.
+
+##### `scan_replica`
+Starts or requests a scan of one assigned replica.
+
+Payload:
+```json
+{
+  "replica_id": 4
+}
+```
+
+Payload fields:
+- `replica_id` - required replica ID assigned to the receiving storage node
+
+The storage node refreshes local state if needed, verifies that the replica is active, scans the replica contents and
+reports discovered file changes to the coordinator. For a folder inventory, this scan discovers the initial file set.
+For an existing replica, it detects local creates, updates and deletes for coordinator validation.
+
+The coordinator creates `scan_replica` commands when a new default replica must be scanned and can also use this
+command to start watching a newly assigned replica without restarting the storage service.
+
+##### `reconcile_replica`
+Applies authoritative inventory state to a destination replica.
+
+Payload:
+```json
+{
+  "source_node_address": "https://192.168.1.15:8080",
+  "source_node_id": "node_laptop",
+  "source_replica_id": 3,
+  "destination_replica_id": 4,
+  "transfer_token": "<signed-jwt>",
+  "delete_relative_uris": []
+}
+```
+
+Payload fields:
+- `source_node_address` - required base URL of the storage node that can serve the source replica data
+- `source_node_id` - required node ID that owns the source replica
+- `source_replica_id` - required source replica ID
+- `destination_replica_id` - required destination replica ID assigned to the receiving storage node
+- `transfer_token` - required short-lived replica-scoped token authorizing source-to-destination file transfer
+- `delete_relative_uris` - optional list of relative paths to delete from a downstream replica before or during reconciliation
+
+The receiving storage node stops the destination replica watcher during reconciliation, stores the transfer token in
+memory for the destination replica, refreshes runtime state, copies pending files from the source replica through the
+source storage node transfer API, verifies hash and size, and reports synchronization results to the coordinator.
+
+For downstream replicas, the configured upstream replica is the only valid source. For base replicas, the coordinator
+selects a synchronized source from other active base replicas in the same inventory.
+
+`delete_relative_uris` is used for downstream replicas when local unknown files must be removed because downstream
+replicas are not authoritative sources for inventory changes.
+
 ### Creating a new inventory
-
-When an inventory is created, the coordinator creates the logical inventory record and its first/default replica.
-
-The default replica is the initial physical location from which the inventory content is discovered.
-
-The creation process differs slightly depending on whether the inventory represents a folder or a selected file set.
+When an inventory is created, the coordinator creates the logical inventory record and its first/default replica.  
+The default replica is the initial physical location from which the inventory content is discovered.  
+The creation process differs slightly depending on whether the inventory represents a folder or a selected file set.  
 
 #### Folder inventory
-
 For a folder inventory, the supplied URI represents the inventory root and is stored unchanged as the default replica URI.
 
 Example:
-
 ```
 Inventory URI:
 /data/photos
@@ -359,11 +447,10 @@ Replica URI:
 /data/photos
 ```
 
-The storage service recursively scans the entire folder tree under the replica URI and reports all discovered files to the coordinator.
-
+The storage service recursively scans the entire folder tree under the replica URI and reports all discovered files to 
+the coordinator.  
 The coordinator creates `inventory_files`, `file_journal` and `replica_files` records based on the discovered content.
-
-Every discovered file starts at version `1`.
+Every discovered file starts at version `1`.  
 
 #### File-set inventory
 
@@ -372,7 +459,6 @@ are normalized to unified `file://` URIs. S3 file URIs must belong to one bucket
 mixed in one inventory.
 
 Example:
-
 ```
 File URIs:
 /data/photos/album/img001.jpg
@@ -380,7 +466,6 @@ File URIs:
 ```
 
 The coordinator finds the deepest common directory or S3 prefix:
-
 ```
 Replica URI:
 file:///data/photos/album

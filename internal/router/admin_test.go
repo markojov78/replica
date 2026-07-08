@@ -35,7 +35,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if err := seed.Run(database, config.SeedConfig{AdminName: "admin", AdminPassword: "secret"}); err != nil {
 		t.Fatalf("seed.Run() error = %v", err)
 	}
-	if err := database.Create(&model.Node{ID: "node-a", Status: model.NodeStatusOffline, Secret: "ignored"}).Error; err != nil {
+	if err := database.Create(&model.Node{ID: "node-a", Status: model.NodeStatusOffline, Secret: "ignored", Sharing: true}).Error; err != nil {
 		t.Fatalf("Create(node) error = %v", err)
 	}
 	if err := database.Create(&model.Node{ID: "node-b", Status: model.NodeStatusOffline, Secret: "ignored"}).Error; err != nil {
@@ -640,6 +640,70 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("nodes response = %d body=%q", response.Code, response.Body.String())
 	}
 
+	response = adminJSONRequest(t, handler, http.MethodPost, "/api/admin/nodes", map[string]any{
+		"id":              "node-api",
+		"secret":          "plain-secret",
+		"address":         "http://node-api:8081",
+		"status":          "offline",
+		"sharing_enabled": true,
+	}, accessToken)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"sharing_enabled":true`) {
+		t.Fatalf("create API node response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/api/admin/nodes/node-api", nil, accessToken)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"sharing_enabled":true`) {
+		t.Fatalf("get API node response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminJSONRequest(t, handler, http.MethodPatch, "/api/admin/nodes/node-api", map[string]any{
+		"sharing_enabled": false,
+	}, accessToken)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"sharing_enabled":false`) {
+		t.Fatalf("patch API node response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/nodes/new", nil, accessToken)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `name="sharing_enabled"`) || !strings.Contains(response.Body.String(), "Enable sharing") {
+		t.Fatalf("new node response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/nodes/node-a/edit", nil, accessToken)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `name="sharing_enabled" type="checkbox" checked`) {
+		t.Fatalf("edit sharing node response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/nodes", url.Values{
+		"id":              {"node-sharing"},
+		"secret":          {"plain-secret"},
+		"address":         {"http://node-sharing:8081"},
+		"status":          {"offline"},
+		"sharing_enabled": {"on"},
+	}, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/nodes" {
+		t.Fatalf("create sharing node response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	var sharingNode model.Node
+	if err := database.First(&sharingNode, "id = ?", "node-sharing").Error; err != nil {
+		t.Fatalf("First(sharing node) error = %v", err)
+	}
+	if !sharingNode.Sharing {
+		t.Fatal("sharingNode.Sharing = false, want true")
+	}
+
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/nodes/node-sharing", url.Values{
+		"address": {"http://node-sharing:8082"},
+	}, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/nodes" {
+		t.Fatalf("update sharing node response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	if err := database.First(&sharingNode, "id = ?", "node-sharing").Error; err != nil {
+		t.Fatalf("First(updated sharing node) error = %v", err)
+	}
+	if sharingNode.Sharing {
+		t.Fatal("sharingNode.Sharing = true, want false")
+	}
+
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/settings", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "Settings") ||
@@ -694,6 +758,23 @@ func adminRequest(t *testing.T, handler http.Handler, method, path string, form 
 	if form != nil {
 		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
+	if accessToken != "" {
+		request.Header.Set("Authorization", "Bearer "+accessToken)
+	}
+	request.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	return recorder
+}
+
+func adminJSONRequest(t *testing.T, handler http.Handler, method, path string, body any, accessToken string) *httptest.ResponseRecorder {
+	t.Helper()
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	request := httptest.NewRequest(method, path, bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
 	if accessToken != "" {
 		request.Header.Set("Authorization", "Bearer "+accessToken)
 	}

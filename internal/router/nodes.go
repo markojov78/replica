@@ -52,7 +52,7 @@ func registerNodeRoutes(api huma.API, svc services) {
 			return nil, mapPermissionError(err)
 		}
 
-		node, err := svc.nodes.Create(input.Body.ID, input.Body.Secret, input.Body.Address, input.Body.Status)
+		node, err := svc.nodes.Create(input.Body.ID, input.Body.Secret, input.Body.Address, input.Body.Status, input.Body.SharingEnabled)
 		if err != nil {
 			return nil, mapNodeError(err, svc.nodes)
 		}
@@ -69,9 +69,10 @@ func registerNodeRoutes(api huma.API, svc services) {
 		}
 
 		node, err := svc.nodes.Update(input.ID, service.UpdateNodeInput{
-			Secret:  input.Body.Secret,
-			Address: input.Body.Address,
-			Status:  input.Body.Status,
+			Secret:         input.Body.Secret,
+			Address:        input.Body.Address,
+			Status:         input.Body.Status,
+			SharingEnabled: input.Body.SharingEnabled,
 		})
 		if err != nil {
 			return nil, mapNodeError(err, svc.nodes)
@@ -113,10 +114,11 @@ type createNodeInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
 	Body          struct {
-		ID      string  `json:"id" minLength:"1"`
-		Secret  string  `json:"secret" minLength:"1"`
-		Address string  `json:"address,omitempty"`
-		Status  *string `json:"status,omitempty"`
+		ID             string  `json:"id" minLength:"1"`
+		Secret         string  `json:"secret" minLength:"1"`
+		Address        string  `json:"address,omitempty"`
+		Status         *string `json:"status,omitempty"`
+		SharingEnabled bool    `json:"sharing_enabled,omitempty"`
 	}
 }
 
@@ -125,9 +127,10 @@ type updateNodeInput struct {
 	Authorization string `header:"Authorization"`
 	ID            string `path:"id"`
 	Body          struct {
-		Secret  *string `json:"secret,omitempty"`
-		Address *string `json:"address,omitempty"`
-		Status  *string `json:"status,omitempty"`
+		Secret         *string `json:"secret,omitempty"`
+		Address        *string `json:"address,omitempty"`
+		Status         *string `json:"status,omitempty"`
+		SharingEnabled *bool   `json:"sharing_enabled,omitempty"`
 	}
 }
 

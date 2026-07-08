@@ -53,6 +53,7 @@ type Node struct {
 	Status    NodeStatus `gorm:"size:32;not null" json:"status"`
 	Secret    string     `gorm:"size:255;not null" json:"-"`
 	Address   string     `gorm:"size:2048" json:"address"`
+	Sharing   bool       `gorm:"not null;default:false;" json:"sharing_enabled"`
 	PublicKey string     `gorm:"type:text" json:"public_key,omitempty"`
 	Interval  *float64   `json:"interval"`
 	LastSeen  *time.Time `json:"last_seen"`
