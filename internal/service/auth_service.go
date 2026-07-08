@@ -148,6 +148,17 @@ func (s *AuthService) Refresh(refreshToken string) (*TokenPair, error) {
 		return nil, ErrExpiredToken
 	}
 
+	user, err := s.users.FindByID(userToken.UserID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrInvalidToken
+		}
+		return nil, err
+	}
+	if user.Status != model.UserStatusActive {
+		return nil, ErrInactiveUser
+	}
+
 	if err := s.userTokens.DeleteByID(userToken.ID); err != nil {
 		return nil, err
 	}

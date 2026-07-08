@@ -197,6 +197,87 @@ func TestAuthServiceLogoutRevokesCurrentSession(t *testing.T) {
 	}
 }
 
+func TestAuthServiceRefreshRejectsDeletedUser(t *testing.T) {
+	database := newAuthTestDB(t, "auth-refresh-deleted-user.db")
+
+	hashedPassword, err := security.HashPassword("secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	user := &model.User{
+		Name:     "jsmith",
+		Status:   model.UserStatusDeleted,
+		Password: hashedPassword,
+	}
+	if err := database.Create(user).Error; err != nil {
+		t.Fatalf("Create(user) error = %v", err)
+	}
+
+	refreshToken := "deleted-user-refresh-token"
+	if err := database.Create(&model.UserToken{
+		UserID:            user.ID,
+		RefreshHash:       security.HashOpaqueToken(refreshToken),
+		RefreshExpiration: time.Now().UTC().Add(time.Hour),
+	}).Error; err != nil {
+		t.Fatalf("Create(user_token) error = %v", err)
+	}
+
+	authService := newTestAuthService(database)
+	if _, err := authService.Refresh(refreshToken); err != ErrInactiveUser {
+		t.Fatalf("Refresh(deleted user) error = %v, want %v", err, ErrInactiveUser)
+	}
+}
+
+func TestUserPasswordChangeInvalidatesRefreshTokens(t *testing.T) {
+	database := newAuthTestDB(t, "auth-user-password-change.db")
+	user := createAuthTestUser(t, database, "jsmith", model.UserStatusActive, "secret")
+	authService := newTestAuthService(database)
+	pair, err := authService.Login("jsmith", "secret")
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	userService := NewUserService(
+		repository.NewUserRepository(database),
+		repository.NewRoleRepository(database),
+		repository.NewUserTokenRepository(database),
+	)
+	newPassword := "new-secret"
+	if _, err := userService.Update(user.ID, UpdateUserInput{Password: &newPassword}); err != nil {
+		t.Fatalf("Update(password) error = %v", err)
+	}
+
+	if _, err := authService.Refresh(pair.RefreshToken); err != ErrInvalidToken {
+		t.Fatalf("Refresh(old token) error = %v, want %v", err, ErrInvalidToken)
+	}
+	assertUserTokenCount(t, database, user.ID, 0)
+}
+
+func TestUserStatusChangeInvalidatesRefreshTokens(t *testing.T) {
+	database := newAuthTestDB(t, "auth-user-status-change.db")
+	user := createAuthTestUser(t, database, "jsmith", model.UserStatusActive, "secret")
+	authService := newTestAuthService(database)
+	pair, err := authService.Login("jsmith", "secret")
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	userService := NewUserService(
+		repository.NewUserRepository(database),
+		repository.NewRoleRepository(database),
+		repository.NewUserTokenRepository(database),
+	)
+	deleted := string(model.UserStatusDeleted)
+	if _, err := userService.Update(user.ID, UpdateUserInput{Status: &deleted}); err != nil {
+		t.Fatalf("Update(status) error = %v", err)
+	}
+
+	if _, err := authService.Refresh(pair.RefreshToken); err != ErrInvalidToken {
+		t.Fatalf("Refresh(old token) error = %v, want %v", err, ErrInvalidToken)
+	}
+	assertUserTokenCount(t, database, user.ID, 0)
+}
+
 func TestAuthServiceMeRejectsNodeJWT(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
 		Driver: "sqlite",
@@ -588,5 +669,135 @@ func TestAuthServiceNodeRefreshRejectsRevokedToken(t *testing.T) {
 
 	if _, err := authService.NodeRefresh(refreshToken); err != ErrRevokedToken {
 		t.Fatalf("NodeRefresh(revoked token) error = %v, want %v", err, ErrRevokedToken)
+	}
+}
+
+func TestNodeSecretChangeInvalidatesRefreshToken(t *testing.T) {
+	database := newAuthTestDB(t, "auth-node-secret-change.db")
+	createAuthTestNode(t, database, "node-a", model.NodeStatusOffline, "node-secret")
+	authService := newTestAuthService(database)
+	pair, err := authService.NodeLogin("node-a", "node-secret", "")
+	if err != nil {
+		t.Fatalf("NodeLogin() error = %v", err)
+	}
+
+	nodeService := NewNodeService(
+		repository.NewNodeRepository(database),
+		repository.NewNodeCommandRepository(database),
+		repository.NewNodeTokenRepository(database),
+	)
+	newSecret := "new-node-secret"
+	if _, err := nodeService.Update("node-a", UpdateNodeInput{Secret: &newSecret}); err != nil {
+		t.Fatalf("Update(secret) error = %v", err)
+	}
+
+	if _, err := authService.NodeRefresh(pair.RefreshToken); err != ErrInvalidToken {
+		t.Fatalf("NodeRefresh(old token) error = %v, want %v", err, ErrInvalidToken)
+	}
+	assertNodeTokenCount(t, database, "node-a", 0)
+}
+
+func TestNodeStatusChangeInvalidatesRefreshToken(t *testing.T) {
+	for _, status := range []model.NodeStatus{model.NodeStatusDisabled, model.NodeStatusRevoked} {
+		t.Run(string(status), func(t *testing.T) {
+			database := newAuthTestDB(t, "auth-node-status-change-"+string(status)+".db")
+			createAuthTestNode(t, database, "node-a", model.NodeStatusOffline, "node-secret")
+			authService := newTestAuthService(database)
+			pair, err := authService.NodeLogin("node-a", "node-secret", "")
+			if err != nil {
+				t.Fatalf("NodeLogin() error = %v", err)
+			}
+
+			nodeService := NewNodeService(
+				repository.NewNodeRepository(database),
+				repository.NewNodeCommandRepository(database),
+				repository.NewNodeTokenRepository(database),
+			)
+			statusValue := string(status)
+			if _, err := nodeService.Update("node-a", UpdateNodeInput{Status: &statusValue}); err != nil {
+				t.Fatalf("Update(status) error = %v", err)
+			}
+
+			if _, err := authService.NodeRefresh(pair.RefreshToken); err != ErrInvalidToken {
+				t.Fatalf("NodeRefresh(old token) error = %v, want %v", err, ErrInvalidToken)
+			}
+			assertNodeTokenCount(t, database, "node-a", 0)
+		})
+	}
+}
+
+func newAuthTestDB(t *testing.T, name string) *gorm.DB {
+	t.Helper()
+
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), name),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+	return database
+}
+
+func createAuthTestUser(t *testing.T, database *gorm.DB, name string, status model.UserStatus, password string) *model.User {
+	t.Helper()
+
+	hashedPassword, err := security.HashPassword(password)
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	user := &model.User{
+		Name:     name,
+		Status:   status,
+		Password: hashedPassword,
+	}
+	if err := database.Create(user).Error; err != nil {
+		t.Fatalf("Create(user) error = %v", err)
+	}
+	return user
+}
+
+func createAuthTestNode(t *testing.T, database *gorm.DB, id string, status model.NodeStatus, secret string) *model.Node {
+	t.Helper()
+
+	hashedSecret, err := security.HashPassword(secret)
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	node := &model.Node{
+		ID:     id,
+		Status: status,
+		Secret: hashedSecret,
+	}
+	if err := database.Create(node).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+	return node
+}
+
+func assertUserTokenCount(t *testing.T, database *gorm.DB, userID uint, want int64) {
+	t.Helper()
+
+	var count int64
+	if err := database.Model(&model.UserToken{}).Where("user_id = ?", userID).Count(&count).Error; err != nil {
+		t.Fatalf("Count(user_tokens) error = %v", err)
+	}
+	if count != want {
+		t.Fatalf("user token count = %d, want %d", count, want)
+	}
+}
+
+func assertNodeTokenCount(t *testing.T, database *gorm.DB, nodeID string, want int64) {
+	t.Helper()
+
+	var count int64
+	if err := database.Model(&model.NodeToken{}).Where("node_id = ?", nodeID).Count(&count).Error; err != nil {
+		t.Fatalf("Count(node_tokens) error = %v", err)
+	}
+	if count != want {
+		t.Fatalf("node token count = %d, want %d", count, want)
 	}
 }

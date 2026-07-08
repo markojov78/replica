@@ -39,12 +39,17 @@ type UpdateUserInput struct {
 }
 
 type UserService struct {
-	users *repository.UserRepository
-	roles *repository.RoleRepository
+	users      *repository.UserRepository
+	roles      *repository.RoleRepository
+	userTokens *repository.UserTokenRepository
 }
 
-func NewUserService(users *repository.UserRepository, roles *repository.RoleRepository) *UserService {
-	return &UserService{users: users, roles: roles}
+func NewUserService(users *repository.UserRepository, roles *repository.RoleRepository, userTokens ...*repository.UserTokenRepository) *UserService {
+	s := &UserService{users: users, roles: roles}
+	if len(userTokens) > 0 {
+		s.userTokens = userTokens[0]
+	}
+	return s
 }
 
 func (s *UserService) Create(name, password string, roleIDs []uint) (*UserDetails, error) {
@@ -119,6 +124,8 @@ func (s *UserService) Update(id uint, input UpdateUserInput) (*UserDetails, erro
 		return nil, err
 	}
 
+	revokeTokens := input.Password != nil
+
 	if input.Name != nil {
 		user.Name = *input.Name
 	}
@@ -136,11 +143,20 @@ func (s *UserService) Update(id uint, input UpdateUserInput) (*UserDetails, erro
 		if !status.Valid() {
 			return nil, ErrInvalidUserStatus
 		}
+		if status != model.UserStatusActive {
+			revokeTokens = true
+		}
 		user.Status = status
 	}
 
 	if err := s.users.Update(user); err != nil {
 		return nil, err
+	}
+
+	if revokeTokens && s.userTokens != nil {
+		if err := s.userTokens.DeleteByUserID(user.ID); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := s.applyRoleUpdate(user, input); err != nil {

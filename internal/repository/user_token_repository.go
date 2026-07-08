@@ -32,3 +32,7 @@ func (r *UserTokenRepository) FindByRefreshHash(refreshHash string) (*model.User
 func (r *UserTokenRepository) DeleteByID(id uint) error {
 	return r.db.Delete(&model.UserToken{}, id).Error
 }
+
+func (r *UserTokenRepository) DeleteByUserID(userID uint) error {
+	return r.db.Delete(&model.UserToken{}, "user_id = ?", userID).Error
+}

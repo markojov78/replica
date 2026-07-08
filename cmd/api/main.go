@@ -72,9 +72,9 @@ func main() {
 			cfg.Auth.RefreshTokenDuration,
 			settingService,
 		)
-		userService = service.NewUserService(userRepo, roleRepo)
+		userService = service.NewUserService(userRepo, roleRepo, userTokenRepo)
 		roleService = service.NewRoleService(roleRepo)
-		nodeService = service.NewNodeService(nodeRepo, nodeCommandRepo)
+		nodeService = service.NewNodeService(nodeRepo, nodeCommandRepo, nodeTokenRepo)
 		nodeService.Start(ctx)
 		inventoryService = service.NewInventoryService(inventoryRepo, nodeService)
 		replicaService = service.NewReplicaService(replicaRepo, inventoryRepo, nodeService, settingService)

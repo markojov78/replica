@@ -72,19 +72,24 @@ type UpdateNodeCommandInput struct {
 type NodeService struct {
 	nodes       *repository.NodeRepository
 	commands    *repository.CommandRepository
+	nodeTokens  *repository.NodeTokenRepository
 	statusMu    sync.Mutex
 	mu          sync.RWMutex
 	subs        map[string]map[chan NodeCommand]struct{}
 	connections map[string]int
 }
 
-func NewNodeService(nodes *repository.NodeRepository, commands *repository.CommandRepository) *NodeService {
-	return &NodeService{
+func NewNodeService(nodes *repository.NodeRepository, commands *repository.CommandRepository, nodeTokens ...*repository.NodeTokenRepository) *NodeService {
+	s := &NodeService{
 		nodes:       nodes,
 		commands:    commands,
 		subs:        make(map[string]map[chan NodeCommand]struct{}),
 		connections: make(map[string]int),
 	}
+	if len(nodeTokens) > 0 {
+		s.nodeTokens = nodeTokens[0]
+	}
+	return s
 }
 
 func (s *NodeService) Start(ctx context.Context) {
@@ -185,6 +190,8 @@ func (s *NodeService) Update(id string, input UpdateNodeInput) (*NodeDetails, er
 		return nil, err
 	}
 
+	deleteToken := input.Secret != nil
+
 	if input.Secret != nil {
 		hashedSecret, err := security.HashPassword(*input.Secret)
 		if err != nil {
@@ -202,6 +209,9 @@ func (s *NodeService) Update(id string, input UpdateNodeInput) (*NodeDetails, er
 		if !validAdminNodeStatusTransition(node.Status, status) {
 			return nil, ErrInvalidNodeStatus
 		}
+		if status == model.NodeStatusDisabled || status == model.NodeStatusRevoked {
+			deleteToken = true
+		}
 		node.Status = status
 		if status == model.NodeStatusOffline {
 			s.applyAutomaticStatus(node, time.Now().UTC())
@@ -214,6 +224,12 @@ func (s *NodeService) Update(id string, input UpdateNodeInput) (*NodeDetails, er
 
 	if err := s.nodes.Update(node); err != nil {
 		return nil, err
+	}
+
+	if deleteToken && s.nodeTokens != nil {
+		if err := s.nodeTokens.DeleteByNodeID(node.ID); err != nil {
+			return nil, err
+		}
 	}
 
 	if !input.skipRefreshConfigCommand {
