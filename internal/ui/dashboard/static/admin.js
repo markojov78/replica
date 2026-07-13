@@ -160,6 +160,65 @@
     }
   }
 
+  function yamlString(value) {
+    return JSON.stringify(value || "");
+  }
+
+  function nodeConfigYAML(values) {
+    return [
+      "app:",
+      `  node_id: ${yamlString(values.nodeID)}`,
+      "  storage: true",
+      `  coordinator_url: ${yamlString(values.coordinatorURL)}`,
+      `  node_address: ${yamlString(values.nodeAddress)}`,
+      `  heartbeat_interval: ${yamlString(values.heartbeatInterval)}`,
+      "",
+      "auth:",
+      `  node_secret: ${yamlString(values.nodeSecret)}`,
+      "",
+      "http:",
+      `  address: ${yamlString(values.httpAddress)}`,
+      "",
+    ].join("\n");
+  }
+
+  function bindNodeConfigPreview() {
+    const form = document.querySelector("[data-node-form]");
+    const preview = form?.querySelector("[data-node-config-preview]");
+    const output = form?.querySelector("[data-node-config-output]");
+    if (!form || !preview || !output) {
+      return;
+    }
+
+    const nodeID = form.querySelector("[data-node-config-id]");
+    const nodeAddress = form.querySelector("[data-node-config-address]");
+    const nodeSecret = form.querySelector("[data-node-config-secret]");
+    const sync = () => {
+      output.value = nodeConfigYAML({
+        nodeID: nodeID?.value,
+        nodeAddress: nodeAddress?.value,
+        nodeSecret: nodeSecret?.value,
+        coordinatorURL: preview.dataset.coordinatorUrl,
+        heartbeatInterval: preview.dataset.heartbeatInterval,
+        httpAddress: preview.dataset.httpAddress,
+      });
+    };
+
+    for (const input of [nodeID, nodeAddress, nodeSecret]) {
+      input?.addEventListener("input", sync);
+    }
+    preview.querySelector("[data-copy-node-config]")?.addEventListener("click", async () => {
+      output.focus();
+      output.select();
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(output.value);
+      } else {
+        document.execCommand("copy");
+      }
+    });
+    sync();
+  }
+
   async function authRequest(path, options = {}) {
     const headers = new Headers(options.headers);
     headers.set("X-API-Version", "1");
@@ -246,6 +305,7 @@
     bindChoiceFilters();
     bindShareForms();
     bindReplicaForms();
+    bindNodeConfigPreview();
     document.addEventListener("click", (event) => {
       const link = event.target.closest("a[href]");
       if (!link || link.origin !== window.location.origin || !link.pathname.startsWith("/dashboard")) {

@@ -31,6 +31,7 @@ type Handler struct {
 	pages             *template.Template
 	storageProfiles   []string
 	storageProfileSet map[string]struct{}
+	nodeConfig        nodeConfigTemplate
 }
 
 type authContext struct {
@@ -44,6 +45,12 @@ type node struct {
 	SharingEnabled bool     `json:"sharing_enabled"`
 	Interval       *float64 `json:"interval"`
 	LastSeen       *string  `json:"last_seen"`
+}
+
+type nodeConfigTemplate struct {
+	CoordinatorURL    string
+	HeartbeatInterval string
+	HTTPAddress       string
 }
 
 type nodeList struct {
@@ -237,6 +244,7 @@ type pageData struct {
 	PermissionResources []rolePermissionResource
 	Settings            []configView
 	StorageProfiles     []string
+	NodeConfig          nodeConfigTemplate
 	IsEdit              bool
 	FolderURI           string
 	FileURIs            string
@@ -271,6 +279,11 @@ func Register(mux *http.ServeMux, api http.Handler, cfg config.Config) error {
 		pages:             pages,
 		storageProfiles:   storageProfiles,
 		storageProfileSet: storageProfileSet(storageProfiles),
+		nodeConfig: nodeConfigTemplate{
+			CoordinatorURL:    cfg.App.CoordinatorURL,
+			HeartbeatInterval: formatConfigDuration(cfg.App.HeartbeatInterval),
+			HTTPAddress:       cfg.HTTP.Address,
+		},
 	}
 
 	mux.Handle("GET /dashboard/static/", http.StripPrefix("/dashboard/static/", http.FileServer(http.FS(mustSub(assets, "static")))))
@@ -325,6 +338,13 @@ func mustSub(embedded embed.FS, dir string) fs.FS {
 	return sub
 }
 
+func formatConfigDuration(value time.Duration) string {
+	if value%time.Second == 0 {
+		return fmt.Sprintf("%ds", int64(value/time.Second))
+	}
+	return value.String()
+}
+
 func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "login", pageData{Title: "Sign in"})
 }
@@ -346,7 +366,7 @@ func (h *Handler) nodesPage(w http.ResponseWriter, r *http.Request, sess authCon
 
 func (h *Handler) newNodePage(w http.ResponseWriter, _ *http.Request, _ authContext) {
 	h.render(w, "node_form", pageData{
-		Title: "Add node", Subtitle: "Register a storage service node.", Active: "nodes",
+		Title: "Add node", Subtitle: "Register a storage service node.", Active: "nodes", NodeConfig: h.nodeConfig,
 	})
 }
 
@@ -1225,7 +1245,7 @@ func (h *Handler) nodeFormError(w http.ResponseWriter, edit bool, item node, mes
 	if edit {
 		title = "Edit node"
 	}
-	h.render(w, "node_form", pageData{Title: title, Active: "nodes", Node: item, IsEdit: edit, Error: message})
+	h.render(w, "node_form", pageData{Title: title, Active: "nodes", Node: item, IsEdit: edit, Error: message, NodeConfig: h.nodeConfig})
 }
 
 func (h *Handler) inventoryFormError(w http.ResponseWriter, r *http.Request, sess authContext, edit bool, item inventory, message string) {

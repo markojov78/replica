@@ -3,16 +3,65 @@ version: "3.9"
 services:
   postgres:
     image: postgres:17
+    container_name: replica-postgres
     environment:
-      POSTGRES_DB: replica
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-replica}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pass}
+      POSTGRES_DB: ${POSTGRES_DB:-replica}
+    volumes:
+      - db:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  init-db:
+    image: debian:bookworm-slim
+    profiles: ["tools"]
+    container_name: init-db
+    working_dir: /app
+    command: ["/app/replica-seed"]
+    environment:
+      DB_DRIVER: postgres
+      DB_DSN: host=postgres user=${POSTGRES_USER:-replica} password=${POSTGRES_PASSWORD:-pass} dbname=${POSTGRES_DB:-replica} port=5432 sslmode=disable
+      DB_AUTO_MIGRATE: "true"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./docker/postgres/init:/docker-entrypoint-initdb.d
-      - ./docker/postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./replica-seed:/app/replica-seed:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  replica:
+    image: debian:bookworm-slim
+    container_name: replica
+    working_dir: /app
+    command: ["/app/replica"]
+    environment:
+      APP_NODE_ID: ${APP_NODE_ID}
+      APP_COORDINATOR: ${APP_COORDINATOR:-false}
+      APP_STORAGE: ${APP_STORAGE:-false}
+      APP_COORDINATOR_URL: ${APP_COORDINATOR_URL}
+      APP_NODE_ADDRESS: ${APP_NODE_ADDRESS}
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET}
+      AUTH_NODE_SECRET: ${AUTH_NODE_SECRET}
+      AUTH_ACCESS_TOKEN_DURATION: ${AUTH_ACCESS_TOKEN_DURATION:-30m}
+      AUTH_REFRESH_TOKEN_DURATION: ${AUTH_REFRESH_TOKEN_DURATION:-8h}
+      AUTH_SHARE_API_TOKEN_CACHE_DURATION: ${AUTH_SHARE_API_TOKEN_CACHE_DURATION:-5m}
+      DB_DRIVER: postgres
+      DB_DSN: host=postgres user=${POSTGRES_USER:-replica} password=${POSTGRES_PASSWORD:-pass} dbname=${POSTGRES_DB:-replica} port=5432 sslmode=disable
+    volumes:
+      - ./replica:/app/replica:ro
+      - /tmp/replica_thumbnails:/app/replica_thumbnails
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
-  postgres_data:
+  db:

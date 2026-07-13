@@ -58,7 +58,12 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	})
 	handler := New(
 		config.Config{
-			App: config.AppConfig{Coordinator: true},
+			App: config.AppConfig{
+				Coordinator:       true,
+				CoordinatorURL:    "http://coordinator.test:8080",
+				HeartbeatInterval: 60 * time.Second,
+			},
+			HTTP: config.HTTPConfig{Address: ":8080"},
 			Storage: config.StorageConfig{Profiles: map[string]config.StorageProfileConfig{
 				"aws":       {},
 				"backblaze": {},
@@ -675,10 +680,20 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `name="sharing_enabled"`) || !strings.Contains(response.Body.String(), "Enable sharing") {
 		t.Fatalf("new node response = %d body=%q", response.Code, response.Body.String())
 	}
+	if !strings.Contains(response.Body.String(), `data-node-config-preview`) ||
+		!strings.Contains(response.Body.String(), `data-coordinator-url="http://coordinator.test:8080"`) ||
+		!strings.Contains(response.Body.String(), `data-heartbeat-interval="60s"`) ||
+		!strings.Contains(response.Body.String(), `data-http-address=":8080"`) ||
+		!strings.Contains(response.Body.String(), `data-node-config-output`) {
+		t.Fatalf("new node config preview response = %d body=%q", response.Code, response.Body.String())
+	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/nodes/node-a/edit", nil, accessToken)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `name="sharing_enabled" type="checkbox" checked`) {
 		t.Fatalf("edit sharing node response = %d body=%q", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), `data-node-config-preview`) {
+		t.Fatalf("edit node response unexpectedly included config preview body=%q", response.Body.String())
 	}
 
 	response = adminRequest(t, handler, http.MethodPost, "/dashboard/nodes", url.Values{

@@ -97,10 +97,10 @@
 {{template "layout_start" .}}
 <section class="card form-card">
   {{template "alert" .}}
-  <form action="{{if .IsEdit}}/dashboard/nodes/{{pathEscape .Node.ID}}{{else}}/dashboard/nodes{{end}}" method="post" class="form-grid">
-    {{if not .IsEdit}}<label>Node ID<input name="id" value="{{.Node.ID}}" required></label>{{end}}
-    <label>Secret<input name="secret" type="password" {{if not .IsEdit}}required{{end}}><small>{{if .IsEdit}}Leave blank to keep the current secret.{{end}}</small></label>
-    <label class="full">Address<input name="address" value="{{.Node.Address}}"></label>
+  <form action="{{if .IsEdit}}/dashboard/nodes/{{pathEscape .Node.ID}}{{else}}/dashboard/nodes{{end}}" method="post" class="form-grid" {{if not .IsEdit}}data-node-form{{end}}>
+    {{if not .IsEdit}}<label>Node ID<input name="id" value="{{.Node.ID}}" required data-node-config-id></label>{{end}}
+    <label>Secret<input name="secret" type="password" {{if not .IsEdit}}required data-node-config-secret{{end}}><small>{{if .IsEdit}}Leave blank to keep the current secret.{{end}}</small></label>
+    <label class="full">Address<input name="address" value="{{.Node.Address}}" {{if not .IsEdit}}data-node-config-address{{end}}></label>
     <label>Status
       <select name="status">
         {{if .IsEdit}}<option value="" selected>Keep current · {{.Node.Status}}</option>{{else}}<option value="offline" selected>offline</option>{{end}}
@@ -111,6 +111,12 @@
       <small>Online and unreachable statuses are assigned automatically.</small>
     </label>
     <label class="checkbox-field"><input name="sharing_enabled" type="checkbox" {{if .Node.SharingEnabled}}checked{{end}}> Enable sharing</label>
+    {{if not .IsEdit}}
+      <div class="full config-preview" data-node-config-preview data-coordinator-url="{{.NodeConfig.CoordinatorURL}}" data-heartbeat-interval="{{.NodeConfig.HeartbeatInterval}}" data-http-address="{{.NodeConfig.HTTPAddress}}">
+        <div class="section-head"><h2>config.yaml</h2><button type="button" class="btn ghost" data-copy-node-config>Copy</button></div>
+        <textarea rows="12" readonly spellcheck="false" data-node-config-output></textarea>
+      </div>
+    {{end}}
     <div class="footer-actions full"><a class="btn" href="/dashboard/nodes">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save node{{else}}Create node{{end}}</button></div>
   </form>
 </section>
