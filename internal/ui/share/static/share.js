@@ -154,6 +154,30 @@
     }
   }
 
+  function applyTheme(theme) {
+    const selected = theme === "dark" ? "dark" : "light";
+    document.documentElement.dataset.theme = selected;
+    for (const button of document.querySelectorAll("[data-share-theme-toggle] [data-theme]")) {
+      const active = button.dataset.theme === selected;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+  }
+
+  function bindTheme() {
+    const themeKey = prefix + "theme";
+    applyTheme(localStorage.getItem(themeKey));
+    document.body.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-share-theme-toggle] [data-theme]");
+      if (!button) {
+        return;
+      }
+      const theme = button.dataset.theme === "dark" ? "dark" : "light";
+      localStorage.setItem(themeKey, theme);
+      applyTheme(theme);
+    });
+  }
+
   function bindUploadFilenamePrefill() {
     document.body.addEventListener("change", (event) => {
       const input = event.target;
@@ -431,6 +455,8 @@
       event.detail.headers.Authorization = `Bearer ${token("access_token")}`;
     }
   });
+
+  bindTheme();
 
   if (document.body.dataset.shareAuthenticated === "true") {
     bindUploadFilenamePrefill();

@@ -43,6 +43,13 @@
 {{if .Message}}<div class="notice">{{.Message}}</div>{{end}}
 {{end}}
 
+{{define "theme_toggle"}}
+<div class="view-toggle theme-toggle" data-share-theme-toggle>
+  <button type="button" class="btn" data-theme="light" aria-pressed="false">Light</button>
+  <button type="button" class="btn" data-theme="dark" aria-pressed="false">Dark</button>
+</div>
+{{end}}
+
 {{define "login"}}
 {{template "head" .}}
 <body class="login-page">
@@ -65,7 +72,10 @@
 <section class="panel">
   <div class="section-head">
     <div><h1>My shares</h1><p>Shares available on this storage node.</p></div>
-    <a class="btn" href="/share/shares" hx-get="/share/shares" hx-target="body" hx-swap="outerHTML">Refresh</a>
+    <div class="toolbar">
+      {{template "theme_toggle" .}}
+      <a class="btn" href="/share/shares" hx-get="/share/shares" hx-target="body" hx-swap="outerHTML">Refresh</a>
+    </div>
   </div>
   {{template "notice" .}}
   <table>
@@ -170,6 +180,7 @@
         <a class="btn {{if eq .BrowseMode "flat"}}active{{end}}" href="{{browseURL .BasePath "flat" .ViewMode "" .ThumbnailSize}}" hx-get="{{browseURL .BasePath "flat" .ViewMode "" .ThumbnailSize}}" hx-target="body" hx-swap="outerHTML" data-browse-mode="flat">Flat</a>
         <a class="btn {{if eq .BrowseMode "tree"}}active{{end}}" href="{{browseURL .BasePath "tree" .ViewMode .TreePath .ThumbnailSize}}" hx-get="{{browseURL .BasePath "tree" .ViewMode .TreePath .ThumbnailSize}}" hx-target="body" hx-swap="outerHTML" data-browse-mode="tree">Tree</a>
       </div>
+      {{template "theme_toggle" .}}
     </div>
   </div>
   {{template "notice" .}}
