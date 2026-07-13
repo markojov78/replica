@@ -20,7 +20,7 @@
 <body data-share-authenticated="{{if .Authenticated}}true{{else}}false{{end}}">
 <div class="share-app">
   <header class="topbar">
-    <a class="brand" href="{{if .Authenticated}}/share/shares{{else if .Public}}{{.BasePath}}{{else}}/share{{end}}"><span class="logo-mark"></span><span>Replica Share</span></a>
+    <a class="brand" href="{{if .Authenticated}}/share/shares{{else if .Public}}{{.BasePath}}{{else}}/share{{end}}"><img class="logo-mark" src="/share/static/apple-touch-icon.png" alt=""><span>Replica Share</span></a>
     {{if .Authenticated}}
     <div class="top-actions">
       <span class="current-user">User: <span data-share-current-username></span></span>
@@ -47,7 +47,7 @@
 {{template "head" .}}
 <body class="login-page">
   <main class="login-card">
-    <div class="brand login-brand"><span class="logo-mark"></span><span>Replica Share</span></div>
+    <div class="brand login-brand"><img class="logo-mark" src="/share/static/apple-touch-icon.png" alt=""><span>Replica Share</span></div>
     <p>Sign in to access your shares</p>
     <div class="alert login-error" data-share-login-error>{{.Error}}</div>
     <form action="/share/auth/login" method="post" class="stack" data-share-login-form>
