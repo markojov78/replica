@@ -86,8 +86,16 @@ type share struct {
 	Status               string                `json:"status"`
 	LinkHash             *string               `json:"link_hash"`
 	ShareExpiration      *string               `json:"share_expiration"`
+	Properties           shareProperties       `json:"properties"`
 	UserPermissions      []shareUserPermission `json:"user_permissions"`
 	AnonymousPermissions []string              `json:"anonymous_permissions"`
+}
+
+type shareProperties struct {
+	View          *string `json:"view"`
+	PageSize      *int    `json:"page_size"`
+	ThumbnailSize *int    `json:"thumbnail_size"`
+	Theme         *string `json:"theme"`
 }
 
 type shareUserPermission struct {
@@ -243,6 +251,7 @@ type pageData struct {
 	Role                role
 	PermissionResources []rolePermissionResource
 	Settings            []configView
+	ThumbnailSizes      []int
 	StorageProfiles     []string
 	NodeConfig          nodeConfigTemplate
 	IsEdit              bool
@@ -265,6 +274,9 @@ func Register(mux *http.ServeMux, api http.Handler, cfg config.Config) error {
 		"hasStringPermission":    hasStringPermission,
 		"expirationValue":        expirationValue,
 		"anonymousEnabled":       anonymousEnabled,
+		"selectedString":         selectedString,
+		"selectedInt":            selectedInt,
+		"optionalIntValue":       optionalIntValue,
 		"shareNodeIDs":           shareNodeIDs,
 		"shareFilterNodes":       shareFilterNodes,
 		"shareFilterInventories": shareFilterInventories,
@@ -774,9 +786,13 @@ func (h *Handler) newSharePage(w http.ResponseWriter, r *http.Request, sess auth
 		return
 	}
 	users = activeUsers(users)
+	thumbnailSizes, ok := h.loadShareThumbnailSizes(w, r, sess)
+	if !ok {
+		return
+	}
 	h.render(w, "share_form", pageData{
 		Title: "New share", Subtitle: "Create a share for an existing replica.",
-		Active: "shares", Inventories: inventories, Users: users,
+		Active: "shares", Inventories: inventories, Users: users, ThumbnailSizes: thumbnailSizes,
 	})
 }
 
@@ -797,11 +813,18 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request, sess authC
 		UserPermissions:      shareUserPermissionsFromForm(r.Form, users),
 		AnonymousPermissions: sharePermissionsFromForm(r.Form["anonymous_permissions"], []string{"read", "update"}),
 	}
+	properties, err := sharePropertiesFromForm(r.Form)
+	if err != nil {
+		h.shareFormError(w, r, sess, false, item, err.Error())
+		return
+	}
+	item.Properties = properties
 	input := map[string]any{
 		"replica_id":            item.ReplicaID,
 		"user_permissions":      item.UserPermissions,
 		"anonymous_permissions": item.AnonymousPermissions,
 		"generate_hash":         len(item.AnonymousPermissions) > 0,
+		"properties":            properties,
 	}
 	if name := strings.TrimSpace(item.Name); name != "" {
 		input["name"] = name
@@ -837,9 +860,13 @@ func (h *Handler) editSharePage(w http.ResponseWriter, r *http.Request, sess aut
 		return
 	}
 	users = activeUsers(users)
+	thumbnailSizes, ok := h.loadShareThumbnailSizes(w, r, sess)
+	if !ok {
+		return
+	}
 	h.render(w, "share_form", pageData{
 		Title: "Edit share", Subtitle: fmt.Sprintf("Update share #%d.", item.ID),
-		Active: "shares", Share: item, Users: users, IsEdit: true,
+		Active: "shares", Share: item, Users: users, ThumbnailSizes: thumbnailSizes, IsEdit: true,
 	})
 }
 
@@ -869,11 +896,18 @@ func (h *Handler) updateShare(w http.ResponseWriter, r *http.Request, sess authC
 		UserPermissions:      mergeHiddenUserPermissions(current.UserPermissions, shareUserPermissionsFromForm(r.Form, users), users),
 		AnonymousPermissions: sharePermissionsFromForm(r.Form["anonymous_permissions"], []string{"read", "update"}),
 	}
+	properties, err := sharePropertiesFromForm(r.Form)
+	if err != nil {
+		h.shareFormError(w, r, sess, true, item, err.Error())
+		return
+	}
+	item.Properties = properties
 	input := map[string]any{
 		"name":                  strings.TrimSpace(item.Name),
 		"status":                item.Status,
 		"user_permissions":      item.UserPermissions,
 		"anonymous_permissions": item.AnonymousPermissions,
+		"properties":            properties,
 	}
 	if len(item.AnonymousPermissions) > 0 {
 		if current.LinkHash == nil || *current.LinkHash == "" {
@@ -1361,13 +1395,94 @@ func (h *Handler) shareFormError(w http.ResponseWriter, r *http.Request, sess au
 		return
 	}
 	users = activeUsers(users)
+	thumbnailSizes, ok := h.loadShareThumbnailSizes(w, r, sess)
+	if !ok {
+		return
+	}
 	title := "New share"
 	if edit {
 		title = "Edit share"
 	}
 	h.render(w, "share_form", pageData{
-		Title: title, Active: "shares", Share: item, Inventories: inventories, Users: users, IsEdit: edit, Error: message,
+		Title: title, Active: "shares", Share: item, Inventories: inventories, Users: users, ThumbnailSizes: thumbnailSizes, IsEdit: edit, Error: message,
 	})
+}
+
+func (h *Handler) loadShareThumbnailSizes(w http.ResponseWriter, r *http.Request, sess authContext) ([]int, bool) {
+	var list configList
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, "/api/admin/config", nil, &list); err != nil {
+		h.renderError(w, r, sess, err)
+		return nil, false
+	}
+	for _, item := range list.Items {
+		if item.Key != "sharing.thumbnail_sizes" {
+			continue
+		}
+		var sizes []int
+		if err := json.Unmarshal(item.Value, &sizes); err != nil {
+			h.renderError(w, r, sess, err)
+			return nil, false
+		}
+		return sizes, true
+	}
+	h.renderError(w, r, sess, errors.New("sharing thumbnail sizes are unavailable"))
+	return nil, false
+}
+
+func sharePropertiesFromForm(values url.Values) (shareProperties, error) {
+	var properties shareProperties
+	view := strings.TrimSpace(values.Get("property_view"))
+	if view != "" {
+		if view != "grid" && view != "list" {
+			return properties, errors.New("View must be grid, list, or unset.")
+		}
+		properties.View = &view
+	}
+	pageSize, err := optionalPositiveFormInt(values.Get("property_page_size"))
+	if err != nil {
+		return properties, errors.New("Page size must be a positive integer or unset.")
+	}
+	properties.PageSize = pageSize
+	thumbnailSize, err := optionalPositiveFormInt(values.Get("property_thumbnail_size"))
+	if err != nil {
+		return properties, errors.New("Thumbnail size must be a configured size or unset.")
+	}
+	properties.ThumbnailSize = thumbnailSize
+	theme := strings.TrimSpace(values.Get("property_theme"))
+	if theme != "" {
+		if theme != "light" && theme != "dark" {
+			return properties, errors.New("Theme must be light, dark, or unset.")
+		}
+		properties.Theme = &theme
+	}
+	return properties, nil
+}
+
+func optionalPositiveFormInt(value string) (*int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return nil, errors.New("invalid positive integer")
+	}
+	return &parsed, nil
+}
+
+func selectedString(value *string, expected string) bool {
+	return value != nil && *value == expected
+}
+
+func selectedInt(value *int, expected int) bool {
+	return value != nil && *value == expected
+}
+
+func optionalIntValue(value *int) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.Itoa(*value)
 }
 
 func (h *Handler) renderSharesPageError(w http.ResponseWriter, r *http.Request, sess authContext, message string) {

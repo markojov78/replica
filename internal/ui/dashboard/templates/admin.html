@@ -364,6 +364,34 @@
       <label class="full">Name<input name="name" value="{{.Share.Name}}" placeholder="Leave empty to use inventory name"><small>If omitted, the share name is taken from the selected inventory.</small></label>
     {{end}}
     <div class="full permission-panel">
+      <div class="section-head"><div><h2>Appearance</h2><p>Optional defaults for the share interface. Unset values use the interface defaults.</p></div></div>
+      <div class="appearance-grid">
+        <label>View
+          <select name="property_view">
+            <option value="" {{if not .Share.Properties.View}}selected{{end}}>Unset</option>
+            <option value="grid" {{if selectedString .Share.Properties.View "grid"}}selected{{end}}>Grid</option>
+            <option value="list" {{if selectedString .Share.Properties.View "list"}}selected{{end}}>List</option>
+          </select>
+        </label>
+        <label>Page size
+          <input name="property_page_size" type="number" min="1" step="1" value="{{optionalIntValue .Share.Properties.PageSize}}" placeholder="Unset">
+        </label>
+        <label>Thumbnail size
+          <select name="property_thumbnail_size">
+            <option value="" {{if not .Share.Properties.ThumbnailSize}}selected{{end}}>Unset</option>
+            {{range .ThumbnailSizes}}<option value="{{.}}" {{if selectedInt $.Share.Properties.ThumbnailSize .}}selected{{end}}>{{.}}</option>{{end}}
+          </select>
+        </label>
+        <label>Theme
+          <select name="property_theme">
+            <option value="" {{if not .Share.Properties.Theme}}selected{{end}}>Unset</option>
+            <option value="light" {{if selectedString .Share.Properties.Theme "light"}}selected{{end}}>Light</option>
+            <option value="dark" {{if selectedString .Share.Properties.Theme "dark"}}selected{{end}}>Dark</option>
+          </select>
+        </label>
+      </div>
+    </div>
+    <div class="full permission-panel">
       <div class="section-head"><div><h2>User permissions</h2><p>Explicit permissions for authenticated users on this share.</p></div></div>
       <table>
         <thead><tr><th>User</th><th>Read</th><th>Update</th><th>Delete</th></tr></thead>

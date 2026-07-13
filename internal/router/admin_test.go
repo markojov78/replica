@@ -84,7 +84,9 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		nodeService,
 		service.NewInventoryService(inventoryRepo, nodeService),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService, settingService),
-		service.NewShareService(repository.NewShareRepository(database), nil),
+		service.NewShareService(repository.NewShareRepository(database), nil, func() config.SharingConfig {
+			return configService.EffectiveConfig().Sharing
+		}),
 		nil,
 		configService,
 	)
@@ -490,6 +492,13 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), `data-share-replica-select`) ||
 		!strings.Contains(response.Body.String(), `name="anonymous_permissions"`) ||
 		!strings.Contains(response.Body.String(), `name="enable_expiration"`) ||
+		!strings.Contains(response.Body.String(), `name="property_view"`) ||
+		!strings.Contains(response.Body.String(), `name="property_page_size"`) ||
+		!strings.Contains(response.Body.String(), `name="property_thumbnail_size"`) ||
+		!strings.Contains(response.Body.String(), `name="property_theme"`) ||
+		!strings.Contains(response.Body.String(), `placeholder="Unset"`) ||
+		!strings.Contains(response.Body.String(), `<option value="256"`) ||
+		strings.Contains(response.Body.String(), `>null<`) ||
 		!strings.Contains(response.Body.String(), `#1 Documents - Replica #1`) ||
 		!strings.Contains(response.Body.String(), `Documents`) ||
 		!strings.Contains(response.Body.String(), `value="node-a"`) ||
@@ -505,9 +514,13 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		"replica_id": {"1"},
 		"name":       {""},
 		"user_permissions_" + strconv.FormatUint(uint64(adminUser.ID), 10): {"read", "update", "delete"},
-		"anonymous_permissions": {"read", "update"},
-		"enable_expiration":     {"1"},
-		"share_expiration":      {expiresAt},
+		"anonymous_permissions":   {"read", "update"},
+		"enable_expiration":       {"1"},
+		"share_expiration":        {expiresAt},
+		"property_view":           {"grid"},
+		"property_page_size":      {"100"},
+		"property_thumbnail_size": {"256"},
+		"property_theme":          {"dark"},
 	}, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/shares" {
 		t.Fatalf("create share response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
@@ -525,6 +538,12 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}
 	if createdShare.ShareExpiration == nil || !createdShare.ShareExpiration.Equal(parsedExpiresAt) {
 		t.Fatalf("createdShare.ShareExpiration = %v, want %v", createdShare.ShareExpiration, parsedExpiresAt)
+	}
+	if createdShare.Properties.View == nil || *createdShare.Properties.View != "grid" ||
+		createdShare.Properties.PageSize == nil || *createdShare.Properties.PageSize != 100 ||
+		createdShare.Properties.ThumbnailSize == nil || *createdShare.Properties.ThumbnailSize != 256 ||
+		createdShare.Properties.Theme == nil || *createdShare.Properties.Theme != "dark" {
+		t.Fatalf("createdShare.Properties = %+v, want configured appearance", createdShare.Properties)
 	}
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories", nil, accessToken)
 	if response.Code != http.StatusOK ||
@@ -577,13 +596,22 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), `name="status"`) ||
 		!strings.Contains(response.Body.String(), `Anonymous access is enabled.`) ||
 		!strings.Contains(response.Body.String(), `value="2026-03-17"`) ||
+		!strings.Contains(response.Body.String(), `<option value="grid" selected>Grid</option>`) ||
+		!strings.Contains(response.Body.String(), `name="property_page_size" type="number" min="1" step="1" value="100"`) ||
+		!strings.Contains(response.Body.String(), `<option value="256" selected>256</option>`) ||
+		!strings.Contains(response.Body.String(), `<option value="dark" selected>Dark</option>`) ||
+		strings.Contains(response.Body.String(), `>null<`) ||
 		strings.Contains(response.Body.String(), `name="user_permissions_2"`) {
 		t.Fatalf("edit share response = %d body=%q", response.Code, response.Body.String())
 	}
 
 	response = adminRequest(t, handler, http.MethodPost, "/dashboard/shares/1", url.Values{
-		"name":   {"Documents shared"},
-		"status": {"active"},
+		"name":                    {"Documents shared"},
+		"status":                  {"active"},
+		"property_view":           {"list"},
+		"property_page_size":      {""},
+		"property_thumbnail_size": {"512"},
+		"property_theme":          {""},
 	}, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/shares" {
 		t.Fatalf("update share response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
@@ -597,6 +625,12 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}
 	if updatedShare.ShareExpiration != nil {
 		t.Fatalf("updatedShare.ShareExpiration = %v, want nil after disabling expiration", updatedShare.ShareExpiration)
+	}
+	if updatedShare.Properties.View == nil || *updatedShare.Properties.View != "list" ||
+		updatedShare.Properties.PageSize != nil ||
+		updatedShare.Properties.ThumbnailSize == nil || *updatedShare.Properties.ThumbnailSize != 512 ||
+		updatedShare.Properties.Theme != nil {
+		t.Fatalf("updatedShare.Properties = %+v, want edited appearance with unset page size and theme", updatedShare.Properties)
 	}
 
 	response = adminRequest(t, handler, http.MethodPost, "/dashboard/shares/1/delete", nil, accessToken)
