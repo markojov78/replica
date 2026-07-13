@@ -27,7 +27,10 @@ func registerReplicaRoutes(api huma.API, svc services) {
 			inventoryID = &input.InventoryID
 		}
 
-		page, count := resolvePagination(input.Page, input.Count)
+		page, count, err := resolvePagination(input.Page, input.Count)
+		if err != nil {
+			return nil, err
+		}
 		replicas, err := svc.replicas.ListPage(page, count, service.ReplicaListFilter{
 			InventoryID: inventoryID,
 			NodeID:      input.NodeID,
@@ -65,12 +68,15 @@ func registerReplicaRoutes(api huma.API, svc services) {
 			return nil, mapPermissionError(err)
 		}
 
-		page, count := resolvePagination(input.Page, input.Count)
 		var version *uint
 		if input.Version > 0 {
 			version = &input.Version
 		}
 
+		page, count, err := resolvePagination(input.Page, input.Count)
+		if err != nil {
+			return nil, err
+		}
 		files, err := svc.replicas.ListFiles(input.ID, page, count, service.ReplicaFileListFilter{
 			Status:  input.Status,
 			Version: version,
@@ -166,8 +172,8 @@ func registerReplicaRoutes(api huma.API, svc services) {
 type listReplicasInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
-	Page          int    `query:"page"`
-	Count         int    `query:"count"`
+	Page          int    `query:"page" default:"1"`
+	Count         int    `query:"count" default:"20"`
 	InventoryID   uint   `query:"inventory_id"`
 	NodeID        string `query:"node_id"`
 	URIPrefix     string `query:"uri_prefix"`
@@ -197,8 +203,8 @@ type listReplicaFilesInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
 	ID            uint   `path:"id"`
-	Page          int    `query:"page"`
-	Count         int    `query:"count"`
+	Page          int    `query:"page" default:"1"`
+	Count         int    `query:"count" default:"20"`
 	Status        string `query:"status"`
 	Version       uint   `query:"version"`
 }

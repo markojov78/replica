@@ -19,7 +19,10 @@ func registerNodeRoutes(api huma.API, svc services) {
 			return nil, mapPermissionError(err)
 		}
 
-		page, count := resolvePagination(input.Page, input.Count)
+		page, count, err := resolvePagination(input.Page, input.Count)
+		if err != nil {
+			return nil, err
+		}
 		nodes, err := svc.nodes.List(page, count)
 		if err != nil {
 			return nil, mapNodeError(err, svc.nodes)
@@ -100,8 +103,8 @@ func registerNodeRoutes(api huma.API, svc services) {
 type listNodesInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
-	Page          int    `query:"page"`
-	Count         int    `query:"count"`
+	Page          int    `query:"page" default:"1"`
+	Count         int    `query:"count" default:"20"`
 }
 
 type getNodeInput struct {

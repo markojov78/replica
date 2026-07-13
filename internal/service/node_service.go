@@ -153,16 +153,6 @@ func (s *NodeService) Get(id string) (*NodeDetails, error) {
 }
 
 func (s *NodeService) List(page, perPage int) (*NodeList, error) {
-	if page < 1 {
-		page = 1
-	}
-	if perPage < 1 {
-		perPage = 20
-	}
-	if perPage > 100 {
-		perPage = 100
-	}
-
 	nodes, total, err := s.nodes.List(page, perPage)
 	if err != nil {
 		return nil, err

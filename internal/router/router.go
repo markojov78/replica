@@ -366,15 +366,14 @@ func mapPermissionError(err error) error {
 	}
 }
 
-func resolvePagination(page, perPage int) (int, int) {
-	if page == 0 {
-		page = 1
+func resolvePagination(page, perPage int) (int, int, error) {
+	if page < 1 {
+		return 0, 0, huma.Error400BadRequest("invalid page")
 	}
-	if perPage == 0 {
-		perPage = 20
+	if perPage < 1 {
+		return 0, 0, huma.Error400BadRequest("invalid count")
 	}
-
-	return page, perPage
+	return page, perPage, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

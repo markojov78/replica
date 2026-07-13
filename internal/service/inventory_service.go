@@ -482,16 +482,6 @@ func (s *InventoryService) Get(id uint) (*InventoryDetails, error) {
 }
 
 func (s *InventoryService) List(page, perPage int, filter InventoryListFilter) (*InventoryList, error) {
-	if page < 1 {
-		page = 1
-	}
-	if perPage < 1 {
-		perPage = 20
-	}
-	if perPage > 100 {
-		perPage = 100
-	}
-
 	if filter.Status != "" {
 		status := model.InventoryStatus(strings.TrimSpace(filter.Status))
 		if !status.Valid() {
@@ -541,16 +531,6 @@ func (s *InventoryService) GetFile(inventoryID, fileID uint) (*InventoryFileDeta
 }
 
 func (s *InventoryService) ListFiles(inventoryID uint, page, perPage int, filter InventoryFileListFilter) (*InventoryFileList, error) {
-	if page < 1 {
-		page = 1
-	}
-	if perPage < 1 {
-		perPage = 20
-	}
-	if perPage > 100 {
-		perPage = 100
-	}
-
 	if _, err := s.repo.FindByID(inventoryID); err != nil {
 		return nil, err
 	}

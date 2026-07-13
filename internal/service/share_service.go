@@ -93,16 +93,6 @@ func (s *ShareService) List() ([]model.Share, error) {
 }
 
 func (s *ShareService) ListPage(page, perPage int, filter ShareListFilter) (*ShareList, error) {
-	if page < 1 {
-		page = 1
-	}
-	if perPage < 1 {
-		perPage = 20
-	}
-	if perPage > 100 {
-		perPage = 100
-	}
-
 	if err := validateShareListFilter(&filter); err != nil {
 		return nil, err
 	}

@@ -28,7 +28,10 @@ func registerShareRoutes(api huma.API, svc services) {
 			replicaID = &input.ReplicaID
 		}
 
-		page, count := resolvePagination(input.Page, input.Count)
+		page, count, err := resolvePagination(input.Page, input.Count)
+		if err != nil {
+			return nil, err
+		}
 		shares, err := svc.shares.ListPage(page, count, service.ShareListFilter{
 			Status:    input.Status,
 			ReplicaID: replicaID,
@@ -150,8 +153,8 @@ func AuthorizeShareAction(svc services, accessToken string, shareID uint, action
 type listSharesInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
-	Page          int    `query:"page"`
-	Count         int    `query:"count"`
+	Page          int    `query:"page" default:"1"`
+	Count         int    `query:"count" default:"20"`
 	Status        string `query:"status"`
 	ReplicaID     uint   `query:"replica_id"`
 	Name          string `query:"name"`

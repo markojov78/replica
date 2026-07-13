@@ -19,7 +19,10 @@ func registerRoleRoutes(api huma.API, svc services) {
 			return nil, mapPermissionError(err)
 		}
 
-		page, count := resolvePagination(input.Page, input.Count)
+		page, count, err := resolvePagination(input.Page, input.Count)
+		if err != nil {
+			return nil, err
+		}
 		roles, err := svc.roles.List(page, count)
 		if err != nil {
 			return nil, mapRoleError(err, svc.roles)
@@ -100,8 +103,8 @@ func registerRoleRoutes(api huma.API, svc services) {
 type listRolesInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
-	Page          int    `query:"page"`
-	Count         int    `query:"count"`
+	Page          int    `query:"page" default:"1"`
+	Count         int    `query:"count" default:"20"`
 }
 
 type getRoleInput struct {

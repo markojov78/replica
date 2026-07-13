@@ -200,16 +200,6 @@ func (s *ReplicaService) ListFiltered(filter ReplicaListFilter) ([]InventoryRepl
 }
 
 func (s *ReplicaService) ListPage(page, perPage int, filter ReplicaListFilter) (*ReplicaList, error) {
-	if page < 1 {
-		page = 1
-	}
-	if perPage < 1 {
-		perPage = 20
-	}
-	if perPage > 100 {
-		perPage = 100
-	}
-
 	if err := validateReplicaListFilter(&filter); err != nil {
 		return nil, err
 	}
@@ -295,16 +285,6 @@ func replicaSyncStatus(counts map[model.ReplicaFileStatus]int64) string {
 }
 
 func (s *ReplicaService) ListFiles(replicaID uint, page, perPage int, filter ReplicaFileListFilter) (*ReplicaFileList, error) {
-	if page < 1 {
-		page = 1
-	}
-	if perPage < 1 {
-		perPage = 20
-	}
-	if perPage > 100 {
-		perPage = 100
-	}
-
 	if _, err := s.repo.FindByID(replicaID); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrReplicaNotFound

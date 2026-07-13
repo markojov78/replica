@@ -121,6 +121,21 @@ func TestServeAuthenticatedSharesFiltersReadableSharesAndCachesToken(t *testing.
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"properties":{"view":"grid","page_size":100,"thumbnail_size":256,"theme":"dark"}`) {
 		t.Fatalf("share detail status = %d body=%s, want properties", rec.Code, rec.Body.String())
 	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/share/shares?count=101", nil)
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec = httptest.NewRecorder()
+	runtime.ServeAuthenticatedShares(rec, req)
+	var list shareListBody
+	if rec.Code != http.StatusOK {
+		t.Fatalf("count=101 status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("Unmarshal(count=101 list) error = %v", err)
+	}
+	if list.Count != 101 {
+		t.Fatalf("count=101 list.Count = %d, want 101", list.Count)
+	}
 }
 
 func TestServeAuthenticatedSharesUsesCoordinatorListEnvelopeAndFilters(t *testing.T) {
@@ -481,6 +496,9 @@ func TestServePublicShareFilesAppliesStableSortingAndValidatesQuery(t *testing.T
 		"/s/public-link/files?sort=relative_uri",
 		"/s/public-link/files?order=up",
 		"/s/public-link/files?page=0",
+		"/s/public-link/files?page=-1",
+		"/s/public-link/files?count=0",
+		"/s/public-link/files?count=-1",
 		"/s/public-link/files?count=bad",
 	} {
 		req = httptest.NewRequest(http.MethodGet, target, nil)

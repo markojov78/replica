@@ -90,16 +90,6 @@ func (s *UserService) Get(id uint) (*UserDetails, error) {
 }
 
 func (s *UserService) List(page, perPage int) (*UserList, error) {
-	if page < 1 {
-		page = 1
-	}
-	if perPage < 1 {
-		perPage = 20
-	}
-	if perPage > 100 {
-		perPage = 100
-	}
-
 	users, total, err := s.users.List(page, perPage)
 	if err != nil {
 		return nil, err

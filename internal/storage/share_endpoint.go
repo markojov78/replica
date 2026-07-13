@@ -352,9 +352,6 @@ func parseShareListPagination(req *http.Request) (int, int, error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	if count > 100 {
-		count = 100
-	}
 	return page, count, nil
 }
 

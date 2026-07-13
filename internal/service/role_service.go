@@ -84,16 +84,6 @@ func (s *RoleService) Get(id uint) (*RoleDetails, error) {
 }
 
 func (s *RoleService) List(page, perPage int) (*RoleList, error) {
-	if page < 1 {
-		page = 1
-	}
-	if perPage < 1 {
-		perPage = 20
-	}
-	if perPage > 100 {
-		perPage = 100
-	}
-
 	roles, total, err := s.roles.List(page, perPage)
 	if err != nil {
 		return nil, err

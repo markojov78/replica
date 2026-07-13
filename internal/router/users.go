@@ -19,7 +19,10 @@ func registerUserRoutes(api huma.API, svc services) {
 			return nil, mapPermissionError(err)
 		}
 
-		page, count := resolvePagination(input.Page, input.Count)
+		page, count, err := resolvePagination(input.Page, input.Count)
+		if err != nil {
+			return nil, err
+		}
 		users, err := svc.users.List(page, count)
 		if err != nil {
 			return nil, mapUserError(err, svc.users)
@@ -112,8 +115,8 @@ type createUserInput struct {
 type listUsersInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
-	Page          int    `query:"page"`
-	Count         int    `query:"count"`
+	Page          int    `query:"page" default:"1"`
+	Count         int    `query:"count" default:"20"`
 }
 
 type getUserInput struct {

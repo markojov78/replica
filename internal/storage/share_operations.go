@@ -474,9 +474,6 @@ func normalizeSharePagination(page, count int) (int, int) {
 	if count < 1 {
 		count = 20
 	}
-	if count > 100 {
-		count = 100
-	}
 	return page, count
 }
 

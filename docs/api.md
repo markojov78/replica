@@ -214,7 +214,7 @@ Returns a paginated list of users.
 
 Query parameters:
 - `page` optional, default `1`
-- `count` optional, default `20`, maximum `100`
+- `count` optional, default `20`
 
 Example response:
 
@@ -313,7 +313,7 @@ Returns a paginated list of roles.
 
 Query parameters:
 - `page` optional, default `1`
-- `count` optional, default `20`, maximum `100`
+- `count` optional, default `20`
 
 Example response:
 
@@ -579,7 +579,7 @@ Returns a paginated list of nodes.
 
 Query parameters:
 - `page` optional, default `1`
-- `count` optional, default `20`, maximum `100`
+- `count` optional, default `20`
 
 Example response:
 
@@ -710,7 +710,7 @@ Returns a paginated list of inventories.
 
 Query parameters:
 - `page` optional, default `1`
-- `count` optional, default `20`, maximum `100`
+- `count` optional, default `20`
 - `status` optional, filter by inventory status: `active`, `deleted`
 
 Example response:
@@ -839,7 +839,7 @@ Returns a paginated list of files belonging to the inventory.
 
 Query parameters:
 - `page` optional, default `1`
-- `count` optional, default `20`, maximum `100`
+- `count` optional, default `20`
 - `status` optional, filter by inventory file status: `active`, `deleted`
 
 Example response:
@@ -892,7 +892,7 @@ Returns a paginated list of replicas filtered by optional query parameters.
 
 Query parameters:
 - `page` optional, default `1`
-- `count` optional, default `20`, maximum `100`
+- `count` optional, default `20`
 - `inventory_id`
 - `node_id`
 - `uri_prefix`
@@ -1002,7 +1002,7 @@ Returns a paginated list of files belonging to the replica.
 
 Query parameters:
 - `page` optional, default `1`
-- `count` optional, default `20`, maximum `100`
+- `count` optional, default `20`
 - `status` optional, filter by replica file status: `changed`, `pending`, `synchronized`, `conflict`, `error`
 - `version` optional, filter by exact replica file version
 
@@ -1043,7 +1043,7 @@ Returns a paginated list of shares.
 
 Query parameters:
 - `page` optional, default `1`
-- `count` optional, default `20`, maximum `100`
+- `count` optional, default `20`
 - `status` optional, filter by share status: `active`, `deleted`
 - `replica_id` optional
 - `name` optional
@@ -1369,7 +1369,7 @@ Authorization:
 
 Query parameters:
 * `page` optional, default `1`
-* `count` optional, default `20`, maximum `100`
+* `count` optional, default `20`
 * `status` optional, filter by share status: `active`, `deleted`
 * `replica_id` optional
 * `name` optional
@@ -1449,7 +1449,7 @@ Query parameters:
 - `sort` optional, can be `id`, `name`, `size`, `created`, `modified`, default `id`
 - `order` optional, `asc` or `desc`, default `asc` 
 - `page` optional, default `1`
-- `count` optional, default `20`, maximum `100`
+- `count` optional, default `20`
 
 Behavior:  
 - require read permission
@@ -1740,7 +1740,7 @@ Query parameters:
 - `sort` optional, can be `id`, `name`, `size`, `created`, `modified`, default `id`
 - `order` optional, `asc` or `desc`, default `asc`
 - `page` optional, default `1`
-- `count` optional, default `20`, maximum `100`
+- `count` optional, default `20`
 
 Behavior:
 - require read permission

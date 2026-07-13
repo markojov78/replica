@@ -134,6 +134,41 @@ func TestShareRoutesCreateAndListWithGlobalPermissions(t *testing.T) {
 	}
 }
 
+func TestShareRoutesValidatePaginationWithoutUpperLimit(t *testing.T) {
+	database := openRouterTestDB(t)
+	_, accessToken := createShareRouteUser(t, database, []model.Permission{
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionRead},
+	})
+	handler := newShareRouteHandler(database)
+
+	for _, query := range []string{"page=0", "page=-1", "count=0", "count=-1"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/admin/shares?"+query, nil)
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("X-API-Version", "1")
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, req)
+		if recorder.Code != http.StatusBadRequest {
+			t.Errorf("%s status = %d, want %d; body=%s", query, recorder.Code, http.StatusBadRequest, recorder.Body.String())
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/shares?count=101", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-API-Version", "1")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("count=101 status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var list service.ShareList
+	if err := json.Unmarshal(recorder.Body.Bytes(), &list); err != nil {
+		t.Fatalf("Unmarshal(list) error = %v", err)
+	}
+	if list.Count != 101 {
+		t.Fatalf("list.Count = %d, want 101", list.Count)
+	}
+}
+
 func TestShareRoutesCreatePatchAndValidateProperties(t *testing.T) {
 	database := openRouterTestDB(t)
 	_, accessToken := createShareRouteUser(t, database, []model.Permission{
