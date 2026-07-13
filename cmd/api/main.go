@@ -78,7 +78,9 @@ func main() {
 		nodeService.Start(ctx)
 		inventoryService = service.NewInventoryService(inventoryRepo, nodeService)
 		replicaService = service.NewReplicaService(replicaRepo, inventoryRepo, nodeService, settingService)
-		shareService = service.NewShareService(shareRepo, nodeService)
+		shareService = service.NewShareService(shareRepo, nodeService, func() config.SharingConfig {
+			return configService.EffectiveConfig().Sharing
+		})
 	}
 
 	var storageRuntime *storage.Runtime

@@ -78,6 +78,7 @@ func registerShareRoutes(api huma.API, svc services) {
 			GenerateHash:         input.Body.GenerateHash,
 			UserPermissions:      input.Body.UserPermissions,
 			AnonymousPermissions: input.Body.AnonymousPermissions,
+			Properties:           input.Body.Properties,
 		})
 		if err != nil {
 			return nil, mapShareError(err, svc.shares)
@@ -107,6 +108,7 @@ func registerShareRoutes(api huma.API, svc services) {
 			GenerateHash:         input.Body.GenerateHash,
 			UserPermissions:      input.Body.UserPermissions,
 			AnonymousPermissions: input.Body.AnonymousPermissions,
+			Properties:           input.Body.Properties,
 		})
 		if err != nil {
 			return nil, mapShareError(err, svc.shares)
@@ -172,6 +174,7 @@ type createShareInput struct {
 		GenerateHash         bool                           `json:"generate_hash,omitempty"`
 		UserPermissions      *[]service.UserPermissionInput `json:"user_permissions,omitempty"`
 		AnonymousPermissions *[]string                      `json:"anonymous_permissions,omitempty"`
+		Properties           map[string]json.RawMessage     `json:"properties,omitempty"`
 	}
 }
 
@@ -186,6 +189,7 @@ type updateShareInput struct {
 		GenerateHash         *bool                          `json:"generate_hash,omitempty"`
 		UserPermissions      *[]service.UserPermissionInput `json:"user_permissions,omitempty"`
 		AnonymousPermissions *[]string                      `json:"anonymous_permissions,omitempty"`
+		Properties           map[string]json.RawMessage     `json:"properties,omitempty"`
 	}
 }
 

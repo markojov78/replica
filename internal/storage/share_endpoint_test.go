@@ -47,6 +47,10 @@ func TestServeAuthenticatedSharesFiltersReadableSharesAndCachesToken(t *testing.
 	defer server.Close()
 
 	runtime := newShareEndpointRuntime(t, server.URL)
+	view := "grid"
+	pageSize := 100
+	thumbnailSize := 256
+	theme := "dark"
 	runtime.setLocalState(
 		[]apiclient.Replica{{ID: 3, NodeID: "node-a", URI: t.TempDir(), Status: "active"}},
 		[]apiclient.Share{
@@ -54,6 +58,12 @@ func TestServeAuthenticatedSharesFiltersReadableSharesAndCachesToken(t *testing.
 				ID:        1,
 				ReplicaID: 3,
 				Status:    "active",
+				Properties: apiclient.ShareProperties{
+					View:          &view,
+					PageSize:      &pageSize,
+					ThumbnailSize: &thumbnailSize,
+					Theme:         &theme,
+				},
 				UserPermissions: []apiclient.UserPermission{{
 					UserID:      15,
 					Permissions: []string{"read"},
@@ -92,9 +102,24 @@ func TestServeAuthenticatedSharesFiltersReadableSharesAndCachesToken(t *testing.
 		if len(list.Items) != 1 || list.Items[0].ID != 1 {
 			t.Fatalf("shares = %+v, want only share 1", list.Items)
 		}
+		if list.Items[0].Properties.View == nil || *list.Items[0].Properties.View != view ||
+			list.Items[0].Properties.PageSize == nil || *list.Items[0].Properties.PageSize != pageSize ||
+			list.Items[0].Properties.ThumbnailSize == nil || *list.Items[0].Properties.ThumbnailSize != thumbnailSize ||
+			list.Items[0].Properties.Theme == nil || *list.Items[0].Properties.Theme != theme {
+			t.Fatalf("list share properties = %+v, want configured properties", list.Items[0].Properties)
+		}
 	}
 	if validateCalls != 1 {
 		t.Fatalf("validateCalls = %d, want 1", validateCalls)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/share/shares/1", nil)
+	req.SetPathValue("id", "1")
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+	runtime.ServeAuthenticatedShares(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"properties":{"view":"grid","page_size":100,"thumbnail_size":256,"theme":"dark"}`) {
+		t.Fatalf("share detail status = %d body=%s, want properties", rec.Code, rec.Body.String())
 	}
 }
 
@@ -149,6 +174,9 @@ func TestServeAuthenticatedSharesUsesCoordinatorListEnvelopeAndFilters(t *testin
 	if len(list.Items) != 1 || list.Items[0].ID != 2 {
 		t.Fatalf("items = %+v, want share 2", list.Items)
 	}
+	if !strings.Contains(rec.Body.String(), `"properties":{"view":null,"page_size":null,"thumbnail_size":null,"theme":null}`) {
+		t.Fatalf("body = %s, want explicit null property values", rec.Body.String())
+	}
 }
 
 func TestRuntimeRefreshLocalStateLoadsShareAssignments(t *testing.T) {
@@ -175,11 +203,17 @@ func TestRuntimeRefreshLocalStateLoadsShareAssignments(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"files": []map[string]any{}})
 		case "/node/shares":
 			_ = json.NewEncoder(w).Encode([]map[string]any{{
-				"id":                    1,
-				"inventory_id":          1,
-				"replica_id":            3,
-				"name":                  "Vacation",
-				"status":                "active",
+				"id":           1,
+				"inventory_id": 1,
+				"replica_id":   3,
+				"name":         "Vacation",
+				"status":       "active",
+				"properties": map[string]any{
+					"view":           "grid",
+					"page_size":      100,
+					"thumbnail_size": 256,
+					"theme":          "dark",
+				},
 				"anonymous_permissions": []string{"read"},
 			}})
 		case "/node/config":
@@ -200,6 +234,9 @@ func TestRuntimeRefreshLocalStateLoadsShareAssignments(t *testing.T) {
 	shares := runtime.sharesSnapshot()
 	if len(shares) != 1 || shares[0].ID != 1 || shares[0].ReplicaID != 3 {
 		t.Fatalf("sharesSnapshot() = %+v, want loaded share assignment", shares)
+	}
+	if shares[0].Properties.Theme == nil || *shares[0].Properties.Theme != "dark" {
+		t.Fatalf("sharesSnapshot()[0].Properties = %+v, want loaded properties", shares[0].Properties)
 	}
 }
 

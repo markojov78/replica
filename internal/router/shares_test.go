@@ -46,6 +46,12 @@ func TestShareRoutesCreateAndListWithGlobalPermissions(t *testing.T) {
 	if created.InventoryID != replica.InventoryID || created.ReplicaID != replica.ID || created.Name != "Vacation March 2026" || created.Status != string(model.ShareStatusActive) {
 		t.Fatalf("created = %+v, want inventory=%d replica=%d active", created, replica.InventoryID, replica.ID)
 	}
+	if created.Properties.View != nil || created.Properties.PageSize != nil || created.Properties.ThumbnailSize != nil || created.Properties.Theme != nil {
+		t.Fatalf("created.Properties = %+v, want null values", created.Properties)
+	}
+	if !strings.Contains(recorder.Body.String(), `"properties":{"view":null,"page_size":null,"thumbnail_size":null,"theme":null}`) {
+		t.Fatalf("created response = %s, want explicit null property values", recorder.Body.String())
+	}
 	if len(created.UserPermissions) != 1 || created.UserPermissions[0].UserID != user.ID || len(created.UserPermissions[0].Permissions) != 4 {
 		t.Fatalf("created.UserPermissions = %+v, want user %d with four permissions", created.UserPermissions, user.ID)
 	}
@@ -125,6 +131,93 @@ func TestShareRoutesCreateAndListWithGlobalPermissions(t *testing.T) {
 	}
 	if list.Total != 1 || len(list.Items) != 1 || list.Items[0].ID != created.ID {
 		t.Fatalf("list = %+v, want created share", list)
+	}
+}
+
+func TestShareRoutesCreatePatchAndValidateProperties(t *testing.T) {
+	database := openRouterTestDB(t)
+	_, accessToken := createShareRouteUser(t, database, []model.Permission{
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionCreate},
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionRead},
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionUpdate},
+	})
+	replica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
+	handler := newShareRouteHandler(database)
+
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-API-Version", "1")
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, req)
+		return recorder
+	}
+	invalidProperties := []string{
+		`{"view":"table"}`,
+		`{"count":100}`,
+		`{"page_size":0}`,
+		`{"page_size":1.5}`,
+		`{"thumbnail_size":999}`,
+		`{"theme":"system"}`,
+		`{"unknown":true}`,
+	}
+	for _, properties := range invalidProperties {
+		recorder := request(http.MethodPost, "/api/admin/shares", `{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"properties":`+properties+`}`)
+		if recorder.Code != http.StatusBadRequest {
+			t.Errorf("POST properties %s status = %d, want %d; body=%s", properties, recorder.Code, http.StatusBadRequest, recorder.Body.String())
+		}
+	}
+
+	recorder := request(http.MethodPost, "/api/admin/shares", `{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"properties":{"view":"grid","page_size":100,"thumbnail_size":256,"theme":"dark"}}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("create status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var created service.ShareDetails
+	if err := json.Unmarshal(recorder.Body.Bytes(), &created); err != nil {
+		t.Fatalf("Unmarshal(created) error = %v", err)
+	}
+	if created.Properties.View == nil || *created.Properties.View != "grid" ||
+		created.Properties.PageSize == nil || *created.Properties.PageSize != 100 ||
+		created.Properties.ThumbnailSize == nil || *created.Properties.ThumbnailSize != 256 ||
+		created.Properties.Theme == nil || *created.Properties.Theme != "dark" {
+		t.Fatalf("created.Properties = %+v, want all requested values", created.Properties)
+	}
+
+	sharePath := "/api/admin/shares/" + strconv.FormatUint(uint64(created.ID), 10)
+	recorder = request(http.MethodPatch, sharePath, `{"properties":{"view":null,"page_size":25,"theme":"light"}}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var patched service.ShareDetails
+	if err := json.Unmarshal(recorder.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("Unmarshal(patched) error = %v", err)
+	}
+	if patched.Properties.View != nil || patched.Properties.PageSize == nil || *patched.Properties.PageSize != 25 ||
+		patched.Properties.ThumbnailSize == nil || *patched.Properties.ThumbnailSize != 256 ||
+		patched.Properties.Theme == nil || *patched.Properties.Theme != "light" {
+		t.Fatalf("patched.Properties = %+v, want merged values with view cleared", patched.Properties)
+	}
+
+	for _, properties := range invalidProperties {
+		recorder = request(http.MethodPatch, sharePath, `{"properties":`+properties+`}`)
+		if recorder.Code != http.StatusBadRequest {
+			t.Errorf("PATCH properties %s status = %d, want %d; body=%s", properties, recorder.Code, http.StatusBadRequest, recorder.Body.String())
+		}
+	}
+
+	recorder = request(http.MethodGet, sharePath, "")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("get status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("Unmarshal(get) error = %v", err)
+	}
+	if patched.Properties.View != nil || patched.Properties.PageSize == nil || *patched.Properties.PageSize != 25 ||
+		patched.Properties.ThumbnailSize == nil || *patched.Properties.ThumbnailSize != 256 ||
+		patched.Properties.Theme == nil || *patched.Properties.Theme != "light" {
+		t.Fatalf("properties after invalid patches = %+v, want previous valid values", patched.Properties)
 	}
 }
 
@@ -588,8 +681,9 @@ func TestInventoryRouteUserPermissionsCreateAndPatchReplacement(t *testing.T) {
 
 func newShareRouteHandler(database *gorm.DB) http.Handler {
 	nodeService := service.NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
+	sharingConfig := config.SharingConfig{ThumbnailSizes: []int{128, 256, 512}}
 	return New(
-		config.Config{},
+		config.Config{Sharing: sharingConfig},
 		buildinfo.Info{Version: "test", Commit: "test", BuildDate: "test"},
 		newRouterTestAuthService(database),
 		service.NewUserService(repository.NewUserRepository(database), repository.NewRoleRepository(database)),
@@ -597,7 +691,7 @@ func newShareRouteHandler(database *gorm.DB) http.Handler {
 		nodeService,
 		service.NewInventoryService(repository.NewInventoryRepository(database)),
 		nil,
-		service.NewShareService(repository.NewShareRepository(database), nodeService),
+		service.NewShareService(repository.NewShareRepository(database), nodeService, func() config.SharingConfig { return sharingConfig }),
 		nil,
 	)
 }

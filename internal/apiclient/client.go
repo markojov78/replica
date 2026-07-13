@@ -155,8 +155,16 @@ type Share struct {
 	Status               string           `json:"status"`
 	LinkHash             *string          `json:"link_hash"`
 	ShareExpiration      *time.Time       `json:"share_expiration"`
+	Properties           ShareProperties  `json:"properties"`
 	UserPermissions      []UserPermission `json:"user_permissions"`
 	AnonymousPermissions []string         `json:"anonymous_permissions"`
+}
+
+type ShareProperties struct {
+	View          *string `json:"view"`
+	PageSize      *int    `json:"page_size"`
+	ThumbnailSize *int    `json:"thumbnail_size"`
+	Theme         *string `json:"theme"`
 }
 
 type ConfigItem struct {

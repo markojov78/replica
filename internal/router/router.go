@@ -340,6 +340,8 @@ func mapShareError(err error, shareService *service.ShareService) error {
 		return huma.Error400BadRequest("invalid share name")
 	case errors.Is(err, service.ErrInvalidShareExpiration):
 		return huma.Error400BadRequest("invalid share expiration")
+	case errors.Is(err, service.ErrInvalidShareProperties):
+		return huma.Error400BadRequest("invalid share properties")
 	case errors.Is(err, service.ErrInvalidPermissions):
 		return huma.Error400BadRequest("invalid permissions")
 	case errors.Is(err, service.ErrReplicaNotFound):

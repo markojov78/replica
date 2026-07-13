@@ -1,11 +1,15 @@
 package service
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"replica/internal/config"
 	"replica/internal/model"
 	"replica/internal/repository"
 	"replica/internal/security"
@@ -14,14 +18,16 @@ import (
 )
 
 type ShareService struct {
-	repo  *repository.ShareRepository
-	nodes *NodeService
+	repo          *repository.ShareRepository
+	nodes         *NodeService
+	sharingConfig func() config.SharingConfig
 }
 
 var (
 	ErrInvalidShareStatus     = errors.New("invalid share status")
 	ErrInvalidShareName       = errors.New("invalid share name")
 	ErrInvalidShareExpiration = errors.New("invalid share expiration")
+	ErrInvalidShareProperties = errors.New("invalid share properties")
 	ErrShareNotFound          = errors.New("share not found")
 	ErrShareAlreadyExists     = errors.New("share already exists")
 )
@@ -34,6 +40,7 @@ type ShareDetails struct {
 	Status               string                  `json:"status"`
 	LinkHash             *string                 `json:"link_hash"`
 	ShareExpiration      *time.Time              `json:"share_expiration"`
+	Properties           model.ShareProperties   `json:"properties"`
 	UserPermissions      []UserPermissionDetails `json:"user_permissions"`
 	AnonymousPermissions []string                `json:"anonymous_permissions"`
 }
@@ -59,6 +66,7 @@ type CreateShareInput struct {
 	GenerateHash         bool
 	UserPermissions      *[]UserPermissionInput
 	AnonymousPermissions *[]string
+	Properties           map[string]json.RawMessage
 }
 
 type UpdateShareInput struct {
@@ -69,10 +77,15 @@ type UpdateShareInput struct {
 	GenerateHash         *bool
 	UserPermissions      *[]UserPermissionInput
 	AnonymousPermissions *[]string
+	Properties           map[string]json.RawMessage
 }
 
-func NewShareService(repo *repository.ShareRepository, nodes *NodeService) *ShareService {
-	return &ShareService{repo: repo, nodes: nodes}
+func NewShareService(repo *repository.ShareRepository, nodes *NodeService, configProviders ...func() config.SharingConfig) *ShareService {
+	provider := func() config.SharingConfig { return config.SharingConfig{} }
+	if len(configProviders) > 0 && configProviders[0] != nil {
+		provider = configProviders[0]
+	}
+	return &ShareService{repo: repo, nodes: nodes, sharingConfig: provider}
 }
 
 func (s *ShareService) List() ([]model.Share, error) {
@@ -198,6 +211,11 @@ func (s *ShareService) Create(input CreateShareInput) (*ShareDetails, error) {
 		ShareExpiration: input.ShareExpiration,
 		Replica:         *replica,
 	}
+	properties, err := mergeShareProperties(share.Properties, input.Properties, s.sharingConfig().ThumbnailSizes)
+	if err != nil {
+		return nil, err
+	}
+	share.Properties = properties
 	if input.GenerateHash {
 		linkHash, err := newShareLinkHash()
 		if err != nil {
@@ -280,6 +298,11 @@ func (s *ShareService) Update(id uint, input UpdateShareInput) (*ShareDetails, e
 			share.LinkHash = nil
 		}
 	}
+	properties, err := mergeShareProperties(share.Properties, input.Properties, s.sharingConfig().ThumbnailSizes)
+	if err != nil {
+		return nil, err
+	}
+	share.Properties = properties
 
 	command := newShareRefreshStateCommand(share.Replica.NodeID)
 	if err := s.repo.UpdateWithPermissions(share, permissions, input.UserPermissions != nil, anonymousPermissions, input.AnonymousPermissions != nil, command); err != nil {
@@ -366,9 +389,67 @@ func toShareDetails(share *model.Share) *ShareDetails {
 		Status:               string(share.Status),
 		LinkHash:             share.LinkHash,
 		ShareExpiration:      share.ShareExpiration,
+		Properties:           share.Properties,
 		UserPermissions:      []UserPermissionDetails{},
 		AnonymousPermissions: []string{},
 	}
+}
+
+func mergeShareProperties(current model.ShareProperties, values map[string]json.RawMessage, thumbnailSizes []int) (model.ShareProperties, error) {
+	properties := current
+	for key, raw := range values {
+		switch key {
+		case "view":
+			value, err := nullableJSONString(raw)
+			if err != nil || (value != nil && *value != "grid" && *value != "list") {
+				return current, ErrInvalidShareProperties
+			}
+			properties.View = value
+		case "page_size":
+			value, err := nullableJSONInt(raw)
+			if err != nil || (value != nil && *value <= 0) {
+				return current, ErrInvalidShareProperties
+			}
+			properties.PageSize = value
+		case "thumbnail_size":
+			value, err := nullableJSONInt(raw)
+			if err != nil || (value != nil && !slices.Contains(thumbnailSizes, *value)) {
+				return current, ErrInvalidShareProperties
+			}
+			properties.ThumbnailSize = value
+		case "theme":
+			value, err := nullableJSONString(raw)
+			if err != nil || (value != nil && *value != "light" && *value != "dark") {
+				return current, ErrInvalidShareProperties
+			}
+			properties.Theme = value
+		default:
+			return current, ErrInvalidShareProperties
+		}
+	}
+	return properties, nil
+}
+
+func nullableJSONString(raw json.RawMessage) (*string, error) {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, nil
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
+func nullableJSONInt(raw json.RawMessage) (*int, error) {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, nil
+	}
+	var value int
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	return &value, nil
 }
 
 func (s *ShareService) loadShareUserPermissions(details *ShareDetails) error {

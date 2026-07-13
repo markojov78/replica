@@ -1060,6 +1060,12 @@ Example response:
       "status": "active",
       "link_hash": "ImyZbX8zv0UrsCB7Rthq9R7nQMMKRyhT",
       "share_expiration": "2026-03-17T10:30:00Z",
+      "properties": {
+        "view": "grid",
+        "page_size": 100,
+        "thumbnail_size": 256,
+        "theme": "dark"
+      },
       "user_permissions": [
         {
           "user_id": 15,
@@ -1092,6 +1098,12 @@ Example response:
   "status": "active",
   "link_hash": "ImyZbX8zv0UrsCB7Rthq9R7nQMMKRyhT",
   "share_expiration": "2026-03-17T10:30:00Z",
+  "properties": {
+    "view": null,
+    "page_size": 100,
+    "thumbnail_size": 256,
+    "theme": null
+  },
   "user_permissions": [
     {
       "user_id": 15,
@@ -1114,6 +1126,11 @@ Request body:
 - `generate_hash` optional boolean to generate new `link_hash`
 - `user_permissions` optional, per-user permissions for the share
 - `anonymous_permissions` optional permissions for anonymous users
+- `properties` optional share properties:
+  - `view` optional, `grid` or `list`
+  - `page_size` optional integer greater than `0`
+  - `thumbnail_size` optional integer configured in `sharing.thumbnail_sizes`
+  - `theme` optional, `light` or `dark`
 
 Example request:
 ```json
@@ -1122,6 +1139,12 @@ Example request:
   "name": "Vacation March 2026",
   "share_expiration": "2026-03-17T10:30:00Z",
   "generate_hash": true,
+  "properties": {
+    "view": "grid",
+    "page_size": 100,
+    "thumbnail_size": 256,
+    "theme": "dark"
+  },
   "user_permissions": [
     {
       "user_id": 15,
@@ -1139,6 +1162,8 @@ Example request:
 Behavior:
 anonymous_permissions omitted or `[]`: do not set anonymous permissions
 anonymous_permissions provided with permissions: create share with those anonymous permissions
+properties omitted: create all property values as unset
+properties provided: validate and store the provided property values; omitted property fields remain unset
 
 Example response:
 ```json
@@ -1150,6 +1175,12 @@ Example response:
   "status": "active",
   "link_hash": "ImyZbX8zv0UrsCB7Rthq9R7nQMMKRyhT",
   "share_expiration": "2026-03-17T10:30:00Z",
+  "properties": {
+    "view": "grid",
+    "page_size": 100,
+    "thumbnail_size": 256,
+    "theme": "dark"
+  },
   "user_permissions": [
     {
       "user_id": 15,
@@ -1174,6 +1205,7 @@ Request body fields are optional:
 * `generate_hash`
 * `user_permissions`
 * `anonymous_permissions`
+* `properties`
 
 Behavior:   
 share_expiration omitted: leave existing share expiration unchanged  
@@ -1188,6 +1220,10 @@ user_permissions: []: remove all per-user permissions
 anonymous_permissions omitted: leave existing anonymous permissions unchanged
 anonymous_permissions provided: replace anonymous permissions with provided permissions
 anonymous_permissions: []: remove all anonymous permissions
+properties omitted: leave all existing property values unchanged
+properties provided: merge the provided fields with the existing properties
+properties field omitted: leave that property unchanged
+properties field provided as `null`: clear that property
 
 Example request:
 ```json
@@ -1196,6 +1232,10 @@ Example request:
   "status": "active",
   "share_expiration": null,
   "generate_hash": true,
+  "properties": {
+    "view": null,
+    "theme": "light"
+  },
   "anonymous_permissions": []
 }
 ```
@@ -1210,6 +1250,12 @@ Example response:
   "status": "active",
   "link_hash": "ST7E4WQq-bNF9V26YmjpdJpZPzfdikEI",
   "share_expiration": null,
+  "properties": {
+    "view": null,
+    "page_size": 100,
+    "thumbnail_size": 256,
+    "theme": "light"
+  },
   "user_permissions": [
     {
       "user_id": 15,
@@ -1233,6 +1279,7 @@ Possible errors:
 * `400` invalid share status
 * `400` invalid share name
 * `400` invalid share expiration
+* `400` invalid share properties
 * `400` invalid permissions
 * `404` replica not found
 * `409` replica is deleted
@@ -1336,6 +1383,8 @@ Availability rules:
 
 The response shape intentionally matches coordinator `GET /api/admin/shares`. Storage nodes still only return shares currently available from their local runtime state, so filters such as `status=deleted` return an empty page.
 
+The `properties` object contains the same `view`, `page_size`, `thumbnail_size`, and `theme` fields as the Coordinator Admin API. Unset fields are returned as `null`.
+
 Example response:
 ```json
 {
@@ -1348,6 +1397,12 @@ Example response:
       "status": "active",
       "link_hash": "ImyZbX8zv0UrsCB7Rthq9R7nQMMKRyhT",
       "share_expiration": "2026-03-17T10:30:00Z",
+      "properties": {
+        "view": "grid",
+        "page_size": 100,
+        "thumbnail_size": 256,
+        "theme": "dark"
+      },
       "user_permissions": [
         {
           "user_id": 15,
@@ -1365,6 +1420,8 @@ Example response:
 
 #### GET /shares/{id}
 Returns one readable share from the current storage node.
+
+The response includes the `properties` object. Unset property fields are returned as `null`.
 
 Errors:
 - `401` missing, invalid or expired user access token
@@ -2321,6 +2378,7 @@ Behavior:
 - resolves the current node from the auth token
 - returns only shares whose replica `node_id` matches the authenticated node
 - includes per-user and anonymous share permissions
+- includes the share `properties` object; unset property fields are returned as `null`
 - does not support user-style filtering or pagination
 
 Example request:
@@ -2343,6 +2401,12 @@ Example response:
     "status": "active",
     "link_hash": "ImyZbX8zv0UrsCB7Rthq9R7nQMMKRyhT",
     "share_expiration": "2026-03-17T10:30:00Z",
+    "properties": {
+      "view": "grid",
+      "page_size": 100,
+      "thumbnail_size": 256,
+      "theme": "dark"
+    },
     "user_permissions": [
       {
         "user_id": 15,

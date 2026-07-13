@@ -165,6 +165,7 @@ name - if not specified, will use inventory name
 status - active, deleted  
 link_hash - optional link hash  
 share_expiration - optional share expiration  
+properties - JSON object containing optional share UI defaults (`view`, `page_size`, `thumbnail_size`, `theme`)
 
 #### share_users
 user_id - nullable only when anonymous is true

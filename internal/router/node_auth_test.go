@@ -699,12 +699,22 @@ func TestInternalSharesReturnsOnlyAuthenticatedNodeShares(t *testing.T) {
 	}
 	linkHash := "ImyZbX8zv0UrsCB7Rthq9R7nQMMKRyhT"
 	expiresAt := time.Date(2026, 3, 17, 10, 30, 0, 0, time.UTC)
+	view := "grid"
+	pageSize := 100
+	thumbnailSize := 256
+	theme := "dark"
 	shareA := &model.Share{
 		ReplicaID:       replicaA.ID,
 		Name:            "Vacation March 2026",
 		Status:          model.ShareStatusActive,
 		LinkHash:        &linkHash,
 		ShareExpiration: &expiresAt,
+		Properties: model.ShareProperties{
+			View:          &view,
+			PageSize:      &pageSize,
+			ThumbnailSize: &thumbnailSize,
+			Theme:         &theme,
+		},
 	}
 	if err := database.Create(shareA).Error; err != nil {
 		t.Fatalf("Create(shareA) error = %v", err)
@@ -786,6 +796,12 @@ func TestInternalSharesReturnsOnlyAuthenticatedNodeShares(t *testing.T) {
 	}
 	if body[0].ShareExpiration == nil || !body[0].ShareExpiration.Equal(expiresAt) {
 		t.Fatalf("body[0].ShareExpiration = %v, want %v", body[0].ShareExpiration, expiresAt)
+	}
+	if body[0].Properties.View == nil || *body[0].Properties.View != view ||
+		body[0].Properties.PageSize == nil || *body[0].Properties.PageSize != pageSize ||
+		body[0].Properties.ThumbnailSize == nil || *body[0].Properties.ThumbnailSize != thumbnailSize ||
+		body[0].Properties.Theme == nil || *body[0].Properties.Theme != theme {
+		t.Fatalf("body[0].Properties = %+v, want assigned share properties", body[0].Properties)
 	}
 	if len(body[0].UserPermissions) != 1 || body[0].UserPermissions[0].UserID != user.ID || len(body[0].UserPermissions[0].Permissions) != 1 {
 		t.Fatalf("body[0].UserPermissions = %+v, want user read", body[0].UserPermissions)
