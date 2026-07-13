@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"html"
 	"image"
-	"image/color"
-	"image/draw"
 	"image/jpeg"
 	_ "image/png"
 	"log"
@@ -23,6 +21,8 @@ import (
 	"time"
 
 	"replica/internal/config"
+
+	xdraw "golang.org/x/image/draw"
 )
 
 const (
@@ -97,9 +97,6 @@ func (s *ThumbnailService) GetOrCreateThumbnail(ctx context.Context, req Thumbna
 	case thumbnailKindImage:
 		if result, ok := s.cachedJPG(req); ok {
 			return result, nil
-		}
-		if s.sourceExceedsImageLimit(req.Source) {
-			return s.getOrCreateGenericSVG(req, label)
 		}
 		return s.getOrCreateJPG(ctx, req, s.generateImageThumbnail)
 	case thumbnailKindVideo:
@@ -187,18 +184,6 @@ func validateLocalThumbnailSource(source ThumbnailSource) error {
 		return ErrThumbnailSourceMissing
 	}
 	return nil
-}
-
-func (s *ThumbnailService) sourceExceedsImageLimit(source ThumbnailSource) bool {
-	if source == nil {
-		return false
-	}
-	limitMB := s.cfg.Sharing.ThumbnailStorageLimitMB
-	if limitMB <= 0 {
-		return false
-	}
-	size := source.Size()
-	return size > int64(limitMB)*1024*1024
 }
 
 func (s *ThumbnailService) getOrCreateJPG(ctx context.Context, req ThumbnailRequest, generate func(context.Context, ThumbnailRequest, string) error) (ThumbnailResult, error) {
@@ -377,32 +362,44 @@ func (s *ThumbnailService) lockPath(path string) func() {
 	}
 }
 
+// actual thumbnail generating function
 func resizeToFit(src image.Image, size int) image.Image {
+	if src == nil || size <= 0 {
+		return nil
+	}
+
 	bounds := src.Bounds()
 	srcW := bounds.Dx()
 	srcH := bounds.Dy()
-	dstW, dstH := srcW, srcH
-	if srcW > size || srcH > size {
-		scale := math.Min(float64(size)/float64(srcW), float64(size)/float64(srcH))
-		dstW = max(1, int(math.Round(float64(srcW)*scale)))
-		dstH = max(1, int(math.Round(float64(srcH)*scale)))
+
+	if srcW <= 0 || srcH <= 0 {
+		return nil
 	}
 
-	dst := image.NewRGBA(image.Rect(0, 0, dstW, dstH))
-	draw.Draw(dst, dst.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
-	for y := 0; y < dstH; y++ {
-		srcY := bounds.Min.Y + int(float64(y)*float64(srcH)/float64(dstH))
-		if srcY >= bounds.Max.Y {
-			srcY = bounds.Max.Y - 1
-		}
-		for x := 0; x < dstW; x++ {
-			srcX := bounds.Min.X + int(float64(x)*float64(srcW)/float64(dstW))
-			if srcX >= bounds.Max.X {
-				srcX = bounds.Max.X - 1
-			}
-			dst.Set(x, y, src.At(srcX, srcY))
-		}
+	// Do not upscale images that already fit.
+	if srcW <= size && srcH <= size {
+		return src
 	}
+
+	scale := math.Min(
+		float64(size)/float64(srcW),
+		float64(size)/float64(srcH),
+	)
+
+	dstW := max(1, int(math.Round(float64(srcW)*scale)))
+	dstH := max(1, int(math.Round(float64(srcH)*scale)))
+
+	dst := image.NewRGBA(image.Rect(0, 0, dstW, dstH))
+
+	xdraw.CatmullRom.Scale(
+		dst,
+		dst.Bounds(),
+		src,
+		bounds,
+		xdraw.Src,
+		nil,
+	)
+
 	return dst
 }
 
