@@ -643,9 +643,6 @@ func parsePositiveQuery(r *http.Request, name string, fallback int) int {
 	if err != nil || value < 1 {
 		return fallback
 	}
-	if name == "count" && value > 100 {
-		return 100
-	}
 	return value
 }
 
@@ -654,9 +651,6 @@ func parsePositiveRequestValue(r *http.Request, name string, fallback int) int {
 	value, err := strconv.Atoi(raw)
 	if err != nil || value < 1 {
 		return fallback
-	}
-	if name == "count" && value > 100 {
-		return 100
 	}
 	return value
 }

@@ -40,6 +40,8 @@ func TestRegisterServesLoginAndStaticAssets(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `htmx:configRequest`) ||
 		!strings.Contains(rec.Body.String(), `Authorization`) ||
 		!strings.Contains(rec.Body.String(), `thumbnail_size`) ||
+		!strings.Contains(rec.Body.String(), `page_size`) ||
+		!strings.Contains(rec.Body.String(), `defaultThumbnailSize`) ||
 		!strings.Contains(rec.Body.String(), `folder_tree_visible`) ||
 		!strings.Contains(rec.Body.String(), `data-actions-menu-button`) {
 		t.Fatalf("share.js body = %s, want HTMX auth header handling", rec.Body.String())
@@ -86,31 +88,57 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 	file.ThumbnailURL = "/s/public-link/files/10/thumbnail?size=256"
 	file.ContentPath = "/w/public-link/files/10/content"
 	file.DownloadPath = "/w/public-link/files/10/content"
+	defaultView := "grid"
+	defaultPageSize := 25
+	defaultThumbnailSize := 256
+	defaultTheme := "dark"
 	grid := renderShareTemplate(t, pageData{
-		Title:          "Photos",
-		Public:         true,
-		Share:          apiclient.Share{ID: 4, Name: "Photos"},
+		Title:  "Photos",
+		Public: true,
+		Share: apiclient.Share{
+			ID:   4,
+			Name: "Photos",
+			Properties: apiclient.ShareProperties{
+				View:          &defaultView,
+				PageSize:      &defaultPageSize,
+				ThumbnailSize: &defaultThumbnailSize,
+				Theme:         &defaultTheme,
+			},
+		},
 		Files:          []fileView{file},
 		Permissions:    []string{"read", "update", "delete"},
 		Page:           1,
-		Count:          20,
+		Count:          25,
 		Total:          1,
 		BasePath:       "/w/public-link",
 		APIBasePath:    "/s/public-link",
 		ThumbnailSizes: []int{128, 256},
 		ThumbnailSize:  256,
 		ViewMode:       "grid",
+		ShowPagination: true,
 	})
 	for _, want := range []string{
 		`class="file-grid"`,
 		`src="/s/public-link/files/10/thumbnail?size=256"`,
 		`href="/w/public-link/files/10/content"`,
+		`data-default-view="grid"`,
+		`data-default-page-size="25"`,
+		`data-default-thumbnail-size="256"`,
+		`data-default-theme="dark"`,
+		`<option value="25" selected>25</option>`,
 		`Replace`,
 		`Delete`,
 	} {
 		if !strings.Contains(grid, want) {
 			t.Fatalf("grid view = %s, want %q", grid, want)
 		}
+	}
+}
+
+func TestSharePaginationDoesNotCapPageSize(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/share/shares/4?count=250", nil)
+	if got := parseCount(r); got != 250 {
+		t.Fatalf("parseCount() = %d, want 250", got)
 	}
 }
 

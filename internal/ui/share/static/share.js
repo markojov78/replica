@@ -166,7 +166,16 @@
 
   function bindTheme() {
     const themeKey = prefix + "theme";
-    applyTheme(localStorage.getItem(themeKey));
+    const viewRoot = document.querySelector("[data-share-file-view]");
+    const storedTheme = localStorage.getItem(themeKey);
+    if (storedTheme !== "light" && storedTheme !== "dark") {
+      if (storedTheme) {
+        localStorage.removeItem(themeKey);
+      }
+      applyTheme(viewRoot?.dataset.defaultTheme);
+    } else {
+      applyTheme(storedTheme);
+    }
     document.body.addEventListener("click", (event) => {
       const button = event.target.closest("[data-share-theme-toggle] [data-theme]");
       if (!button) {
@@ -343,52 +352,105 @@
     const viewKey = prefix + "file_view_mode";
     const browseKey = prefix + "file_browse_mode";
     const thumbKey = prefix + "thumbnail_size";
+    const pageSizeKey = prefix + "page_size";
     const params = new URLSearchParams(window.location.search);
     const current = viewRoot.dataset.viewMode === "grid" ? "grid" : "list";
     const currentBrowse = viewRoot.dataset.browseMode === "tree" ? "tree" : "flat";
     const currentThumb = viewRoot.dataset.thumbnailSize || "";
-    if (params.has("view")) {
-      localStorage.setItem(viewKey, current);
-    }
-    if (params.has("browse")) {
-      localStorage.setItem(browseKey, currentBrowse);
-    }
-    if (params.has("thumb") && currentThumb) {
-      localStorage.setItem(thumbKey, currentThumb);
-    }
+    const currentPageSize = viewRoot.dataset.pageSize || "20";
+    const defaultView = viewRoot.dataset.defaultView || "";
+    const defaultThumb = viewRoot.dataset.defaultThumbnailSize || "";
+    const defaultPageSize = viewRoot.dataset.defaultPageSize || "";
+    const allowedThumbs = new Set([...viewRoot.querySelectorAll('select[name="thumb"] option')].map((option) => option.value));
 
-    const storedView = localStorage.getItem(viewKey);
-    const storedBrowse = localStorage.getItem(browseKey);
-    const storedThumb = localStorage.getItem(thumbKey);
+    let storedView = localStorage.getItem(viewKey);
+    let storedBrowse = localStorage.getItem(browseKey);
+    let storedThumb = localStorage.getItem(thumbKey);
+    let storedPageSize = localStorage.getItem(pageSizeKey);
     let changed = false;
 
     if (storedView !== "grid" && storedView !== "list") {
-      localStorage.setItem(viewKey, current);
-    } else if (!params.has("view") && storedView !== current) {
-      params.set("view", storedView);
-      changed = true;
+      if (storedView) {
+        localStorage.removeItem(viewKey);
+      }
+      storedView = "";
+    }
+    if (!params.has("view")) {
+      const preferredView = storedView || (defaultView === "grid" || defaultView === "list" ? defaultView : "");
+      if (preferredView && preferredView !== current) {
+        params.set("view", preferredView);
+        changed = true;
+      }
     }
 
     if (storedBrowse !== "tree" && storedBrowse !== "flat") {
-      localStorage.setItem(browseKey, currentBrowse);
+      if (storedBrowse) {
+        localStorage.removeItem(browseKey);
+      }
+      storedBrowse = "";
     } else if (!params.has("browse") && storedBrowse !== currentBrowse) {
       params.set("browse", storedBrowse);
       changed = true;
     }
 
-    if (!storedThumb || !/^\d+$/.test(storedThumb)) {
-      if (currentThumb) {
-        localStorage.setItem(thumbKey, currentThumb);
+    if (!storedThumb || !/^\d+$/.test(storedThumb) || !allowedThumbs.has(storedThumb)) {
+      if (storedThumb) {
+        localStorage.removeItem(thumbKey);
       }
-    } else if (!params.has("thumb") && storedThumb !== currentThumb) {
-      params.set("thumb", storedThumb);
-      changed = true;
+      storedThumb = "";
+    }
+    if (!params.has("thumb")) {
+      const preferredThumb = storedThumb || (allowedThumbs.has(defaultThumb) ? defaultThumb : "");
+      if (preferredThumb && preferredThumb !== currentThumb) {
+        params.set("thumb", preferredThumb);
+        changed = true;
+      }
+    }
+
+    if (!storedPageSize || !/^\d+$/.test(storedPageSize) || Number(storedPageSize) < 1) {
+      if (storedPageSize) {
+        localStorage.removeItem(pageSizeKey);
+      }
+      storedPageSize = "";
+    }
+    if (!params.has("count")) {
+      const validDefaultPageSize = /^\d+$/.test(defaultPageSize) && Number(defaultPageSize) > 0 ? defaultPageSize : "";
+      const preferredPageSize = storedPageSize || validDefaultPageSize;
+      if (preferredPageSize && preferredPageSize !== currentPageSize) {
+        params.set("count", preferredPageSize);
+        changed = true;
+      }
     }
 
     if (!changed) {
       return;
     }
     window.location.replace(`${window.location.pathname}?${params.toString()}`);
+  }
+
+  function bindFilePreferenceControls() {
+    document.body.addEventListener("click", (event) => {
+      const view = event.target.closest("[data-share-view-toggle] [data-view-mode]");
+      if (view) {
+        localStorage.setItem(prefix + "file_view_mode", view.dataset.viewMode);
+        return;
+      }
+      const browse = event.target.closest("[data-share-browse-toggle] [data-browse-mode]");
+      if (browse) {
+        localStorage.setItem(prefix + "file_browse_mode", browse.dataset.browseMode);
+      }
+    });
+    document.body.addEventListener("change", (event) => {
+      const select = event.target;
+      if (!(select instanceof HTMLSelectElement)) {
+        return;
+      }
+      if (select.name === "thumb") {
+        localStorage.setItem(prefix + "thumbnail_size", select.value);
+      } else if (select.name === "count") {
+        localStorage.setItem(prefix + "page_size", select.value);
+      }
+    });
   }
 
   function bindFolderTreePanel() {
@@ -457,6 +519,7 @@
   });
 
   bindTheme();
+  bindFilePreferenceControls();
 
   if (document.body.dataset.shareAuthenticated === "true") {
     bindUploadFilenamePrefill();

@@ -152,7 +152,7 @@
 
 {{define "share_files"}}
 {{template "layout_start" .}}
-<section class="panel" data-share-file-view data-view-mode="{{.ViewMode}}" data-browse-mode="{{.BrowseMode}}" data-thumbnail-size="{{.ThumbnailSize}}">
+<section class="panel" data-share-file-view data-view-mode="{{.ViewMode}}" data-browse-mode="{{.BrowseMode}}" data-thumbnail-size="{{.ThumbnailSize}}" data-page-size="{{.Count}}" data-default-view="{{with .Share.Properties.View}}{{.}}{{end}}" data-default-page-size="{{with .Share.Properties.PageSize}}{{.}}{{end}}" data-default-thumbnail-size="{{with .Share.Properties.ThumbnailSize}}{{.}}{{end}}" data-default-theme="{{with .Share.Properties.Theme}}{{.}}{{end}}">
   <div class="section-head">
     <div>
       {{if .Authenticated}}<a class="back-link" href="/share/shares">My shares</a>{{end}}
@@ -321,6 +321,7 @@
     <input type="hidden" name="browse" value="{{.BrowseMode}}">
     {{if .TreePath}}<input type="hidden" name="path" value="{{.TreePath}}">{{end}}
     <select name="count" onchange="this.form.requestSubmit()">
+      {{if and (ne .Count 20) (ne .Count 50) (ne .Count 100)}}<option value="{{.Count}}" selected>{{.Count}}</option>{{end}}
       <option value="20" {{if eq .Count 20}}selected{{end}}>20</option>
       <option value="50" {{if eq .Count 50}}selected{{end}}>50</option>
       <option value="100" {{if eq .Count 100}}selected{{end}}>100</option>
