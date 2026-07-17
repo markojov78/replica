@@ -126,13 +126,25 @@ func relativeURI(rootPath, fullPath string) (string, error) {
 	return normalizeRelativeURI(relPath), nil
 }
 
-func fileStateFromPath(ctx context.Context, rootPath, fullPath string, oldStates map[string]FileState) (*FileState, error) {
+func fileStateFromPath(ctx context.Context, rootPath, fullPath string, followSymlink bool, oldStates map[string]FileState) (*FileState, error) {
 	info, err := os.Lstat(fullPath)
 	if err != nil {
 		return nil, err
 	}
-	if info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+	if info.IsDir() {
 		return nil, nil
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		if !followSymlink {
+			return nil, nil
+		}
+		info, err = os.Stat(fullPath)
+		if err != nil {
+			return nil, err
+		}
+		if info.IsDir() {
+			return nil, nil
+		}
 	}
 
 	rel, err := relativeURI(rootPath, fullPath)

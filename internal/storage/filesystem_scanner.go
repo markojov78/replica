@@ -29,7 +29,7 @@ func (s *FilesystemScanner) Scan(ctx context.Context, rootURI string, oldStates 
 			if isTemporaryWritePath(root.scanPath) {
 				continue
 			}
-			state, err := fileStateFromPath(ctx, root.relativeDir, root.scanPath, oldStates)
+			state, err := fileStateFromPath(ctx, root.relativeDir, root.scanPath, false, oldStates)
 			if os.IsNotExist(err) {
 				continue
 			}
@@ -61,7 +61,7 @@ func (s *FilesystemScanner) Scan(ctx context.Context, rootURI string, oldStates 
 		if isTemporaryWritePath(root.scanPath) {
 			return states, nil
 		}
-		state, err := fileStateFromPath(ctx, root.relativeDir, root.scanPath, oldStates)
+		state, err := fileStateFromPath(ctx, root.relativeDir, root.scanPath, false, oldStates)
 		if os.IsNotExist(err) {
 			return states, nil
 		}
@@ -95,7 +95,7 @@ func (s *FilesystemScanner) Scan(ctx context.Context, rootURI string, oldStates 
 			return nil
 		}
 
-		state, err := fileStateFromPath(ctx, root.relativeDir, path, oldStates)
+		state, err := fileStateFromPath(ctx, root.relativeDir, path, false, oldStates)
 		if err != nil {
 			return err
 		}

@@ -109,7 +109,7 @@ func filesystemChangesForEvent(ctx context.Context, watcher *fsnotify.Watcher, r
 		_ = watcher.Remove(event.Name)
 	}
 
-	state, err := fileStateFromPath(ctx, root.relativeDir, event.Name, nil)
+	state, err := fileStateFromPath(ctx, root.relativeDir, event.Name, false, nil)
 	if err == nil && state != nil {
 		changeType := FileChangeTypeModified
 		if event.Has(fsnotify.Create) {
