@@ -174,3 +174,40 @@ func TestFilesystemWatcherEmptyTargetsWatchTree(t *testing.T) {
 		})
 	}
 }
+
+func TestFilesystemWatcherReportsExternalSymlinkTargetChanges(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(t.TempDir(), "target.txt")
+	if err := os.WriteFile(target, []byte("before"), 0o644); err != nil {
+		t.Fatalf("WriteFile(target) error = %v", err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "linked.txt")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	changeCh, errCh, err := NewFilesystemWatcher(true).Watch(ctx, root, nil)
+	if err != nil {
+		t.Fatalf("Watch() error = %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if err := os.WriteFile(target, []byte("after target update"), 0o644); err != nil {
+		t.Fatalf("WriteFile(updated target) error = %v", err)
+	}
+
+	for {
+		select {
+		case err := <-errCh:
+			if err != nil {
+				t.Fatalf("watcher error = %v", err)
+			}
+		case change := <-changeCh:
+			if change.RelativeURI == "linked.txt" && change.State != nil && change.State.Size == int64(len("after target update")) {
+				return
+			}
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for symlink target change")
+		}
+	}
+}

@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 )
 
-type FilesystemScanner struct{}
+type FilesystemScanner struct {
+	followSymlinks bool
+}
 
-func NewFilesystemScanner() *FilesystemScanner {
-	return &FilesystemScanner{}
+func NewFilesystemScanner(followSymlinks ...bool) *FilesystemScanner {
+	return &FilesystemScanner{followSymlinks: len(followSymlinks) > 0 && followSymlinks[0]}
 }
 
 func (s *FilesystemScanner) Scan(ctx context.Context, rootURI string, oldStates map[string]FileState, targetRelativeURI ...string) ([]FileState, error) {
@@ -29,7 +31,7 @@ func (s *FilesystemScanner) Scan(ctx context.Context, rootURI string, oldStates 
 			if isTemporaryWritePath(root.scanPath) {
 				continue
 			}
-			state, err := fileStateFromPath(ctx, root.relativeDir, root.scanPath, false, oldStates)
+			state, err := fileStateFromPath(ctx, root.relativeDir, root.scanPath, s.followSymlinks, oldStates)
 			if os.IsNotExist(err) {
 				continue
 			}
@@ -61,7 +63,7 @@ func (s *FilesystemScanner) Scan(ctx context.Context, rootURI string, oldStates 
 		if isTemporaryWritePath(root.scanPath) {
 			return states, nil
 		}
-		state, err := fileStateFromPath(ctx, root.relativeDir, root.scanPath, false, oldStates)
+		state, err := fileStateFromPath(ctx, root.relativeDir, root.scanPath, s.followSymlinks, oldStates)
 		if os.IsNotExist(err) {
 			return states, nil
 		}
@@ -91,11 +93,7 @@ func (s *FilesystemScanner) Scan(ctx context.Context, rootURI string, oldStates 
 		if entry.IsDir() {
 			return nil
 		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return nil
-		}
-
-		state, err := fileStateFromPath(ctx, root.relativeDir, path, false, oldStates)
+		state, err := fileStateFromPath(ctx, root.relativeDir, path, s.followSymlinks, oldStates)
 		if err != nil {
 			return err
 		}

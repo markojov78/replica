@@ -272,7 +272,7 @@ func (r *Runtime) reportStartupLocalChanges(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("startup scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
 		}
-		scanner, err := GetScanner(ctx, replica.URI, profile)
+		scanner, err := GetScanner(ctx, replica.URI, profile, replicaFollowsSymlinks(replica))
 		if err != nil {
 			return fmt.Errorf("startup scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
 		}
@@ -523,7 +523,7 @@ func (r *Runtime) ensureReplicaWatcher(ctx context.Context, replica apiclient.Re
 	if err != nil {
 		return err
 	}
-	watcher, err := GetWatcher(ctx, replica.URI, profile)
+	watcher, err := GetWatcher(ctx, replica.URI, profile, replicaFollowsSymlinks(replica))
 	if err != nil {
 		return err
 	}
@@ -696,7 +696,7 @@ func (r *Runtime) currentFileState(ctx context.Context, replica apiclient.Replic
 	if err != nil {
 		return FileState{}, false, err
 	}
-	scanner, err := GetScanner(ctx, replica.URI, profile)
+	scanner, err := GetScanner(ctx, replica.URI, profile, replicaFollowsSymlinks(replica))
 	if err != nil {
 		return FileState{}, false, err
 	}
@@ -959,7 +959,7 @@ func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Comman
 	if err != nil {
 		return err
 	}
-	writer, err := GetWriter(ctx, destination.URI, profile)
+	writer, err := GetWriter(ctx, destination.URI, profile, replicaFollowsSymlinks(destination))
 	if err != nil {
 		return err
 	}
@@ -1159,7 +1159,7 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 	if err != nil {
 		return err
 	}
-	scanner, err := GetScanner(ctx, replica.URI, profile)
+	scanner, err := GetScanner(ctx, replica.URI, profile, replicaFollowsSymlinks(replica))
 	if err != nil {
 		return err
 	}
@@ -1194,6 +1194,10 @@ func replicaFileReports(files []apiclient.ReplicaInventoryFile, states []FileSta
 
 func replicaIsActive(replica apiclient.Replica) bool {
 	return replica.Status == "" || replica.Status == "active"
+}
+
+func replicaFollowsSymlinks(replica apiclient.Replica) bool {
+	return replica.Type == "filesystem" && replica.FollowSymlinks
 }
 
 func replicaScanTargets(replica apiclient.Replica, files []apiclient.ReplicaInventoryFile) ([]string, error) {

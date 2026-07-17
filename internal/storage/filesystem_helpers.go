@@ -14,12 +14,14 @@ import (
 )
 
 type filesystemRoot struct {
-	scanPath    string
-	relativeDir string
-	watchPath   string
-	targetPath  string
-	targetPaths map[string]struct{}
-	singleFile  bool
+	scanPath            string
+	relativeDir         string
+	watchPath           string
+	targetPath          string
+	targetPaths         map[string]struct{}
+	symlinkTargets      map[string][]string
+	symlinkTargetByLink map[string]string
+	singleFile          bool
 }
 
 func normalizeRelativeURI(path string) string {

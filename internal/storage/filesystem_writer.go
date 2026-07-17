@@ -11,16 +11,36 @@ import (
 	"strings"
 )
 
-type FilesystemWriter struct{}
+type FilesystemWriter struct {
+	followSymlinks bool
+}
 
-func NewFilesystemWriter() *FilesystemWriter {
-	return &FilesystemWriter{}
+func NewFilesystemWriter(followSymlinks ...bool) *FilesystemWriter {
+	return &FilesystemWriter{followSymlinks: len(followSymlinks) > 0 && followSymlinks[0]}
 }
 
 func (w *FilesystemWriter) Save(ctx context.Context, replicaURI string, relativeURI string, content io.Reader, _ int64) error {
 	targetPath, err := resolveFilesystemWritePath(replicaURI, relativeURI)
 	if err != nil {
 		return err
+	}
+	if w.followSymlinks {
+		info, statErr := os.Lstat(targetPath)
+		if statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			targetPath, err = filepath.EvalSymlinks(targetPath)
+			if err != nil {
+				return err
+			}
+			targetInfo, err := os.Stat(targetPath)
+			if err != nil {
+				return err
+			}
+			if targetInfo.IsDir() {
+				return fmt.Errorf("symlink target is a directory: %s", targetPath)
+			}
+		} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			return statErr
+		}
 	}
 
 	targetDir := filepath.Dir(targetPath)

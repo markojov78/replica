@@ -308,6 +308,10 @@ When replica B requires a newer file version from replica A:
 6. Replica B verifies transferred file hash and size
 7. Replica B reports successful synchronization to coordinator
 
+For filesystem replicas with `follow_symlinks` enabled, scans and change reports use a file symlink's target metadata
+and content. Replicated updates are written to the target while preserving the symlink. Replicated deletes remove the
+symlink itself without removing its target. Directory symlinks are ignored.
+
 Depending on deployment topology, file transfer can happen:
 - directly between storage node
 - through VPN or overlay network such as Tailscale or ZeroTier

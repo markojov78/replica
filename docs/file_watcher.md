@@ -122,7 +122,9 @@ Behavior:
 - when `rootURI` is a directory, walks recursively through subdirectories
 - when `rootURI` is a file, returns exactly one file entry for that file
 - ignores directories as scan results
-- ignores symlinks for now
+- ignores symlinks unless the filesystem replica has `follow_symlinks` enabled
+- when `follow_symlinks` is enabled, includes file symlinks using the target file's metadata and content while keeping
+  the symlink path as `RelativeURI`; directory symlinks remain ignored
 - ignores temporary write paths whose basename starts with `TemporaryWritePrefix` defined in `internal/storage/temporary_files.go`
 - computes a BLAKE3 content hash for each file unless unchanged old metadata allows reusing a known hash
 - normalizes relative paths using slash separators
@@ -158,6 +160,7 @@ Behavior:
 - when a new directory is created, adds watches for that directory tree
 - converts `fsnotify` events into normalized `FileChange` values
 - stats the file when possible and includes `State` for existing files
+- follows file symlinks for metadata and content when the filesystem replica has `follow_symlinks` enabled
 - removes directory watches when remove events occur
 - ignores events for temporary write paths whose basename starts with`TemporaryWritePrefix` defined in `internal/storage/temporary_files.go`
 

@@ -151,7 +151,7 @@ func compareSnapshots(previous, current []FileState) []FileChange {
 var s3Provider = &S3ClientProvider{}
 
 // Scanner factory to resolve scanner implementation from uri scheme
-func GetScanner(ctx context.Context, uri string, profile *config.StorageProfileConfig) (Scanner, error) {
+func GetScanner(ctx context.Context, uri string, profile *config.StorageProfileConfig, followSymlinks ...bool) (Scanner, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
@@ -165,13 +165,13 @@ func GetScanner(ctx context.Context, uri string, profile *config.StorageProfileC
 		}
 		return NewS3Scanner(s3client), nil
 	case "file", "": // plain local path
-		return NewFilesystemScanner(), nil
+		return NewFilesystemScanner(followSymlinks...), nil
 	default:
 		return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)
 	}
 }
 
-func GetWatcher(ctx context.Context, uri string, profile *config.StorageProfileConfig) (Watcher, error) {
+func GetWatcher(ctx context.Context, uri string, profile *config.StorageProfileConfig, followSymlinks ...bool) (Watcher, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
@@ -189,14 +189,14 @@ func GetWatcher(ctx context.Context, uri string, profile *config.StorageProfileC
 		return NewS3Watcher(scanner, interval), nil
 
 	case "file", "":
-		return NewFilesystemWatcher(), nil
+		return NewFilesystemWatcher(followSymlinks...), nil
 
 	default:
 		return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)
 	}
 }
 
-func GetWriter(ctx context.Context, uri string, profile *config.StorageProfileConfig) (Writer, error) {
+func GetWriter(ctx context.Context, uri string, profile *config.StorageProfileConfig, followSymlinks ...bool) (Writer, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
@@ -211,7 +211,7 @@ func GetWriter(ctx context.Context, uri string, profile *config.StorageProfileCo
 		return NewS3Writer(client), nil
 
 	case "file", "":
-		return NewFilesystemWriter(), nil
+		return NewFilesystemWriter(followSymlinks...), nil
 
 	default:
 		return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)

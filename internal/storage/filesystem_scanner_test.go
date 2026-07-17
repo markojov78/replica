@@ -271,3 +271,62 @@ func TestFilesystemScannerIgnoresTemporarySingleFileRoot(t *testing.T) {
 		t.Fatalf("states = %+v, want empty", states)
 	}
 }
+
+func TestFilesystemScannerFollowsFileSymlinksWhenEnabled(t *testing.T) {
+	root := t.TempDir()
+	targetDir := t.TempDir()
+	target := filepath.Join(targetDir, "target.txt")
+	if err := os.WriteFile(target, []byte("first"), 0o644); err != nil {
+		t.Fatalf("WriteFile(target) error = %v", err)
+	}
+	link := filepath.Join(root, "linked.txt")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	ignored, err := NewFilesystemScanner().Scan(context.Background(), root, nil)
+	if err != nil {
+		t.Fatalf("Scan(disabled) error = %v", err)
+	}
+	if len(ignored) != 0 {
+		t.Fatalf("disabled states = %+v, want empty", ignored)
+	}
+
+	first, err := NewFilesystemScanner(true).Scan(context.Background(), root, nil)
+	if err != nil {
+		t.Fatalf("Scan(enabled) error = %v", err)
+	}
+	if len(first) != 1 || first[0].RelativeURI != "linked.txt" || first[0].Size != 5 {
+		t.Fatalf("first states = %+v, want linked.txt target metadata", first)
+	}
+
+	if err := os.WriteFile(target, []byte("updated target"), 0o644); err != nil {
+		t.Fatalf("WriteFile(updated target) error = %v", err)
+	}
+	second, err := NewFilesystemScanner(true).Scan(context.Background(), root, fileStateMap(first))
+	if err != nil {
+		t.Fatalf("Scan(updated target) error = %v", err)
+	}
+	if len(second) != 1 || second[0].Size != int64(len("updated target")) || second[0].Hash == first[0].Hash {
+		t.Fatalf("second states = %+v, want changed target state", second)
+	}
+}
+
+func TestFilesystemScannerIgnoresDirectorySymlinksWhenFollowingFiles(t *testing.T) {
+	root := t.TempDir()
+	targetDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(targetDir, "file.txt"), []byte("content"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.Symlink(targetDir, filepath.Join(root, "linked-dir")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	states, err := NewFilesystemScanner(true).Scan(context.Background(), root, nil)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if len(states) != 0 {
+		t.Fatalf("states = %+v, want directory symlink ignored", states)
+	}
+}

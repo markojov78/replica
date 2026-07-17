@@ -78,6 +78,7 @@ type Replica struct {
 	Type              string `json:"type"`
 	UpstreamReplicaID *uint  `json:"upstream_replica_id"`
 	StorageProfile    string `json:"storage_profile"`
+	FollowSymlinks    bool   `json:"follow_symlinks"`
 }
 
 type ReplicaFile struct {

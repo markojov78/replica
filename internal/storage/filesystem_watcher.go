@@ -9,12 +9,14 @@ import (
 )
 
 type FilesystemWatcher struct {
-	newWatcher func() (*fsnotify.Watcher, error)
+	newWatcher     func() (*fsnotify.Watcher, error)
+	followSymlinks bool
 }
 
-func NewFilesystemWatcher() *FilesystemWatcher {
+func NewFilesystemWatcher(followSymlinks ...bool) *FilesystemWatcher {
 	return &FilesystemWatcher{
-		newWatcher: fsnotify.NewWatcher,
+		newWatcher:     fsnotify.NewWatcher,
+		followSymlinks: len(followSymlinks) > 0 && followSymlinks[0],
 	}
 }
 
@@ -31,6 +33,14 @@ func (w *FilesystemWatcher) Watch(ctx context.Context, rootURI string, targetRel
 	if err := addRecursiveWatches(fsw, root.watchPath); err != nil {
 		_ = fsw.Close()
 		return nil, nil, err
+	}
+	if w.followSymlinks {
+		root.symlinkTargets = make(map[string][]string)
+		root.symlinkTargetByLink = make(map[string]string)
+		if err := addFileSymlinkWatches(fsw, &root); err != nil {
+			_ = fsw.Close()
+			return nil, nil, err
+		}
 	}
 
 	changeCh := make(chan FileChange)
@@ -59,7 +69,7 @@ func (w *FilesystemWatcher) run(ctx context.Context, fsw *fsnotify.Watcher, root
 			if !ok {
 				return
 			}
-			changes, err := filesystemChangesForEvent(ctx, fsw, root, event)
+			changes, err := filesystemChangesForEvent(ctx, fsw, root, event, w.followSymlinks)
 			if err != nil {
 				sendError(ctx, errCh, err)
 				sendChange(ctx, changeCh, FileChange{ChangeType: FileChangeTypeRescanRequired})
@@ -84,7 +94,68 @@ func addRecursiveWatches(watcher *fsnotify.Watcher, rootPath string) error {
 	})
 }
 
-func filesystemChangesForEvent(ctx context.Context, watcher *fsnotify.Watcher, root filesystemRoot, event fsnotify.Event) ([]FileChange, error) {
+func addFileSymlinkWatches(watcher *fsnotify.Watcher, root *filesystemRoot) error {
+	return filepath.WalkDir(root.scanPath, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.Type()&os.ModeSymlink == 0 {
+			return nil
+		}
+		return registerFileSymlinkWatch(watcher, root, path)
+	})
+}
+
+func registerFileSymlinkWatch(watcher *fsnotify.Watcher, root *filesystemRoot, linkPath string) error {
+	targetPath, err := filepath.EvalSymlinks(linkPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	info, err := os.Stat(targetPath)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return nil
+	}
+	linkPath = filepath.Clean(linkPath)
+	targetPath = filepath.Clean(targetPath)
+	if previous, ok := root.symlinkTargetByLink[linkPath]; ok && previous == targetPath {
+		return nil
+	}
+	if err := watcher.Add(filepath.Dir(targetPath)); err != nil {
+		return err
+	}
+	root.symlinkTargetByLink[linkPath] = targetPath
+	root.symlinkTargets[targetPath] = append(root.symlinkTargets[targetPath], linkPath)
+	return nil
+}
+
+func unregisterFileSymlink(root filesystemRoot, linkPath string) {
+	linkPath = filepath.Clean(linkPath)
+	targetPath, ok := root.symlinkTargetByLink[linkPath]
+	if !ok {
+		return
+	}
+	delete(root.symlinkTargetByLink, linkPath)
+	links := root.symlinkTargets[targetPath]
+	for i, candidate := range links {
+		if candidate == linkPath {
+			links = append(links[:i], links[i+1:]...)
+			break
+		}
+	}
+	if len(links) == 0 {
+		delete(root.symlinkTargets, targetPath)
+	} else {
+		root.symlinkTargets[targetPath] = links
+	}
+}
+
+func filesystemChangesForEvent(ctx context.Context, watcher *fsnotify.Watcher, root filesystemRoot, event fsnotify.Event, followSymlinks ...bool) ([]FileChange, error) {
 	if isTemporaryWritePath(event.Name) {
 		return nil, nil
 	}
@@ -99,6 +170,32 @@ func filesystemChangesForEvent(ctx context.Context, watcher *fsnotify.Watcher, r
 		if err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
+		if err == nil && followSymlinkEnabled(followSymlinks) && info.Mode()&os.ModeSymlink != 0 {
+			if err := registerFileSymlinkWatch(watcher, &root, event.Name); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if links := root.symlinkTargets[filepath.Clean(event.Name)]; len(links) > 0 {
+		changes := make([]FileChange, 0, len(links))
+		for _, linkPath := range links {
+			state, stateErr := fileStateFromPath(ctx, root.relativeDir, linkPath, true, nil)
+			if stateErr == nil && state != nil {
+				stateCopy := *state
+				changes = append(changes, FileChange{RelativeURI: state.RelativeURI, ChangeType: FileChangeTypeModified, State: &stateCopy})
+				continue
+			}
+			if stateErr != nil && !os.IsNotExist(stateErr) {
+				return nil, stateErr
+			}
+			rel, err := relativeURI(root.relativeDir, linkPath)
+			if err != nil {
+				return nil, err
+			}
+			changes = append(changes, FileChange{RelativeURI: rel, ChangeType: FileChangeTypeDeleted})
+		}
+		return changes, nil
 	}
 
 	if !root.includesPath(event.Name) {
@@ -107,9 +204,11 @@ func filesystemChangesForEvent(ctx context.Context, watcher *fsnotify.Watcher, r
 
 	if event.Has(fsnotify.Remove) {
 		_ = watcher.Remove(event.Name)
+		unregisterFileSymlink(root, event.Name)
 	}
 
-	state, err := fileStateFromPath(ctx, root.relativeDir, event.Name, false, nil)
+	followSymlink := followSymlinkEnabled(followSymlinks)
+	state, err := fileStateFromPath(ctx, root.relativeDir, event.Name, followSymlink, nil)
 	if err == nil && state != nil {
 		changeType := FileChangeTypeModified
 		if event.Has(fsnotify.Create) {
@@ -142,6 +241,10 @@ func filesystemChangesForEvent(ctx context.Context, watcher *fsnotify.Watcher, r
 		RelativeURI: rel,
 		ChangeType:  FileChangeTypeRescanRequired,
 	}}, nil
+}
+
+func followSymlinkEnabled(values []bool) bool {
+	return len(values) > 0 && values[0]
 }
 
 func sendChange(ctx context.Context, changeCh chan<- FileChange, change FileChange) {
