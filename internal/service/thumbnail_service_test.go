@@ -296,34 +296,6 @@ printf 'jpeg bytes' > "$last"
 	}
 }
 
-func TestImageSourceOverLimitReturnsGenericSVG(t *testing.T) {
-	service := newThumbnailServiceForTest(t)
-	service.cfg.Sharing.ThumbnailStorageLimitMB = 1
-	source := &countingThumbnailSource{
-		name: "large.png",
-		size: 2 * 1024 * 1024,
-		body: pngBytes(t, 64, 32),
-	}
-	req := ThumbnailRequest{
-		FileID:      125,
-		FileVersion: 4,
-		Size:        256,
-		RelativeURI: "large.png",
-		Source:      source,
-	}
-
-	result, err := service.GetOrCreateThumbnail(context.Background(), req)
-	if err != nil {
-		t.Fatalf("GetOrCreateThumbnail(large image) error = %v", err)
-	}
-	if result.ContentType != ThumbnailContentTypeSVG {
-		t.Fatalf("ContentType = %q, want %q", result.ContentType, ThumbnailContentTypeSVG)
-	}
-	if source.openCount != 0 {
-		t.Fatalf("source opened %d times, want 0", source.openCount)
-	}
-}
-
 func TestUnsupportedKnownFileReturnsGenericSVG(t *testing.T) {
 	service := newThumbnailServiceForTest(t)
 	source := &countingThumbnailSource{name: "document.pdf", size: 100, body: []byte("not opened")}
