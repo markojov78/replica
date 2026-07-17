@@ -145,6 +145,7 @@
       const typeSelect = form.querySelector("[data-replica-type]");
       const profileField = form.querySelector("[data-storage-profile-field]");
       const profileSelect = profileField?.querySelector("select");
+      const followSymlinks = form.querySelector("[data-follow-symlinks]");
       const syncProfile = () => {
         const enabled = typeSelect?.value === "storage";
         if (profileSelect) {
@@ -154,9 +155,16 @@
           }
         }
       };
+      const syncFollowSymlinks = () => {
+        if (followSymlinks) {
+          followSymlinks.disabled = typeSelect?.value !== "filesystem";
+        }
+      };
 
       typeSelect?.addEventListener("change", syncProfile);
+      typeSelect?.addEventListener("change", syncFollowSymlinks);
       syncProfile();
+      syncFollowSymlinks();
     }
   }
 

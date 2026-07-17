@@ -114,6 +114,7 @@ type Replica struct {
 	Type              ReplicaType   `gorm:"size:32;not null" json:"type"`
 	UpstreamReplicaID *uint         `gorm:"index" json:"upstream_replica_id,omitempty"`
 	StorageProfile    string        `gorm:"size:255" json:"storage_profile,omitempty"`
+	FollowSymlinks    bool          `gorm:"not null;default:false" json:"follow_symlinks"`
 	Inventory         Inventory     `gorm:"foreignKey:InventoryID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
 	Node              Node          `gorm:"foreignKey:NodeID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
 	UpstreamReplica   *Replica      `gorm:"foreignKey:UpstreamReplicaID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;" json:"-"`

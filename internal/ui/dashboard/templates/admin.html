@@ -559,6 +559,7 @@
     <label data-storage-profile-field>Storage profile<select name="storage_profile" {{if ne .Replica.Type "storage"}}disabled{{end}}><option value="" {{if eq .Replica.StorageProfile ""}}selected{{end}}>None</option>{{range .StorageProfiles}}<option value="{{.}}" {{if eq . $.Replica.StorageProfile}}selected{{end}}>{{.}}</option>{{end}}</select></label>
     {{if .IsEdit}}<label>Status<select name="status"><option value="active" {{if eq .Replica.Status "active"}}selected{{end}}>active</option><option value="deleted" {{if eq .Replica.Status "deleted"}}selected{{end}}>deleted</option></select></label>{{end}}
     <label>Upstream replica<select name="upstream_replica_id"><option value="">None · base replica</option>{{range .Inventory.Replicas}}{{if ne .ID $.Replica.ID}}<option value="{{.ID}}" {{if isUpstream .ID $.Replica.UpstreamReplicaID}}selected{{end}}>#{{.ID}} · {{.NodeID}}</option>{{end}}{{end}}</select></label>
+    <label class="checkbox-field"><input name="follow_symlinks" type="checkbox" data-follow-symlinks {{if .Replica.FollowSymlinks}}checked{{end}} {{if and (ne .Replica.Type "") (ne .Replica.Type "filesystem")}}disabled{{end}}> Follow symlinks</label>
     <div class="footer-actions full"><a class="btn" href="/dashboard/inventories/{{.Inventory.ID}}">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save replica{{else}}Create replica{{end}}</button></div>
   </form>
 </section>

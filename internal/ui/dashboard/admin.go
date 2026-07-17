@@ -69,6 +69,7 @@ type replica struct {
 	Type              string `json:"type"`
 	UpstreamReplicaID *uint  `json:"upstream_replica_id"`
 	StorageProfile    string `json:"storage_profile"`
+	FollowSymlinks    bool   `json:"follow_symlinks"`
 }
 
 type replicaList struct {
@@ -668,12 +669,14 @@ func (h *Handler) createReplica(w http.ResponseWriter, r *http.Request, sess aut
 		"uri":             strings.TrimSpace(r.FormValue("uri")),
 		"type":            replicaType,
 		"storage_profile": storageProfile,
+		"follow_symlinks": r.FormValue("follow_symlinks") == "on",
 	}
 	if !h.validStorageProfile(storageProfile) {
 		h.replicaFormError(w, r, sess, false, replica{
 			InventoryID: uint(inventoryID), NodeID: r.FormValue("node_id"), URI: r.FormValue("uri"),
 			Type: replicaType, UpstreamReplicaID: optionalUint(r.FormValue("upstream_replica_id")),
 			StorageProfile: storageProfile,
+			FollowSymlinks: r.FormValue("follow_symlinks") == "on",
 		}, "Storage profile must match a configured profile.")
 		return
 	}
@@ -689,6 +692,7 @@ func (h *Handler) createReplica(w http.ResponseWriter, r *http.Request, sess aut
 			InventoryID: uint(inventoryID), NodeID: r.FormValue("node_id"), URI: r.FormValue("uri"),
 			Type: replicaType, UpstreamReplicaID: optionalUint(r.FormValue("upstream_replica_id")),
 			StorageProfile: storageProfile,
+			FollowSymlinks: r.FormValue("follow_symlinks") == "on",
 		}, apiMessage(err))
 		return
 	}
@@ -726,6 +730,7 @@ func (h *Handler) updateReplica(w http.ResponseWriter, r *http.Request, sess aut
 		ID: uint(replicaID), Type: replicaType, Status: r.FormValue("status"),
 		UpstreamReplicaID: optionalUint(r.FormValue("upstream_replica_id")),
 		StorageProfile:    storageProfile,
+		FollowSymlinks:    r.FormValue("follow_symlinks") == "on",
 	}
 	if !h.validStorageProfile(item.StorageProfile) {
 		h.replicaFormError(w, r, sess, true, item, "Storage profile must match a configured profile.")
@@ -736,6 +741,7 @@ func (h *Handler) updateReplica(w http.ResponseWriter, r *http.Request, sess aut
 		"status":              item.Status,
 		"upstream_replica_id": item.UpstreamReplicaID,
 		"storage_profile":     item.StorageProfile,
+		"follow_symlinks":     item.FollowSymlinks,
 	}
 	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPatch, "/api/admin/replicas/"+r.PathValue("replica_id"), input, nil); err != nil {
 		if errors.Is(err, errUnauthorized) {

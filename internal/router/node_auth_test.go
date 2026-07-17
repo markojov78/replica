@@ -545,6 +545,7 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 		Status:         model.ReplicaStatusActive,
 		Type:           model.ReplicaTypeFilesystem,
 		StorageProfile: "aws",
+		FollowSymlinks: true,
 	}
 	if err := database.Create(&replicaA).Error; err != nil {
 		t.Fatalf("Create(replicaA) error = %v", err)
@@ -613,6 +614,7 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 		URI            string `json:"uri"`
 		InventoryType  string `json:"inventory_type"`
 		StorageProfile string `json:"storage_profile"`
+		FollowSymlinks bool   `json:"follow_symlinks"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
@@ -631,6 +633,9 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 	}
 	if body[0].StorageProfile != "aws" {
 		t.Fatalf("body[0].StorageProfile = %q, want aws", body[0].StorageProfile)
+	}
+	if !body[0].FollowSymlinks {
+		t.Fatal("body[0].FollowSymlinks = false, want true")
 	}
 	var rawBody []map[string]json.RawMessage
 	if err := json.Unmarshal(recorder.Body.Bytes(), &rawBody); err != nil {
@@ -1535,12 +1540,22 @@ func TestPublicReplicaCreatePopulatesPendingFilesAndReconcileCommand(t *testing.
 		nil,
 	)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/admin/replicas", strings.NewReader(`{"inventory_id":`+strconv.FormatUint(uint64(inventory.ID), 10)+`,"node_id":"node-b","uri":"s3://bucket/photos","type":"storage","storage_profile":"aws"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/replicas", strings.NewReader(`{"inventory_id":`+strconv.FormatUint(uint64(inventory.ID), 10)+`,"node_id":"node-b","uri":"s3://bucket/photos","type":"storage","follow_symlinks":true}`))
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	req.Header.Set("X-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("POST non-filesystem follow_symlinks status = %d, want 400; body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/admin/replicas", strings.NewReader(`{"inventory_id":`+strconv.FormatUint(uint64(inventory.ID), 10)+`,"node_id":"node-b","uri":"s3://bucket/photos","type":"storage","storage_profile":"aws"}`))
+	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
+	req.Header.Set("X-API-Version", "1")
+	req.Header.Set("Content-Type", "application/json")
+	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, req)
 
 	if recorder.Code != http.StatusOK && recorder.Code != http.StatusCreated {
@@ -1562,6 +1577,16 @@ func TestPublicReplicaCreatePopulatesPendingFilesAndReconcileCommand(t *testing.
 	}
 	if replica.StorageProfile != "aws" {
 		t.Fatalf("replica.StorageProfile = %q, want aws", replica.StorageProfile)
+	}
+
+	req = httptest.NewRequest(http.MethodPatch, "/api/admin/replicas/"+strconv.FormatUint(uint64(replica.ID), 10), strings.NewReader(`{"follow_symlinks":true}`))
+	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
+	req.Header.Set("X-API-Version", "1")
+	req.Header.Set("Content-Type", "application/json")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH non-filesystem follow_symlinks status = %d, want 400; body=%s", recorder.Code, recorder.Body.String())
 	}
 
 	var replicaFiles []model.ReplicaFile

@@ -912,7 +912,8 @@ Example response:
       "sync_status": "synchronized",
       "type": "filesystem",
       "upstream_replica_id": null,
-      "storage_profile": ""
+      "storage_profile": "",
+      "follow_symlinks": false
     }
   ],
   "page": 1,
@@ -939,6 +940,9 @@ Request body:
 - `type` required
 - `upstream_replica_id` optional, nullable; when set, the new replica is downstream/read-only from replication perspective and must reference a replica in the same inventory
 - `storage_profile` optional, storage profile name used by storage-backed replicas
+- `follow_symlinks` optional, whether symbolic links are followed; defaults to `false`
+
+`follow_symlinks: true` is valid only when `type` is `filesystem`; otherwise the request is rejected with `400`.
 
 Example request:
 
@@ -949,7 +953,8 @@ Example request:
   "uri": "/mnt/backup/photos",
   "type": "filesystem",
   "upstream_replica_id": 1,
-  "storage_profile": ""
+  "storage_profile": "",
+  "follow_symlinks": false
 }
 ```
 
@@ -973,6 +978,10 @@ Request body fields are optional:
 - `status`
 - `upstream_replica_id`
 - `storage_profile`
+- `follow_symlinks`
+
+The resulting replica state must not have `follow_symlinks: true` unless its type is `filesystem`. A PATCH that would
+create that combination is rejected with `400 follow_symlinks requires filesystem replica`.
 
 #### DELETE /replicas/{id}
 Soft-deletes a replica by setting its status to `deleted`.
@@ -2356,7 +2365,8 @@ Example response:
     "status": "active",
     "type": "filesystem",
     "upstream_replica_id": null,
-    "storage_profile": ""
+    "storage_profile": "",
+    "follow_symlinks": false
   }
 ]
 ```

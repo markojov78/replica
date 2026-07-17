@@ -376,6 +376,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), `name="storage_profile"`) ||
 		!strings.Contains(response.Body.String(), `data-storage-profile-field>Storage profile`) ||
 		!strings.Contains(response.Body.String(), `name="storage_profile" disabled`) ||
+		!strings.Contains(response.Body.String(), `name="follow_symlinks"`) ||
 		!strings.Contains(response.Body.String(), `<option value="aws"`) ||
 		!strings.Contains(response.Body.String(), `<option value="backblaze"`) {
 		t.Fatalf("new replica form response = %d body=%q", response.Code, response.Body.String())
@@ -398,6 +399,9 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if createdReplica.StorageProfile != "aws" {
 		t.Fatalf("createdReplica.StorageProfile = %q, want aws", createdReplica.StorageProfile)
 	}
+	if createdReplica.FollowSymlinks {
+		t.Fatal("createdReplica.FollowSymlinks = true, want false")
+	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1/replicas/2/edit", nil, accessToken)
 	if response.Code != http.StatusOK ||
@@ -406,6 +410,9 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		strings.Contains(response.Body.String(), `name="storage_profile" disabled`) ||
 		!strings.Contains(response.Body.String(), `<option value="aws" selected`) {
 		t.Fatalf("edit replica form response = %d body=%q", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `name="follow_symlinks" type="checkbox" data-follow-symlinks  disabled`) {
+		t.Fatalf("edit replica form does not disable follow_symlinks for storage: body=%q", response.Body.String())
 	}
 
 	response = adminRequest(t, handler, http.MethodPost, "/dashboard/inventories/1/replicas/2", url.Values{
@@ -427,12 +434,16 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if updatedReplica.StorageProfile != "backblaze" {
 		t.Fatalf("updatedReplica.StorageProfile = %q, want backblaze", updatedReplica.StorageProfile)
 	}
+	if updatedReplica.FollowSymlinks {
+		t.Fatal("updatedReplica.FollowSymlinks = true, want false")
+	}
 
 	response = adminRequest(t, handler, http.MethodPost, "/dashboard/inventories/1/replicas/2", url.Values{
 		"type":                {"filesystem"},
 		"status":              {"active"},
 		"upstream_replica_id": {""},
 		"storage_profile":     {"backblaze"},
+		"follow_symlinks":     {"on"},
 	}, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/inventories/1" {
 		t.Fatalf("clear replica storage profile response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
@@ -442,6 +453,9 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}
 	if updatedReplica.StorageProfile != "" {
 		t.Fatalf("updatedReplica.StorageProfile = %q, want empty for filesystem replica", updatedReplica.StorageProfile)
+	}
+	if !updatedReplica.FollowSymlinks {
+		t.Fatal("updatedReplica.FollowSymlinks = false, want true for filesystem replica")
 	}
 
 	if err := database.Create(&model.Node{ID: "node-disabled", Status: model.NodeStatusDisabled, Secret: "ignored"}).Error; err != nil {

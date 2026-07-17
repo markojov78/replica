@@ -150,6 +150,7 @@ uri - data prefix uri for the replica; full file paths are formed from replica `
 status - active, deleted  
 type - storage, filesystem, removable
 upstream_replica_id - nullable reference to another replica in the same inventory; null means base multi-directional replica, non-null means downstream/read-only from replication perspective
+follow_symlinks - whether the storage node follows symbolic links while processing a filesystem replica; defaults to false and cannot be true for other replica types
 
 #### replica_files
 version - last file version in the replica  

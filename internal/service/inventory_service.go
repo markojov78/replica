@@ -22,23 +22,24 @@ type InventoryService struct {
 }
 
 var (
-	ErrInvalidInventoryStatus     = errors.New("invalid inventory status")
-	ErrInvalidInventoryFileStatus = errors.New("invalid inventory file status")
-	ErrInvalidInventoryType       = errors.New("invalid inventory type")
-	ErrInvalidInventoryURI        = errors.New("invalid inventory uri")
-	ErrInventoryFileNotFound      = errors.New("inventory file not found")
-	ErrReplicaFileNotFound        = errors.New("replica file not found")
-	ErrInvalidReplicaFileStatus   = errors.New("invalid replica file status")
-	ErrInvalidReplicaStatus       = errors.New("invalid replica status")
-	ErrInvalidReplicaType         = errors.New("invalid replica type")
-	ErrInvalidReplicaURI          = errors.New("invalid replica uri")
-	ErrInvalidReplicaFileUpdate   = errors.New("invalid replica file update")
-	ErrInvalidReplicaFileAction   = errors.New("invalid replica file action")
-	ErrInvalidReplicaUpstream     = errors.New("invalid replica upstream")
-	ErrReplicaNotFound            = errors.New("replica not found")
-	ErrInventoryDeleted           = errors.New("inventory is deleted")
-	ErrInventoryHasActiveReplica  = errors.New("inventory has active replicas")
-	ErrReplicaHasActiveShare      = errors.New("replica has active shares")
+	ErrInvalidInventoryStatus       = errors.New("invalid inventory status")
+	ErrInvalidInventoryFileStatus   = errors.New("invalid inventory file status")
+	ErrInvalidInventoryType         = errors.New("invalid inventory type")
+	ErrInvalidInventoryURI          = errors.New("invalid inventory uri")
+	ErrInventoryFileNotFound        = errors.New("inventory file not found")
+	ErrReplicaFileNotFound          = errors.New("replica file not found")
+	ErrInvalidReplicaFileStatus     = errors.New("invalid replica file status")
+	ErrInvalidReplicaStatus         = errors.New("invalid replica status")
+	ErrInvalidReplicaType           = errors.New("invalid replica type")
+	ErrInvalidReplicaFollowSymlinks = errors.New("follow_symlinks requires filesystem replica")
+	ErrInvalidReplicaURI            = errors.New("invalid replica uri")
+	ErrInvalidReplicaFileUpdate     = errors.New("invalid replica file update")
+	ErrInvalidReplicaFileAction     = errors.New("invalid replica file action")
+	ErrInvalidReplicaUpstream       = errors.New("invalid replica upstream")
+	ErrReplicaNotFound              = errors.New("replica not found")
+	ErrInventoryDeleted             = errors.New("inventory is deleted")
+	ErrInventoryHasActiveReplica    = errors.New("inventory has active replicas")
+	ErrReplicaHasActiveShare        = errors.New("replica has active shares")
 )
 
 type ActiveReplicaLocationError struct {
@@ -62,6 +63,7 @@ type InventoryReplicaDetails struct {
 	Type              string `json:"type"`
 	UpstreamReplicaID *uint  `json:"upstream_replica_id"`
 	StorageProfile    string `json:"storage_profile"`
+	FollowSymlinks    bool   `json:"follow_symlinks"`
 }
 
 type InventoryDetails struct {
@@ -174,6 +176,7 @@ type CreateReplicaInput struct {
 	Type              string
 	UpstreamReplicaID *uint
 	StorageProfile    string
+	FollowSymlinks    bool
 }
 
 type UpdateInventoryInput struct {
@@ -195,6 +198,7 @@ type UpdateReplicaInput struct {
 	UpstreamReplicaID    *uint
 	UpstreamReplicaIDSet bool
 	StorageProfile       *string
+	FollowSymlinks       *bool
 }
 
 type ReplicaFileChangeInput struct {
@@ -734,6 +738,7 @@ func toInventoryReplicaDetailsWithSyncStatus(replica *model.Replica, syncStatus 
 		Type:              string(replica.Type),
 		UpstreamReplicaID: replica.UpstreamReplicaID,
 		StorageProfile:    replica.StorageProfile,
+		FollowSymlinks:    replica.FollowSymlinks,
 	}
 }
 

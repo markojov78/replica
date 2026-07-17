@@ -69,6 +69,9 @@ func (s *ReplicaService) Create(input CreateReplicaInput) (*InventoryReplicaDeta
 	if !replicaType.Valid() {
 		return nil, ErrInvalidReplicaType
 	}
+	if input.FollowSymlinks && replicaType != model.ReplicaTypeFilesystem {
+		return nil, ErrInvalidReplicaFollowSymlinks
+	}
 	if err := s.validateUpstreamReplica(input.InventoryID, 0, input.UpstreamReplicaID); err != nil {
 		return nil, err
 	}
@@ -81,6 +84,7 @@ func (s *ReplicaService) Create(input CreateReplicaInput) (*InventoryReplicaDeta
 		Type:              replicaType,
 		UpstreamReplicaID: input.UpstreamReplicaID,
 		StorageProfile:    strings.TrimSpace(input.StorageProfile),
+		FollowSymlinks:    input.FollowSymlinks,
 		Inventory:         *inventory,
 	}
 	command := &model.Command{
@@ -439,6 +443,13 @@ func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput) (*Inve
 		storageProfile := strings.TrimSpace(*input.StorageProfile)
 		changed = changed || replica.StorageProfile != storageProfile
 		replica.StorageProfile = storageProfile
+	}
+	if input.FollowSymlinks != nil {
+		changed = changed || replica.FollowSymlinks != *input.FollowSymlinks
+		replica.FollowSymlinks = *input.FollowSymlinks
+	}
+	if replica.FollowSymlinks && replica.Type != model.ReplicaTypeFilesystem {
+		return nil, ErrInvalidReplicaFollowSymlinks
 	}
 
 	var command *model.Command
