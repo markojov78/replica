@@ -125,6 +125,7 @@ Behavior:
 - ignores symlinks unless the filesystem replica has `follow_symlinks` enabled
 - when `follow_symlinks` is enabled, includes file symlinks using the target file's metadata and content while keeping
   the symlink path as `RelativeURI`; directory symlinks remain ignored
+- skips broken file symlinks when `follow_symlinks` is enabled instead of failing the scan
 - ignores temporary write paths whose basename starts with `TemporaryWritePrefix` defined in `internal/storage/temporary_files.go`
 - computes a BLAKE3 content hash for each file unless unchanged old metadata allows reusing a known hash
 - normalizes relative paths using slash separators

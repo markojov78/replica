@@ -211,3 +211,25 @@ func TestFilesystemWatcherReportsExternalSymlinkTargetChanges(t *testing.T) {
 		}
 	}
 }
+
+func TestFilesystemWatcherStartsWithBrokenFileSymlink(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Symlink(filepath.Join(root, "missing.txt"), filepath.Join(root, "broken.txt")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	changeCh, errCh, err := NewFilesystemWatcher(true).Watch(ctx, root, nil)
+	if err != nil {
+		cancel()
+		t.Fatalf("Watch() error = %v", err)
+	}
+	cancel()
+	for range changeCh {
+	}
+	for watcherErr := range errCh {
+		if watcherErr != nil {
+			t.Fatalf("watcher error = %v", watcherErr)
+		}
+	}
+}

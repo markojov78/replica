@@ -115,6 +115,9 @@ func registerFileSymlinkWatch(watcher *fsnotify.Watcher, root *filesystemRoot, l
 		return err
 	}
 	info, err := os.Stat(targetPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}

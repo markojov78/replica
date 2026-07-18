@@ -136,11 +136,15 @@ func fileStateFromPath(ctx context.Context, rootPath, fullPath string, followSym
 	if info.IsDir() {
 		return nil, nil
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
+	isSymlink := info.Mode()&os.ModeSymlink != 0
+	if isSymlink {
 		if !followSymlink {
 			return nil, nil
 		}
 		info, err = os.Stat(fullPath)
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -167,6 +171,9 @@ func fileStateFromPath(ctx context.Context, rootPath, fullPath string, followSym
 	}
 
 	hash, err := hashFileBLAKE3(ctx, fullPath)
+	if isSymlink && os.IsNotExist(err) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}

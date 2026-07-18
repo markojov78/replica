@@ -330,3 +330,21 @@ func TestFilesystemScannerIgnoresDirectorySymlinksWhenFollowingFiles(t *testing.
 		t.Fatalf("states = %+v, want directory symlink ignored", states)
 	}
 }
+
+func TestFilesystemScannerSkipsBrokenFileSymlinks(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "regular.txt"), []byte("content"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.Symlink(filepath.Join(root, "missing.txt"), filepath.Join(root, "broken.txt")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	states, err := NewFilesystemScanner(true).Scan(context.Background(), root, nil)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if len(states) != 1 || states[0].RelativeURI != "regular.txt" {
+		t.Fatalf("states = %+v, want only regular.txt", states)
+	}
+}
