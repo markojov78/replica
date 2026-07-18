@@ -511,12 +511,15 @@
 {{template "layout_start" .}}
 <section class="card form-card">
   {{template "alert" .}}
-  <form action="{{if .IsEdit}}/dashboard/inventories/{{.Inventory.ID}}{{else}}/dashboard/inventories{{end}}" method="post" class="form-grid">
+  <form action="{{if .IsEdit}}/dashboard/inventories/{{.Inventory.ID}}{{else}}/dashboard/inventories{{end}}" method="post" class="form-grid" {{if not .IsEdit}}data-replica-form{{end}}>
     <label>Name<input name="name" value="{{.Inventory.Name}}" required></label>
     {{if .IsEdit}}
       <label>Status<select name="status"><option value="active" {{if eq .Inventory.Status "active"}}selected{{end}}>active</option><option value="deleted" {{if eq .Inventory.Status "deleted"}}selected{{end}}>deleted</option></select></label>
     {{else}}
       <label>Node<select name="node_id" required><option value="">Select node</option>{{range .Nodes}}<option value="{{.ID}}">{{.ID}} · {{.Status}}</option>{{end}}</select></label>
+      <label>Replica type<select name="replica_type" data-replica-type required><option value="filesystem" {{if or (eq .Replica.Type "") (eq .Replica.Type "filesystem")}}selected{{end}}>filesystem</option><option value="storage" {{if eq .Replica.Type "storage"}}selected{{end}}>storage</option><option value="removable" {{if eq .Replica.Type "removable"}}selected{{end}}>removable</option></select></label>
+      <label data-storage-profile-field>Storage profile<select name="storage_profile" {{if ne .Replica.Type "storage"}}disabled{{end}}><option value="" {{if eq .Replica.StorageProfile ""}}selected{{end}}>None</option>{{range .StorageProfiles}}<option value="{{.}}" {{if eq . $.Replica.StorageProfile}}selected{{end}}>{{.}}</option>{{end}}</select></label>
+      <label class="checkbox-field"><input name="follow_symlinks" type="checkbox" data-follow-symlinks {{if .Replica.FollowSymlinks}}checked{{end}} {{if and (ne .Replica.Type "") (ne .Replica.Type "filesystem")}}disabled{{end}}> Follow symlinks</label>
       <label class="full">Folder URI<input name="folder_uri" value="{{.FolderURI}}" placeholder="/srv/data or s3://bucket/prefix"><small>Set this to create a folder inventory. Leave file URIs empty.</small></label>
       <label class="full">File URIs<textarea name="file_uris" rows="7" placeholder="/home/user/images/file1.jpg&#10;/home/user/images/file2.jpg">{{.FileURIs}}</textarea><small>One absolute filesystem, file://, or s3:// URI per line. Leave folder URI empty.</small></label>
     {{end}}

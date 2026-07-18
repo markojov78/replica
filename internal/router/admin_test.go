@@ -264,15 +264,19 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), `name="folder_uri"`) ||
 		!strings.Contains(response.Body.String(), `name="file_uris"`) ||
+		!strings.Contains(response.Body.String(), `name="replica_type"`) ||
+		!strings.Contains(response.Body.String(), `name="storage_profile"`) ||
+		!strings.Contains(response.Body.String(), `name="follow_symlinks"`) ||
 		!strings.Contains(response.Body.String(), `name="user_permissions_`+strconv.FormatUint(uint64(adminUser.ID), 10)+`"`) ||
 		strings.Contains(response.Body.String(), `name="user_permissions_2"`) {
 		t.Fatalf("new inventory form response = %d body=%q", response.Code, response.Body.String())
 	}
 
 	response = adminRequest(t, handler, http.MethodPost, "/dashboard/inventories", url.Values{
-		"name":       {"Documents"},
-		"node_id":    {"node-a"},
-		"folder_uri": {"/srv/documents"},
+		"name":         {"Documents"},
+		"node_id":      {"node-a"},
+		"folder_uri":   {"/srv/documents"},
+		"replica_type": {"filesystem"},
 		"user_permissions_" + strconv.FormatUint(uint64(adminUser.ID), 10): {"read", "update"},
 	}, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/inventories/1" {

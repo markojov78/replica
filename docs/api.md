@@ -903,19 +903,20 @@ Request body:
 - exactly one of `folder_uri` or `file_uris` is required
 - `folder_uri` is a non-empty URI for a folder inventory
 - `file_uris` is a non-empty list of unique absolute filesystem paths, local `file://` URIs, or `s3://` object URIs
+- `replica_type` required, could be `filesystem`, `storage` or `removable`
 - `storage_profile` optional, storage profile name used by storage-backed replicas
 - `follow_symlinks` optional, whether symbolic links are followed; defaults to `false`
 
 Behavior:
-- `folder_uri` creates a `folder` inventory, stores the URI unchanged as the default replica prefix, and discovers files during the initial scan
+- `folder_uri` creates a `folder` inventory, stores the URI unchanged as the default replica prefix, and discovers 
+  files during the initial scan
 - `file_uris` creates a `file` inventory representing a file set
 - filesystem paths and local `file://` URIs are normalized to unified `file://` URIs; they may be mixed in one file set
 - S3 file URIs in a file set must use the same bucket
-- filesystem and S3 file URIs cannot be mixed
+- if `replica_type` is `storage` , providd uris must be `s3://`, otherwise uris can be `file://` or filesystem paths but not `s3://`
 - the deepest common directory/prefix becomes the default replica URI
 - one active synchronized version-`0` placeholder is created for every requested file
 - the initial scan is restricted to the placeholder relative URIs; missing files are reported as deleted
-- S3-derived default replicas use replica type `storage`; filesystem-derived default replicas use `filesystem`
 - `storage_profile` is valid only for replica type `storage`; otherwise the request is rejected with `400`.
 - `follow_symlinks: true` is valid only when `type` is `filesystem`; otherwise the request is rejected with `400`.
 
@@ -1084,7 +1085,7 @@ Request body:
 - `inventory_id` required
 - `node_id` required
 - `uri` required
-- `type` required
+- `type` required, could be `filesystem`, `storage` or `removable`
 - `upstream_replica_id` optional, nullable; when set, the new replica is downstream/read-only from replication perspective and must reference a replica in the same inventory
 - `storage_profile` optional, storage profile name used by storage-backed replicas
 - `follow_symlinks` optional, whether symbolic links are followed; defaults to `false`

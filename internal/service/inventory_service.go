@@ -167,6 +167,7 @@ type CreateInventoryInput struct {
 	NodeID          string
 	FolderURI       *string
 	FileURIs        *[]string
+	ReplicaType     string
 	StorageProfile  string
 	FollowSymlinks  bool
 	UserPermissions *[]UserPermissionInput
@@ -236,17 +237,18 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 		return nil, ErrInvalidInventoryURI
 	}
 
+	replicaType := model.ReplicaType(strings.TrimSpace(input.ReplicaType))
+	if !replicaType.Valid() {
+		return nil, ErrInvalidReplicaType
+	}
+
 	inventoryType := model.InventoryTypeFolder
 	replicaURI := ""
-	replicaType := model.ReplicaTypeFilesystem
 	var inventoryFiles []model.InventoryFile
 	if input.FolderURI != nil {
 		replicaURI = strings.TrimSpace(*input.FolderURI)
 		if replicaURI == "" {
 			return nil, ErrInvalidInventoryURI
-		}
-		if strings.HasPrefix(replicaURI, "s3://") {
-			replicaType = model.ReplicaTypeStorage
 		}
 	} else {
 		if len(*input.FileURIs) == 0 {
@@ -259,9 +261,6 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 		if err != nil {
 			return nil, ErrInvalidInventoryURI
 		}
-		if strings.HasPrefix(replicaURI, "s3://") {
-			replicaType = model.ReplicaTypeStorage
-		}
 		inventoryFiles = make([]model.InventoryFile, 0, len(relativeURIs))
 		for _, relativeURI := range relativeURIs {
 			inventoryFiles = append(inventoryFiles, model.InventoryFile{
@@ -270,6 +269,10 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 				Version:     0,
 			})
 		}
+	}
+	isS3 := strings.HasPrefix(replicaURI, "s3://")
+	if (replicaType == model.ReplicaTypeStorage) != isS3 {
+		return nil, ErrInvalidInventoryURI
 	}
 
 	storageProfile := strings.TrimSpace(input.StorageProfile)

@@ -675,7 +675,7 @@ func TestInventoryRouteUserPermissionsCreateAndPatchReplacement(t *testing.T) {
 	}
 	handler := newShareRouteHandler(database)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/admin/inventories", strings.NewReader(`{"name":"Photos","node_id":"node-a","folder_uri":"/data/photos","user_permissions":[{"user_id":`+strconv.FormatUint(uint64(other.ID), 10)+`,"permissions":["read"]}]}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/inventories", strings.NewReader(`{"name":"Photos","node_id":"node-a","folder_uri":"/data/photos","replica_type":"filesystem","user_permissions":[{"user_id":`+strconv.FormatUint(uint64(other.ID), 10)+`,"permissions":["read"]}]}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")

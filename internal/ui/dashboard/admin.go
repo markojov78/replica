@@ -479,6 +479,7 @@ func (h *Handler) newInventoryPage(w http.ResponseWriter, r *http.Request, sess 
 	users = activeUsers(users)
 	h.render(w, "inventory_form", pageData{
 		Title: "New inventory", Subtitle: "Create an inventory and its first replica.", Active: "inventories", Nodes: nodes, Users: users,
+		Replica: replica{Type: "filesystem"}, StorageProfiles: h.storageProfiles,
 	})
 }
 
@@ -493,9 +494,18 @@ func (h *Handler) createInventory(w http.ResponseWriter, r *http.Request, sess a
 	}
 	users = activeUsers(users)
 	userPermissions := userPermissionsFromForm(r.Form, users)
+	replicaType := r.FormValue("replica_type")
+	storageProfile := storageProfileForReplicaType(replicaType, r.FormValue("storage_profile"))
+	if !h.validStorageProfile(storageProfile) {
+		h.inventoryFormError(w, r, sess, false, inventory{Name: r.FormValue("name"), UserPermissions: userPermissions}, "Storage profile must match a configured profile.")
+		return
+	}
 	input := map[string]any{
 		"name":             strings.TrimSpace(r.FormValue("name")),
 		"node_id":          r.FormValue("node_id"),
+		"replica_type":     replicaType,
+		"storage_profile":  storageProfile,
+		"follow_symlinks":  r.FormValue("follow_symlinks") == "on",
 		"user_permissions": userPermissions,
 	}
 	if folderURI := strings.TrimSpace(r.FormValue("folder_uri")); folderURI != "" {
@@ -1312,7 +1322,8 @@ func (h *Handler) inventoryFormError(w http.ResponseWriter, r *http.Request, ses
 	}
 	h.render(w, "inventory_form", pageData{
 		Title: title, Active: "inventories", Inventory: item, Nodes: nodes, Users: users, IsEdit: edit, Error: message,
-		FolderURI: r.FormValue("folder_uri"), FileURIs: r.FormValue("file_uris"),
+		FolderURI: r.FormValue("folder_uri"), FileURIs: r.FormValue("file_uris"), StorageProfiles: h.storageProfiles,
+		Replica: replica{Type: r.FormValue("replica_type"), StorageProfile: storageProfileForReplicaType(r.FormValue("replica_type"), r.FormValue("storage_profile")), FollowSymlinks: r.FormValue("follow_symlinks") == "on"},
 	})
 }
 

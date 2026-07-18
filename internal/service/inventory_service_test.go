@@ -30,9 +30,10 @@ func TestInventoryServiceCreateCreatesPendingScanReplicaCommand(t *testing.T) {
 	svc := NewInventoryService(repository.NewInventoryRepository(database), nodeService)
 
 	inventory, err := svc.Create(CreateInventoryInput{
-		Name:      "Photos",
-		NodeID:    "node-a",
-		FolderURI: stringPointer("/data/photos"),
+		Name:        "Photos",
+		NodeID:      "node-a",
+		FolderURI:   stringPointer("/data/photos"),
+		ReplicaType: string(model.ReplicaTypeFilesystem),
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -87,6 +88,7 @@ func TestInventoryServiceCreateAppliesDefaultReplicaOptions(t *testing.T) {
 	}{
 		{name: "filesystem follows symlinks", folderURI: "/data/photos", followSymlinks: true, wantType: model.ReplicaTypeFilesystem},
 		{name: "storage uses profile", folderURI: "s3://photos/archive", storageProfile: "aws", wantType: model.ReplicaTypeStorage},
+		{name: "removable filesystem location", folderURI: "/media/archive", wantType: model.ReplicaTypeRemovable},
 	}
 
 	for _, tt := range tests {
@@ -102,6 +104,7 @@ func TestInventoryServiceCreateAppliesDefaultReplicaOptions(t *testing.T) {
 			svc := NewInventoryService(repository.NewInventoryRepository(database))
 			created, err := svc.Create(CreateInventoryInput{
 				Name: "Photos", NodeID: "node-a", FolderURI: &tt.folderURI,
+				ReplicaType:    string(tt.wantType),
 				StorageProfile: tt.storageProfile, FollowSymlinks: tt.followSymlinks,
 			})
 			if err != nil {
@@ -129,12 +132,21 @@ func TestInventoryServiceCreateRejectsInvalidDefaultReplicaOptions(t *testing.T)
 	svc := NewInventoryService(repository.NewInventoryRepository(database))
 
 	filesystemURI := "/data/photos"
-	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &filesystemURI, StorageProfile: "aws"}); !errors.Is(err, ErrInvalidReplicaStorageProfile) {
+	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &filesystemURI, ReplicaType: "filesystem", StorageProfile: "aws"}); !errors.Is(err, ErrInvalidReplicaStorageProfile) {
 		t.Fatalf("Create(filesystem with profile) error = %v, want %v", err, ErrInvalidReplicaStorageProfile)
 	}
 	s3URI := "s3://photos/archive"
-	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &s3URI, FollowSymlinks: true}); !errors.Is(err, ErrInvalidReplicaFollowSymlinks) {
+	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &s3URI, ReplicaType: "storage", FollowSymlinks: true}); !errors.Is(err, ErrInvalidReplicaFollowSymlinks) {
 		t.Fatalf("Create(storage following symlinks) error = %v, want %v", err, ErrInvalidReplicaFollowSymlinks)
+	}
+	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &filesystemURI}); !errors.Is(err, ErrInvalidReplicaType) {
+		t.Fatalf("Create(missing replica type) error = %v, want %v", err, ErrInvalidReplicaType)
+	}
+	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &filesystemURI, ReplicaType: "storage"}); !errors.Is(err, ErrInvalidInventoryURI) {
+		t.Fatalf("Create(storage with filesystem URI) error = %v, want %v", err, ErrInvalidInventoryURI)
+	}
+	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &s3URI, ReplicaType: "filesystem"}); !errors.Is(err, ErrInvalidInventoryURI) {
+		t.Fatalf("Create(filesystem with S3 URI) error = %v, want %v", err, ErrInvalidInventoryURI)
 	}
 }
 
@@ -152,8 +164,9 @@ func TestInventoryServiceCreateFileSetInventorySeedsPlaceholders(t *testing.T) {
 
 	svc := NewInventoryService(repository.NewInventoryRepository(database))
 	inventory, err := svc.Create(CreateInventoryInput{
-		Name:   "Album",
-		NodeID: "node-a",
+		Name:        "Album",
+		NodeID:      "node-a",
+		ReplicaType: "filesystem",
 		FileURIs: stringSlicePointer([]string{
 			"/home/username/images/album/file1.jpg",
 			"file:///home/username/images/album/subfolder/file2.jpg",
@@ -220,9 +233,10 @@ func TestInventoryServiceCreateFileSetInventorySeedsPlaceholders(t *testing.T) {
 
 	s3Files := []string{"s3://photos/album/a.jpg", "s3://photos/album/sub/b.jpg"}
 	s3Inventory, err := svc.Create(CreateInventoryInput{
-		Name:     "S3 album",
-		NodeID:   "node-a",
-		FileURIs: &s3Files,
+		Name:        "S3 album",
+		NodeID:      "node-a",
+		FileURIs:    &s3Files,
+		ReplicaType: "storage",
 	})
 	if err != nil {
 		t.Fatalf("Create(S3 file set) error = %v", err)
@@ -300,13 +314,13 @@ func TestInventoryServiceCreateRejectsInvalidLocationSelection(t *testing.T) {
 	svc := NewInventoryService(repository.NewInventoryRepository(database))
 
 	inputs := []CreateInventoryInput{
-		{Name: "Missing", NodeID: "node-a"},
-		{Name: "Both", NodeID: "node-a", FolderURI: stringPointer("/data"), FileURIs: stringSlicePointer([]string{"/data/a.txt"})},
-		{Name: "Empty folder", NodeID: "node-a", FolderURI: stringPointer("")},
-		{Name: "Empty list", NodeID: "node-a", FileURIs: stringSlicePointer([]string{})},
-		{Name: "Empty file", NodeID: "node-a", FileURIs: stringSlicePointer([]string{""})},
-		{Name: "Duplicate", NodeID: "node-a", FileURIs: stringSlicePointer([]string{"/data/a.txt", "file:///data/a.txt"})},
-		{Name: "", NodeID: "node-a", FolderURI: stringPointer("/data")},
+		{Name: "Missing", NodeID: "node-a", ReplicaType: "filesystem"},
+		{Name: "Both", NodeID: "node-a", ReplicaType: "filesystem", FolderURI: stringPointer("/data"), FileURIs: stringSlicePointer([]string{"/data/a.txt"})},
+		{Name: "Empty folder", NodeID: "node-a", ReplicaType: "filesystem", FolderURI: stringPointer("")},
+		{Name: "Empty list", NodeID: "node-a", ReplicaType: "filesystem", FileURIs: stringSlicePointer([]string{})},
+		{Name: "Empty file", NodeID: "node-a", ReplicaType: "filesystem", FileURIs: stringSlicePointer([]string{""})},
+		{Name: "Duplicate", NodeID: "node-a", ReplicaType: "filesystem", FileURIs: stringSlicePointer([]string{"/data/a.txt", "file:///data/a.txt"})},
+		{Name: "", NodeID: "node-a", ReplicaType: "filesystem", FolderURI: stringPointer("/data")},
 	}
 	for _, input := range inputs {
 		if _, err := svc.Create(input); !errors.Is(err, ErrInvalidInventoryURI) {
