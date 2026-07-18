@@ -621,7 +621,7 @@ func TestRuntimeScanReplicaReportsCreatedAndChangedFiles(t *testing.T) {
 	deadline := time.Now().Add(1500 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		mu.Lock()
-		done := fileListCalls >= 2 && reportCalls >= 1 && commandUpdateCalls >= 1
+		done := fileListCalls >= 3 && reportCalls >= 1 && commandUpdateCalls >= 1
 		mu.Unlock()
 		if done {
 			if len(gotReport.Files) != 2 {

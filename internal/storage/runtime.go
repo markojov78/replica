@@ -1177,6 +1177,9 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 		if err := r.client.ReportReplicaFiles(ctx, payload.ReplicaID, reports); err != nil {
 			return err
 		}
+		if _, err := r.refreshReplicaFiles(ctx, payload.ReplicaID); err != nil {
+			return fmt.Errorf("refresh replica files after scan replica_id=%d: %w", payload.ReplicaID, err)
+		}
 		log.Printf("storage runtime scan_replica reported files replica_id=%d count=%d", payload.ReplicaID, len(reports))
 	} else {
 		log.Printf("storage runtime scan_replica detected no reportable changes replica_id=%d", payload.ReplicaID)
