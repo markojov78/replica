@@ -32,6 +32,7 @@ var (
 	ErrInvalidReplicaStatus         = errors.New("invalid replica status")
 	ErrInvalidReplicaType           = errors.New("invalid replica type")
 	ErrInvalidReplicaFollowSymlinks = errors.New("follow_symlinks requires filesystem replica")
+	ErrInvalidReplicaStorageProfile = errors.New("storage_profile requires storage replica")
 	ErrInvalidReplicaURI            = errors.New("invalid replica uri")
 	ErrInvalidReplicaFileUpdate     = errors.New("invalid replica file update")
 	ErrInvalidReplicaFileAction     = errors.New("invalid replica file action")
@@ -166,6 +167,8 @@ type CreateInventoryInput struct {
 	NodeID          string
 	FolderURI       *string
 	FileURIs        *[]string
+	StorageProfile  string
+	FollowSymlinks  bool
 	UserPermissions *[]UserPermissionInput
 }
 
@@ -242,6 +245,9 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 		if replicaURI == "" {
 			return nil, ErrInvalidInventoryURI
 		}
+		if strings.HasPrefix(replicaURI, "s3://") {
+			replicaType = model.ReplicaTypeStorage
+		}
 	} else {
 		if len(*input.FileURIs) == 0 {
 			return nil, ErrInvalidInventoryURI
@@ -266,16 +272,26 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 		}
 	}
 
+	storageProfile := strings.TrimSpace(input.StorageProfile)
+	if storageProfile != "" && replicaType != model.ReplicaTypeStorage {
+		return nil, ErrInvalidReplicaStorageProfile
+	}
+	if input.FollowSymlinks && replicaType != model.ReplicaTypeFilesystem {
+		return nil, ErrInvalidReplicaFollowSymlinks
+	}
+
 	inventory := &model.Inventory{
 		Name:   name,
 		Status: model.InventoryStatusActive,
 		Type:   inventoryType,
 	}
 	replica := &model.Replica{
-		NodeID: nodeID,
-		URI:    replicaURI,
-		Status: model.ReplicaStatusActive,
-		Type:   replicaType,
+		NodeID:         nodeID,
+		URI:            replicaURI,
+		Status:         model.ReplicaStatusActive,
+		Type:           replicaType,
+		StorageProfile: storageProfile,
+		FollowSymlinks: input.FollowSymlinks,
 	}
 	command := &model.Command{
 		NodeID: nodeID,

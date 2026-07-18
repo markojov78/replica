@@ -77,6 +77,67 @@ func TestInventoryServiceCreateCreatesPendingScanReplicaCommand(t *testing.T) {
 	}
 }
 
+func TestInventoryServiceCreateAppliesDefaultReplicaOptions(t *testing.T) {
+	tests := []struct {
+		name           string
+		folderURI      string
+		storageProfile string
+		followSymlinks bool
+		wantType       model.ReplicaType
+	}{
+		{name: "filesystem follows symlinks", folderURI: "/data/photos", followSymlinks: true, wantType: model.ReplicaTypeFilesystem},
+		{name: "storage uses profile", folderURI: "s3://photos/archive", storageProfile: "aws", wantType: model.ReplicaTypeStorage},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			database, err := db.Open(config.DatabaseConfig{Driver: "sqlite", DSN: filepath.Join(t.TempDir(), "inventory-options.db")})
+			if err != nil {
+				t.Fatalf("db.Open() error = %v", err)
+			}
+			if err := db.AutoMigrate(database); err != nil {
+				t.Fatalf("db.AutoMigrate() error = %v", err)
+			}
+
+			svc := NewInventoryService(repository.NewInventoryRepository(database))
+			created, err := svc.Create(CreateInventoryInput{
+				Name: "Photos", NodeID: "node-a", FolderURI: &tt.folderURI,
+				StorageProfile: tt.storageProfile, FollowSymlinks: tt.followSymlinks,
+			})
+			if err != nil {
+				t.Fatalf("Create() error = %v", err)
+			}
+			if len(created.Replicas) != 1 {
+				t.Fatalf("len(created.Replicas) = %d, want 1", len(created.Replicas))
+			}
+			replica := created.Replicas[0]
+			if replica.Type != string(tt.wantType) || replica.StorageProfile != tt.storageProfile || replica.FollowSymlinks != tt.followSymlinks {
+				t.Fatalf("default replica = %+v", replica)
+			}
+		})
+	}
+}
+
+func TestInventoryServiceCreateRejectsInvalidDefaultReplicaOptions(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{Driver: "sqlite", DSN: filepath.Join(t.TempDir(), "invalid-inventory-options.db")})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+	svc := NewInventoryService(repository.NewInventoryRepository(database))
+
+	filesystemURI := "/data/photos"
+	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &filesystemURI, StorageProfile: "aws"}); !errors.Is(err, ErrInvalidReplicaStorageProfile) {
+		t.Fatalf("Create(filesystem with profile) error = %v, want %v", err, ErrInvalidReplicaStorageProfile)
+	}
+	s3URI := "s3://photos/archive"
+	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &s3URI, FollowSymlinks: true}); !errors.Is(err, ErrInvalidReplicaFollowSymlinks) {
+		t.Fatalf("Create(storage following symlinks) error = %v, want %v", err, ErrInvalidReplicaFollowSymlinks)
+	}
+}
+
 func TestInventoryServiceCreateFileSetInventorySeedsPlaceholders(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
 		Driver: "sqlite",

@@ -903,6 +903,8 @@ Request body:
 - exactly one of `folder_uri` or `file_uris` is required
 - `folder_uri` is a non-empty URI for a folder inventory
 - `file_uris` is a non-empty list of unique absolute filesystem paths, local `file://` URIs, or `s3://` object URIs
+- `storage_profile` optional, storage profile name used by storage-backed replicas
+- `follow_symlinks` optional, whether symbolic links are followed; defaults to `false`
 
 Behavior:
 - `folder_uri` creates a `folder` inventory, stores the URI unchanged as the default replica prefix, and discovers files during the initial scan
@@ -914,9 +916,10 @@ Behavior:
 - one active synchronized version-`0` placeholder is created for every requested file
 - the initial scan is restricted to the placeholder relative URIs; missing files are reported as deleted
 - S3-derived default replicas use replica type `storage`; filesystem-derived default replicas use `filesystem`
+- `storage_profile` is valid only for replica type `storage`; otherwise the request is rejected with `400`.
+- `follow_symlinks: true` is valid only when `type` is `filesystem`; otherwise the request is rejected with `400`.
 
 Example requests:
-
 ```json
 {
   "name": "Vacation March 2026",
@@ -971,6 +974,8 @@ Possible errors:
 - `400` invalid inventory type
 - `400` invalid permissions
 - `400` invalid inventory uri
+- `400` invalid `storage_profile`
+- `400` invalid `follow_symlinks` paremeter
 
 ### /inventories/{id}/files endpoint
 
@@ -1087,7 +1092,6 @@ Request body:
 `follow_symlinks: true` is valid only when `type` is `filesystem`; otherwise the request is rejected with `400`.
 
 Example request:
-
 ```json
 {
   "inventory_id": 1,

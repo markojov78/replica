@@ -101,6 +101,8 @@ func registerInventoryRoutes(api huma.API, svc services) {
 			NodeID:          input.Body.NodeID,
 			FolderURI:       input.Body.FolderURI,
 			FileURIs:        input.Body.FileURIs,
+			StorageProfile:  input.Body.StorageProfile,
+			FollowSymlinks:  input.Body.FollowSymlinks,
 			UserPermissions: input.Body.UserPermissions,
 		})
 		if err != nil {
@@ -185,6 +187,8 @@ type createInventoryInput struct {
 		NodeID          string                         `json:"node_id" minLength:"1"`
 		FolderURI       *string                        `json:"folder_uri,omitempty"`
 		FileURIs        *[]string                      `json:"file_uris,omitempty"`
+		StorageProfile  string                         `json:"storage_profile,omitempty"`
+		FollowSymlinks  bool                           `json:"follow_symlinks,omitempty"`
 		UserPermissions *[]service.UserPermissionInput `json:"user_permissions,omitempty"`
 	}
 }
