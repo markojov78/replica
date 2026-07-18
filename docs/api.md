@@ -1016,7 +1016,6 @@ Query parameters:
 - `version` optional, filter by exact replica file version
 
 Example response:
-
 ```json
 {
   "items": [
@@ -1036,15 +1035,50 @@ Example response:
 #### GET /replicas/{id}/files/{file_id}
 Returns a single file belonging to the replica.
 
+Example response:
+```json
+{
+  "id": 10,
+  "replica_id": 1,
+  "version": 2,
+  "status": "synchronized"
+}
+```
+
 Possible errors:
 - `401` missing authenticated user
 - `403` missing required permission
 - `400` invalid replica file status
-- `404` replica not found
-- `404` replica file not found
+- `404` replica or replica file not found
+
+#### PATCH /replicas/{id}/files/{file_id}
+Update replica file status
+
+Example request:
+```json
+{ "status": "pending" }
+```
+
+Behavior:  
+Accepted statuses are `pending` and `changed` (the latter is only allowed when the current status is `synchronized`).
+
+Example response:
+```json
+{
+  "id": 10,
+  "replica_id": 1,
+  "version": 2,
+  "status": "pending"
+}
+```
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `400` invalid replica file status
+- `404` replica or replica file not found
 
 ### /shares endpoint
-
 All `/shares` endpoints require the matching `shares` permission for the requested action.
 
 #### GET /shares
@@ -1293,6 +1327,8 @@ Possible errors:
 * `404` replica not found
 * `409` replica is deleted
 * `409` share already exists
+
+
 
 ## Storage Sharing API
 This API is exposed on the storage node and used to access private aand public shares.  

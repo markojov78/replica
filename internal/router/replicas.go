@@ -103,6 +103,22 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		return &replicaFileResponse{Body: *file}, nil
 	})
 
+	huma.Patch(api, "/replicas/{id}/files/{file_id}", func(ctx context.Context, input *updateReplicaFileInput) (*replicaFileResponse, error) {
+		accessToken, err := bearerToken(input.Authorization)
+		if err != nil {
+			return nil, huma.Error401Unauthorized("missing authenticated user")
+		}
+		if err := AuthorizeReplicaAction(svc, accessToken, input.ID, model.PermissionResourceInventories, model.PermissionActionUpdate); err != nil {
+			return nil, mapPermissionError(err)
+		}
+
+		file, err := svc.replicas.UpdateFile(input.ID, input.FileID, input.Body.Status)
+		if err != nil {
+			return nil, mapInventoryError(err, svc.inventories)
+		}
+		return &replicaFileResponse{Body: *file}, nil
+	})
+
 	huma.Post(api, "/replicas", func(ctx context.Context, input *createReplicaInput) (*replicaResponse, error) {
 		accessToken, err := bearerToken(input.Authorization)
 		if err != nil {
@@ -217,6 +233,16 @@ type getReplicaFileInput struct {
 	Authorization string `header:"Authorization"`
 	ID            uint   `path:"id"`
 	FileID        uint   `path:"file_id"`
+}
+
+type updateReplicaFileInput struct {
+	versionHeader
+	Authorization string `header:"Authorization"`
+	ID            uint   `path:"id"`
+	FileID        uint   `path:"file_id"`
+	Body          struct {
+		Status string `json:"status" minLength:"1"`
+	}
 }
 
 type updateReplicaInput struct {

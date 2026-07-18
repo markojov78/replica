@@ -1076,6 +1076,53 @@ func TestInventoryServiceGetReplicaFileNotFound(t *testing.T) {
 	}
 }
 
+func TestReplicaServiceUpdateFileStatus(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "replica-file-update.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	replica := &model.Replica{InventoryID: 1, NodeID: "node-a", URI: "/data", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeFilesystem}
+	if err := database.Create(replica).Error; err != nil {
+		t.Fatalf("Create(replica) error = %v", err)
+	}
+	files := []model.ReplicaFile{
+		{FileID: 10, ReplicaID: replica.ID, Version: 2, Status: model.ReplicaFileStatusError},
+		{FileID: 11, ReplicaID: replica.ID, Version: 3, Status: model.ReplicaFileStatusSynchronized},
+	}
+	if err := database.Create(&files).Error; err != nil {
+		t.Fatalf("Create(replica files) error = %v", err)
+	}
+
+	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
+	updated, err := svc.UpdateFile(replica.ID, 10, "pending")
+	if err != nil {
+		t.Fatalf("UpdateFile(pending) error = %v", err)
+	}
+	if updated.Status != string(model.ReplicaFileStatusPending) || updated.Version != 2 {
+		t.Fatalf("UpdateFile(pending) = %+v", updated)
+	}
+	updated, err = svc.UpdateFile(replica.ID, 11, "changed")
+	if err != nil {
+		t.Fatalf("UpdateFile(changed) error = %v", err)
+	}
+	if updated.Status != string(model.ReplicaFileStatusChanged) || updated.Version != 3 {
+		t.Fatalf("UpdateFile(changed) = %+v", updated)
+	}
+	if _, err := svc.UpdateFile(replica.ID, 10, "changed"); !errors.Is(err, ErrInvalidReplicaFileStatus) {
+		t.Fatalf("UpdateFile(changed from pending) error = %v, want %v", err, ErrInvalidReplicaFileStatus)
+	}
+	if _, err := svc.UpdateFile(replica.ID, 11, "error"); !errors.Is(err, ErrInvalidReplicaFileStatus) {
+		t.Fatalf("UpdateFile(error) error = %v, want %v", err, ErrInvalidReplicaFileStatus)
+	}
+}
+
 func TestInventoryServiceReportReplicaFileChanges(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
 		Driver: "sqlite",

@@ -155,7 +155,8 @@ follow_symlinks - whether the storage node follows symbolic links while processi
 #### replica_files
 version - last file version in the replica  
 status - changed, pending, synchronized, conflict, error:  
- - changed - local change that needs to be propagated in the case of multi-directional replication or overridden in case of read-only replication  
+ - changed - local change that needs to be propagated in the case of multi-directional replication or overridden 
+   in case of read-only replication  
  - pending - waiting for remote changes to be applied to the local copy  
  - synchronized - all changes reconciled, nothing to do  
  - conflict - multiple changes detected, requires manual fix  

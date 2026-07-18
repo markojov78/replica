@@ -180,6 +180,40 @@ func (s *ReplicaService) GetFile(replicaID, fileID uint) (*ReplicaFileDetails, e
 	return toReplicaFileDetails(file), nil
 }
 
+func (s *ReplicaService) UpdateFile(replicaID, fileID uint, statusValue string) (*ReplicaFileDetails, error) {
+	if _, err := s.repo.FindByID(replicaID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrReplicaNotFound
+		}
+		return nil, err
+	}
+
+	file, err := s.repo.FindFileByID(replicaID, fileID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrReplicaFileNotFound
+		}
+		return nil, err
+	}
+
+	status := model.ReplicaFileStatus(strings.TrimSpace(statusValue))
+	if status != model.ReplicaFileStatusPending && status != model.ReplicaFileStatusChanged {
+		return nil, ErrInvalidReplicaFileStatus
+	}
+	if status == model.ReplicaFileStatusChanged && file.Status != model.ReplicaFileStatusSynchronized {
+		return nil, ErrInvalidReplicaFileStatus
+	}
+
+	if err := s.repo.UpdateFileStatus(replicaID, fileID, status, nil); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrReplicaFileNotFound
+		}
+		return nil, err
+	}
+	file.Status = status
+	return toReplicaFileDetails(file), nil
+}
+
 func (s *ReplicaService) ListFiltered(filter ReplicaListFilter) ([]InventoryReplicaDetails, error) {
 	if err := validateReplicaListFilter(&filter); err != nil {
 		return nil, err
