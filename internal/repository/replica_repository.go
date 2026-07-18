@@ -525,19 +525,24 @@ func (r *ReplicaRepository) Update(replica *model.Replica) error {
 	return r.db.Save(replica).Error
 }
 
-func (r *ReplicaRepository) UpdateWithCommand(replica *model.Replica, command *model.Command) error {
+func (r *ReplicaRepository) UpdateWithCommands(replica *model.Replica, commands ...*model.Command) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(replica).Error; err != nil {
 			return err
 		}
-		if command == nil {
-			return nil
+		for _, command := range commands {
+			if command == nil {
+				continue
+			}
+			command.NodeID = replica.NodeID
+			if len(command.Payload) == 0 {
+				command.Payload = []byte("{}")
+			}
+			if err := tx.Create(command).Error; err != nil {
+				return err
+			}
 		}
-		command.NodeID = replica.NodeID
-		if len(command.Payload) == 0 {
-			command.Payload = []byte("{}")
-		}
-		return tx.Create(command).Error
+		return nil
 	})
 }
 

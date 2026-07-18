@@ -126,6 +126,62 @@ func TestReplicaServiceUpdateStorageProfile(t *testing.T) {
 	}
 }
 
+func TestReplicaServiceUpdateFollowSymlinksQueuesRefreshThenScan(t *testing.T) {
+	database, svc, _, destination := newReconcileCommandTest(t)
+	delivered, unsubscribe := svc.nodes.Subscribe(destination.NodeID)
+	defer unsubscribe()
+	followSymlinks := true
+
+	updated, err := svc.Update(destination.ID, UpdateReplicaInput{FollowSymlinks: &followSymlinks})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if !updated.FollowSymlinks {
+		t.Fatal("updated.FollowSymlinks = false, want true")
+	}
+
+	var commands []model.Command
+	if err := database.Where("node_id = ?", destination.NodeID).Order("id asc").Find(&commands).Error; err != nil {
+		t.Fatalf("Find(commands) error = %v", err)
+	}
+	if len(commands) != 2 {
+		t.Fatalf("len(commands) = %d, want 2", len(commands))
+	}
+	if commands[0].Type != model.NodeCommandTypeRefreshState || commands[1].Type != model.NodeCommandTypeScanReplica {
+		t.Fatalf("command types = [%s, %s], want [refresh_state, scan_replica]", commands[0].Type, commands[1].Type)
+	}
+	var payload struct {
+		ReplicaID uint `json:"replica_id"`
+	}
+	if err := json.Unmarshal(commands[1].Payload, &payload); err != nil {
+		t.Fatalf("Unmarshal(scan payload) error = %v", err)
+	}
+	if payload.ReplicaID != destination.ID {
+		t.Fatalf("scan payload replica_id = %d, want %d", payload.ReplicaID, destination.ID)
+	}
+	for index, wantType := range []string{string(model.NodeCommandTypeRefreshState), string(model.NodeCommandTypeScanReplica)} {
+		select {
+		case command := <-delivered:
+			if command.Type != wantType {
+				t.Fatalf("delivered command %d type = %q, want %q", index, command.Type, wantType)
+			}
+		default:
+			t.Fatalf("delivered command %d missing", index)
+		}
+	}
+
+	if _, err := svc.Update(destination.ID, UpdateReplicaInput{FollowSymlinks: &followSymlinks}); err != nil {
+		t.Fatalf("Update(unchanged) error = %v", err)
+	}
+	var count int64
+	if err := database.Model(&model.Command{}).Where("node_id = ?", destination.NodeID).Count(&count).Error; err != nil {
+		t.Fatalf("Count(commands) error = %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("command count after unchanged update = %d, want 2", count)
+	}
+}
+
 func TestReplicaServiceDeleteCreatesRefreshStateCommand(t *testing.T) {
 	database, svc, _, destination := newReconcileCommandTest(t)
 

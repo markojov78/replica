@@ -421,6 +421,7 @@ func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput) (*Inve
 	}
 
 	changed := false
+	followSymlinksChanged := false
 	if input.Type != nil {
 		replicaType := model.ReplicaType(strings.TrimSpace(*input.Type))
 		if !replicaType.Valid() {
@@ -479,26 +480,43 @@ func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput) (*Inve
 		replica.StorageProfile = storageProfile
 	}
 	if input.FollowSymlinks != nil {
-		changed = changed || replica.FollowSymlinks != *input.FollowSymlinks
+		followSymlinksChanged = replica.FollowSymlinks != *input.FollowSymlinks
+		changed = changed || followSymlinksChanged
 		replica.FollowSymlinks = *input.FollowSymlinks
 	}
 	if replica.FollowSymlinks && replica.Type != model.ReplicaTypeFilesystem {
 		return nil, ErrInvalidReplicaFollowSymlinks
 	}
 
-	var command *model.Command
+	var commands []*model.Command
 	if changed {
-		command = &model.Command{
+		commands = append(commands, &model.Command{
 			NodeID: replica.NodeID,
 			Type:   model.NodeCommandTypeRefreshState,
 			Status: model.NodeCommandStatusPending,
-		}
+		})
 	}
-	if err := s.repo.UpdateWithCommand(replica, command); err != nil {
+	if followSymlinksChanged {
+		payload, err := json.Marshal(struct {
+			ReplicaID uint `json:"replica_id"`
+		}{ReplicaID: replica.ID})
+		if err != nil {
+			return nil, err
+		}
+		commands = append(commands, &model.Command{
+			NodeID:  replica.NodeID,
+			Type:    model.NodeCommandTypeScanReplica,
+			Status:  model.NodeCommandStatusPending,
+			Payload: payload,
+		})
+	}
+	if err := s.repo.UpdateWithCommands(replica, commands...); err != nil {
 		return nil, err
 	}
-	if command != nil && s.nodes != nil {
-		s.nodes.PublishCommand(command)
+	if s.nodes != nil {
+		for _, command := range commands {
+			s.nodes.PublishCommand(command)
+		}
 	}
 
 	return s.replicaDetails(replica)

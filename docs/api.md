@@ -24,16 +24,15 @@ Base path for the endpoints in this section is `/api/admin`.
 #### GET /
 Returns service metadata for the authenticated user.  
   
-Example response:  
-
+Example response:
 ```json
 {
   "service": "Replica",
-  "version": "dev",
+  "version": "1.0.0",
   "commit": "abc1234",
-  "build_date": "2026-05-19T12:00:00Z",
+  "build_date": "2026-05-19T07:56:21Z",
   "node_id": "node-1",
-  "coordinator": true,
+  "coordinator": false,
   "storage": true
 }
 ```
@@ -1106,6 +1105,9 @@ Updates a replica.
 
 When the update changes replica state, the coordinator creates a durable `refresh_state` command for the responsible
 storage node.
+
+When `follow_symlinks` changes, the coordinator also creates a durable `scan_replica` command after `refresh_state`.
+The responsible storage node processes `refresh_state` first, then scans the replica using the updated symlink behavior.
 
 Changing a non-deleted replica status to `deleted` is rejected with `409 replica has active shares` while any share
 linked to the replica has a status other than `deleted`.
@@ -2212,9 +2214,10 @@ Request body:
 - `node_id` required
 - `secret` required
 - `public_key` required, storage node public key PEM
+- `version` optional, node version
+- `commit` optional, node commit hash
 
 Example request:
-
 ```json
 {
   "node_id": "node-a",
@@ -2224,7 +2227,6 @@ Example request:
 ```
 
 Example response:
-
 ```json
 {
   "node_id": "node-a",
