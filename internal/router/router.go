@@ -93,6 +93,7 @@ func New(
 		registerUserRoutes(adminGroup, svc)
 		registerRoleRoutes(adminGroup, svc)
 		registerNodeRoutes(adminGroup, svc)
+		registerCommandRoutes(adminGroup, svc)
 		registerInventoryRoutes(adminGroup, svc)
 		registerReplicaRoutes(adminGroup, svc)
 		registerShareRoutes(adminGroup, svc)
@@ -273,7 +274,13 @@ func mapNodeError(err error, nodeService *service.NodeService) error {
 	case errors.Is(err, service.ErrInvalidNodeStatus):
 		return huma.Error400BadRequest("invalid node status")
 	case errors.Is(err, service.ErrInvalidNodeCommandStatus):
-		return huma.Error400BadRequest("invalid node command status")
+		return huma.Error400BadRequest("invalid command status")
+	case errors.Is(err, service.ErrInvalidNodeCommandType):
+		return huma.Error400BadRequest("invalid command type")
+	case errors.Is(err, service.ErrInvalidNodeCommandStatusTransition):
+		return huma.Error400BadRequest("invalid command status transition")
+	case errors.Is(err, service.ErrInvalidNodeCommandDateFilter):
+		return huma.Error400BadRequest("invalid date filter")
 	case strings.Contains(lower, "unique"):
 		return huma.Error409Conflict("node already exists")
 	default:

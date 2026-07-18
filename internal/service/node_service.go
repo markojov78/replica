@@ -17,6 +17,9 @@ import (
 
 var ErrInvalidNodeStatus = errors.New("invalid node status")
 var ErrInvalidNodeCommandStatus = errors.New("invalid node command status")
+var ErrInvalidNodeCommandType = errors.New("invalid node command type")
+var ErrInvalidNodeCommandStatusTransition = errors.New("invalid node command status transition")
+var ErrInvalidNodeCommandDateFilter = errors.New("invalid command date filter")
 var ErrNodeCommandNotFound = errors.New("node command not found")
 var ErrNodeCommandOwnership = errors.New("node command ownership mismatch")
 
@@ -53,7 +56,22 @@ type NodeCommand struct {
 	Payload   json.RawMessage `json:"payload,omitempty"`
 	CreatedAt string          `json:"created_at"`
 	UpdatedAt string          `json:"updated_at"`
-	LastError *string         `json:"last_error,omitempty"`
+	LastError *string         `json:"last_error"`
+}
+
+type NodeCommandList struct {
+	Items []NodeCommand `json:"items"`
+	Page  int           `json:"page"`
+	Count int           `json:"count"`
+	Total int64         `json:"total"`
+}
+
+type NodeCommandListFilter struct {
+	NodeID        string
+	Type          string
+	Status        string
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
 }
 
 type UpdateNodeInput struct {
@@ -397,6 +415,77 @@ func (s *NodeService) UpdateCommand(nodeID string, commandID uint, input UpdateN
 	}
 
 	return toNodeCommand(command), nil
+}
+
+func (s *NodeService) ListCommands(page, perPage int, filter NodeCommandListFilter) (*NodeCommandList, error) {
+	commandType := model.CommandType(filter.Type)
+	if commandType != "" && !commandType.Valid() {
+		return nil, ErrInvalidNodeCommandType
+	}
+	status := model.CommandStatus(filter.Status)
+	if status != "" && !status.Valid() {
+		return nil, ErrInvalidNodeCommandStatus
+	}
+	if filter.CreatedAfter != nil && filter.CreatedBefore != nil && !filter.CreatedAfter.Before(*filter.CreatedBefore) {
+		return nil, ErrInvalidNodeCommandDateFilter
+	}
+
+	commands, total, err := s.commands.List(page, perPage, repository.CommandListFilter{
+		NodeID: filter.NodeID, Type: commandType, Status: status,
+		CreatedAfter: filter.CreatedAfter, CreatedBefore: filter.CreatedBefore,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &NodeCommandList{Items: toNodeCommands(commands), Page: page, Count: perPage, Total: total}, nil
+}
+
+func (s *NodeService) GetCommand(commandID uint) (*NodeCommand, error) {
+	command, err := s.commands.FindByID(commandID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNodeCommandNotFound
+		}
+		return nil, err
+	}
+	return toNodeCommand(command), nil
+}
+
+func (s *NodeService) UpdateCommandStatus(commandID uint, statusValue string) (*NodeCommand, error) {
+	status := model.CommandStatus(statusValue)
+	if !status.Valid() {
+		return nil, ErrInvalidNodeCommandStatus
+	}
+	command, err := s.commands.FindByID(commandID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNodeCommandNotFound
+		}
+		return nil, err
+	}
+	if !validAdminCommandStatusTransition(command.Status, status) {
+		return nil, ErrInvalidNodeCommandStatusTransition
+	}
+
+	command.Status = status
+	if err := s.commands.Update(command); err != nil {
+		return nil, err
+	}
+	if status == model.NodeCommandStatusPending {
+		s.PublishCommand(command)
+	}
+	return toNodeCommand(command), nil
+}
+
+func validAdminCommandStatusTransition(current, next model.CommandStatus) bool {
+	switch current {
+	case model.NodeCommandStatusFailed:
+		return next == model.NodeCommandStatusPending || next == model.NodeCommandStatusCanceled
+	case model.NodeCommandStatusPending:
+		return next == model.NodeCommandStatusCompleted || next == model.NodeCommandStatusCanceled
+	default:
+		return false
+	}
 }
 
 func (s *NodeService) Subscribe(nodeID string) (<-chan NodeCommand, func()) {

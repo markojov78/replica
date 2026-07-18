@@ -7,6 +7,14 @@ import (
 	"gorm.io/gorm"
 )
 
+type CommandListFilter struct {
+	NodeID        string
+	Type          model.CommandType
+	Status        model.CommandStatus
+	CreatedAfter  *time.Time
+	CreatedBefore *time.Time
+}
+
 type CommandRepository struct {
 	db *gorm.DB
 }
@@ -42,6 +50,33 @@ func (r *CommandRepository) ListPendingByNodeID(nodeID string) ([]model.Command,
 		return nil, err
 	}
 	return commands, nil
+}
+
+func (r *CommandRepository) List(page, perPage int, filter CommandListFilter) ([]model.Command, int64, error) {
+	query := r.db.Model(&model.Command{})
+	if filter.NodeID != "" {
+		query = query.Where("node_id = ?", filter.NodeID)
+	}
+	if filter.Type != "" {
+		query = query.Where("type = ?", filter.Type)
+	}
+	if filter.Status != "" {
+		query = query.Where("status = ?", filter.Status)
+	}
+	if filter.CreatedAfter != nil {
+		query = query.Where("created_at > ?", *filter.CreatedAfter)
+	}
+	if filter.CreatedBefore != nil {
+		query = query.Where("created_at < ?", *filter.CreatedBefore)
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var commands []model.Command
+	err := query.Order("id asc").Offset((page - 1) * perPage).Limit(perPage).Find(&commands).Error
+	return commands, total, err
 }
 
 func (r *CommandRepository) Update(command *model.Command) error {

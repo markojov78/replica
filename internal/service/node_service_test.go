@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -508,5 +509,65 @@ func TestNodeServiceUpdateCommandSetsStatusErrorAndScopesToNode(t *testing.T) {
 
 	if _, err := nodeService.UpdateCommand("node-b", command.ID, UpdateNodeCommandInput{Status: string(model.NodeCommandStatusCompleted)}); err != ErrNodeCommandOwnership {
 		t.Fatalf("UpdateCommand(other node) error = %v, want %v", err, ErrNodeCommandOwnership)
+	}
+}
+
+func TestNodeServiceAdminCommandEndpoints(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{Driver: "sqlite", DSN: filepath.Join(t.TempDir(), "admin-commands.db")})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	commandRepo := repository.NewNodeCommandRepository(database)
+	nodeService := NewNodeService(repository.NewNodeRepository(database), commandRepo)
+	lastError := "connection timeout"
+	createdAt := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	commands := []model.Command{
+		{NodeID: "node-a", Type: model.NodeCommandTypeScanReplica, Status: model.NodeCommandStatusFailed, Payload: []byte(`{"replica_id":1}`), CreatedAt: createdAt, UpdatedAt: createdAt, LastError: &lastError},
+		{NodeID: "node-b", Type: model.NodeCommandTypeRefreshState, Status: model.NodeCommandStatusPending, Payload: []byte(`{}`), CreatedAt: createdAt.Add(time.Hour), UpdatedAt: createdAt.Add(time.Hour)},
+	}
+	if err := database.Create(&commands).Error; err != nil {
+		t.Fatalf("Create(commands) error = %v", err)
+	}
+
+	after := createdAt.Add(-time.Minute)
+	before := createdAt.Add(time.Minute)
+	list, err := nodeService.ListCommands(1, 20, NodeCommandListFilter{
+		NodeID: "node-a", Type: string(model.NodeCommandTypeScanReplica), Status: string(model.NodeCommandStatusFailed),
+		CreatedAfter: &after, CreatedBefore: &before,
+	})
+	if err != nil {
+		t.Fatalf("ListCommands() error = %v", err)
+	}
+	if list.Total != 1 || len(list.Items) != 1 || list.Items[0].ID != commands[0].ID {
+		t.Fatalf("ListCommands() = %+v", list)
+	}
+
+	subscription, unsubscribe := nodeService.Subscribe("node-a")
+	defer unsubscribe()
+	updated, err := nodeService.UpdateCommandStatus(commands[0].ID, string(model.NodeCommandStatusPending))
+	if err != nil {
+		t.Fatalf("UpdateCommandStatus() error = %v", err)
+	}
+	if updated.Status != string(model.NodeCommandStatusPending) || updated.LastError == nil || *updated.LastError != lastError {
+		t.Fatalf("UpdateCommandStatus() = %+v", updated)
+	}
+	select {
+	case delivered := <-subscription:
+		if delivered.ID != commands[0].ID || delivered.Status != string(model.NodeCommandStatusPending) {
+			t.Fatalf("delivered command = %+v", delivered)
+		}
+	default:
+		t.Fatal("requeued command was not published")
+	}
+
+	if _, err := nodeService.UpdateCommandStatus(commands[0].ID, string(model.NodeCommandStatusFailed)); !errors.Is(err, ErrInvalidNodeCommandStatusTransition) {
+		t.Fatalf("UpdateCommandStatus(invalid transition) error = %v", err)
+	}
+	if _, err := nodeService.UpdateCommandStatus(commands[0].ID, "invalid"); !errors.Is(err, ErrInvalidNodeCommandStatus) {
+		t.Fatalf("UpdateCommandStatus(invalid status) error = %v", err)
 	}
 }

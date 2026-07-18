@@ -561,6 +561,150 @@ Possible errors:
 - `401` missing authenticated user
 - `403` missing required permission
 
+### /commands endpoint
+All `/commands` endpoints require the matching `nodes` permission for the requested action.
+Commands are durable orchestration tasks created by the coordinator and assigned to storage nodes.
+Commands are normally processed automatically by storage nodes through the WebSocket orchestration channel or
+heartbeat responses. The admin API exposes commands primarily for monitoring, debugging and administrative recovery.
+
+#### GET /commands
+Returns a paginated list of commands.
+
+Query parameters:
+- `page` optional, default `1`
+- `count` optional, default `20`
+- `node_id` optional
+- `type` optional, filter by command type:
+  - `refresh_state`
+  - `refresh_config`
+  - `scan_replica`
+  - `reconcile_replica`
+- `status` optional, filter by command status:
+  - `pending`
+  - `completed`
+  - `failed`
+  - `canceled`
+- `created_after` optional RFC3339 timestamp
+- `created_before` optional RFC3339 timestamp
+
+Example response:
+```json
+{
+  "items": [
+    {
+      "id": 7,
+      "node_id": "node-a",
+      "type": "reconcile_replica",
+      "status": "pending",
+      "payload": {
+        "source_node_address": "https://node-b:8080",
+        "source_node_id": "node-b",
+        "source_replica_id": 3,
+        "destination_replica_id": 4,
+        "transfer_token": "<signed-jwt>",
+        "delete_relative_uris": []
+      },
+      "created_at": "2026-05-21T11:59:00Z",
+      "updated_at": "2026-05-21T11:59:00Z",
+      "last_error": null
+    }
+  ],
+  "page": 1,
+  "count": 20,
+  "total": 1
+}
+```
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `400` invalid command type
+- `400` invalid command status
+- `400` invalid date filter
+
+#### GET /commands/{id}
+Returns a single command.
+
+Example response:
+```json
+{
+  "id": 7,
+  "node_id": "node-a",
+  "type": "scan_replica",
+  "status": "failed",
+  "payload": {
+    "replica_id": 1
+  },
+  "created_at": "2026-05-21T11:59:00Z",
+  "updated_at": "2026-05-21T12:05:00Z",
+  "last_error": "connection timeout"
+}
+```
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `404` command not found
+
+#### PATCH /commands/{id}
+Updates the status of a command.
+
+This endpoint is intended for administrative recovery when automatic command processing cannot proceed.
+
+Allowed status transitions:
+- `failed` → `pending`
+- `failed` → `canceled`
+- `pending` → `completed`
+- `pending` → `canceled`
+
+All other transitions are rejected.
+
+Request body:
+- `status` required
+
+Example request:
+```json
+{
+  "status": "pending"
+}
+```
+
+Example response:
+```json
+{
+  "id": 7,
+  "node_id": "node-a",
+  "type": "reconcile_replica",
+  "status": "pending",
+  "payload": {
+    "source_node_address": "https://node-b:8080",
+    "source_node_id": "node-b",
+    "source_replica_id": 3,
+    "destination_replica_id": 4,
+    "transfer_token": "<signed-jwt>",
+    "delete_relative_uris": []
+  },
+  "created_at": "2026-05-21T11:59:00Z",
+  "updated_at": "2026-05-21T12:15:00Z",
+  "last_error": "connection timeout"
+}
+```
+
+Behavior:
+- only the command status is modified
+- command payload is immutable
+- changing a command back to `pending` re-delivers command again through the normal coordinator command delivery mechanism
+- changing a command to `completed` does not perform the command; it only marks the command as completed
+- changing a command to `canceled` prevents further delivery to storage nodes
+- `last_error` is preserved when changing the command status
+
+Possible errors:
+- `400` invalid command status
+- `400` invalid command status transition
+- `401` missing authenticated user
+- `403` missing required permission
+- `404` command not found
+
 ### /nodes endpoint
 All `/nodes` endpoints require the matching `nodes` permission for the requested action.
 
@@ -702,7 +846,6 @@ Possible errors:
 - `400` invalid node status
 
 ### /inventories endpoint
-
 All `/inventories` and inventory file endpoints require the matching `inventories` permission for the requested action.
 
 #### GET /inventories
