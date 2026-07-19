@@ -121,6 +121,10 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 	})
 	for _, want := range []string{
 		`class="file-grid"`,
+		`class="gallery-item has-actions"`,
+		`class="gallery-media"`,
+		`class="gallery-actions"`,
+		`class="gallery-caption"`,
 		`data-public-src="/s/public-link/files/10/thumbnail?size=256"`,
 		`href="/w/public-link/files/10/content"`,
 		`data-default-view="grid"`,
@@ -138,6 +142,9 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 		if !strings.Contains(grid, want) {
 			t.Fatalf("grid view = %s, want %q", grid, want)
 		}
+	}
+	if strings.Contains(grid, `class="file-card`) || strings.Contains(grid, `class="card-preview`) {
+		t.Fatalf("grid view = %s, want gallery items without nested cards", grid)
 	}
 	if strings.Index(grid, `localStorage.getItem("replica_share_theme")`) > strings.Index(grid, `<link rel="stylesheet"`) {
 		t.Fatalf("grid view = %s, want theme bootstrap before stylesheet", grid)
@@ -181,6 +188,51 @@ func TestShareFileHeaderUsesBreadcrumbAndCompactControls(t *testing.T) {
 	for _, unwanted := range []string{`class="back-link"`, `>My shares</a>`, `read, create`} {
 		if strings.Contains(html, unwanted) {
 			t.Fatalf("share header = %s, do not want %q", html, unwanted)
+		}
+	}
+}
+
+func TestUploadPanelRemainsPermissionGatedAndPreservesFormContract(t *testing.T) {
+	data := pageData{
+		Authenticated:  true,
+		Share:          apiclient.Share{ID: 4, Name: "Bali"},
+		Page:           2,
+		Count:          50,
+		BasePath:       "/share/shares/4",
+		ThumbnailSizes: []int{128, 256},
+		ThumbnailSize:  256,
+		ViewMode:       "grid",
+		BrowseMode:     "tree",
+		TreePath:       "photos",
+	}
+
+	data.Permissions = []string{"read"}
+	if html := renderShareTemplate(t, data); strings.Contains(html, `class="upload-panel"`) {
+		t.Fatalf("read-only share = %s, do not want upload controls", html)
+	}
+
+	data.Permissions = []string{"read", "create"}
+	html := renderShareTemplate(t, data)
+	for _, want := range []string{
+		`<details class="upload-panel">`,
+		`<summary class="btn upload-toggle">Upload file</summary>`,
+		`action="/share/shares/4/files"`,
+		`hx-post="/share/shares/4/files"`,
+		`hx-target="body"`,
+		`hx-swap="outerHTML"`,
+		`class="upload-form"`,
+		`name="file" type="file" required`,
+		`name="relative_uri"`,
+		`aria-describedby="share-upload-path-hint" required`,
+		`name="page" value="2"`,
+		`name="count" value="50"`,
+		`name="thumb" value="256"`,
+		`name="view" value="grid"`,
+		`name="browse" value="tree"`,
+		`name="path" value="photos"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("writable share = %s, want %q", html, want)
 		}
 	}
 }
@@ -342,7 +394,7 @@ func TestTreeListAndGridRendering(t *testing.T) {
 	grid := renderShareTemplate(t, treeTemplateData("grid", "sub", false))
 	for _, want := range []string{
 		`class="file-grid"`,
-		`folder-card`,
+		`gallery-folder`,
 		`folder-preview`,
 		`image03.jpg`,
 	} {
@@ -517,8 +569,8 @@ func TestTreeSidePanelExpandCollapseStateHooks(t *testing.T) {
 
 func TestTreeModelFeedsMainContentAndSidePanel(t *testing.T) {
 	html := renderShareTemplate(t, treeTemplateData("grid", "", false))
-	if !strings.Contains(html, `folder-card`) || !strings.Contains(html, `data-folder-tree-panel`) {
-		t.Fatalf("tree html = %s, want main folder cards and side panel", html)
+	if !strings.Contains(html, `gallery-folder`) || !strings.Contains(html, `data-folder-tree-panel`) {
+		t.Fatalf("tree html = %s, want main gallery folders and side panel", html)
 	}
 	if !strings.Contains(html, `href="/share/shares/4?browse=tree&amp;path=sub&amp;thumb=128&amp;view=grid"`) {
 		t.Fatalf("tree html = %s, want shared sub folder URL in rendered tree", html)

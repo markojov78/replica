@@ -192,22 +192,61 @@
 </div>
 {{end}}
 
+{{define "gallery_folder_item"}}
+<article class="gallery-item gallery-folder">
+  <a class="gallery-surface folder-preview" href="{{.URL}}" hx-get="{{.URL}}" hx-target="body" hx-swap="outerHTML">{{if .IsParent}}Up{{else}}Folder{{end}}</a>
+  <div class="gallery-caption">
+    <h2><a class="name-link" href="{{.URL}}" hx-get="{{.URL}}" hx-target="body" hx-swap="outerHTML">{{.Name}}</a></h2>
+    <p>Folder</p>
+  </div>
+</article>
+{{end}}
+
+{{define "gallery_file_item"}}
+{{$root := .Root}}
+{{$file := .File}}
+<article class="gallery-item has-actions">
+  <div class="gallery-media">
+    <a class="gallery-surface" href="{{$file.ContentPath}}">
+      {{if $file.ThumbnailURL}}
+        <img class="grid-thumb" data-public-src="{{$file.ThumbnailURL}}" alt="" onerror="this.hidden=true; this.nextElementSibling.hidden=false">
+        <span class="file-fallback" hidden>{{$file.Type}}</span>
+        <noscript><img class="grid-thumb" src="{{$file.ThumbnailURL}}" alt=""></noscript>
+      {{else}}
+        <span class="file-fallback grid-auth-thumb" data-auth-src="{{$root.APIBasePath}}/files/{{$file.FileID}}/thumbnail?size={{$root.ThumbnailSize}}">{{$file.Type}}</span>
+      {{end}}
+    </a>
+    <div class="gallery-actions">
+      {{template "file_actions_menu" (dict "Root" $root "File" $file)}}
+    </div>
+  </div>
+  <div class="gallery-caption">
+    <h2><a class="name-link" href="{{$file.ContentPath}}">{{if eq $root.BrowseMode "tree"}}{{$file.Name}}{{else}}{{$file.RelativeURI}}{{end}}</a></h2>
+    <p>{{formatBytes $file.Size}} · {{formatTime $file.Modified}}</p>
+  </div>
+</article>
+{{end}}
+
 {{define "share_files"}}
 {{template "layout_start" .}}
 <section class="panel" data-share-file-view data-view-mode="{{.ViewMode}}" data-browse-mode="{{.BrowseMode}}" data-thumbnail-size="{{.ThumbnailSize}}" data-page-size="{{.Count}}" data-default-view="{{with .Share.Properties.View}}{{.}}{{end}}" data-default-page-size="{{with .Share.Properties.PageSize}}{{.}}{{end}}" data-default-thumbnail-size="{{with .Share.Properties.ThumbnailSize}}{{.}}{{end}}" data-default-theme="{{with .Share.Properties.Theme}}{{.}}{{end}}">
   {{template "notice" .}}
   {{if hasPermission .Permissions "create"}}
-  <form action="{{.BasePath}}/files" method="post" enctype="multipart/form-data" class="upload-form" data-share-form hx-post="{{.BasePath}}/files" hx-target="body" hx-swap="outerHTML">
-    <input type="hidden" name="page" value="{{.Page}}">
-    <input type="hidden" name="count" value="{{.Count}}">
-    <input type="hidden" name="thumb" value="{{.ThumbnailSize}}">
-    <input type="hidden" name="view" value="{{.ViewMode}}">
-    <input type="hidden" name="browse" value="{{.BrowseMode}}">
-    {{if .TreePath}}<input type="hidden" name="path" value="{{.TreePath}}">{{end}}
-    <input name="file" type="file" required>
-    <input name="relative_uri" placeholder="relative/path/file.ext" required>
-    <button type="submit" class="primary">Upload</button>
-  </form>
+  <details class="upload-panel">
+    <summary class="btn upload-toggle">Upload file</summary>
+    <form action="{{.BasePath}}/files" method="post" enctype="multipart/form-data" class="upload-form" data-share-form hx-post="{{.BasePath}}/files" hx-target="body" hx-swap="outerHTML">
+      <input type="hidden" name="page" value="{{.Page}}">
+      <input type="hidden" name="count" value="{{.Count}}">
+      <input type="hidden" name="thumb" value="{{.ThumbnailSize}}">
+      <input type="hidden" name="view" value="{{.ViewMode}}">
+      <input type="hidden" name="browse" value="{{.BrowseMode}}">
+      {{if .TreePath}}<input type="hidden" name="path" value="{{.TreePath}}">{{end}}
+      <label class="upload-field" for="share-upload-file"><span>File</span><input id="share-upload-file" name="file" type="file" required></label>
+      <label class="upload-field" for="share-upload-path"><span>Relative path <span class="field-hint">(optional to edit)</span></span><input id="share-upload-path" name="relative_uri" placeholder="relative/path/file.ext" aria-describedby="share-upload-path-hint" required></label>
+      <span class="upload-help" id="share-upload-path-hint">Defaults to the selected filename.</span>
+      <button type="submit" class="primary">Upload</button>
+    </form>
+  </details>
   {{end}}
   {{if .TreePanel}}
   <button type="button" class="btn folder-panel-button" data-folder-panel-toggle>Folders</button>
@@ -226,36 +265,13 @@
   {{if eq .ViewMode "grid"}}
   <section class="file-grid" style="{{thumbStyle .ThumbnailSize}}" data-view-mode="grid">
     {{with .ParentFolder}}
-      <article class="file-card folder-card">
-        <a class="card-preview folder-preview" href="{{.URL}}" hx-get="{{.URL}}" hx-target="body" hx-swap="outerHTML">Up</a>
-        <div class="card-body"><h2><a class="name-link" href="{{.URL}}" hx-get="{{.URL}}" hx-target="body" hx-swap="outerHTML">{{.Name}}</a></h2><p>Folder</p></div>
-      </article>
+      {{template "gallery_folder_item" .}}
     {{end}}
     {{range .Folders}}
-      <article class="file-card folder-card">
-        <a class="card-preview folder-preview" href="{{.URL}}" hx-get="{{.URL}}" hx-target="body" hx-swap="outerHTML">Folder</a>
-        <div class="card-body"><h2><a class="name-link" href="{{.URL}}" hx-get="{{.URL}}" hx-target="body" hx-swap="outerHTML">{{.Name}}</a></h2><p>Folder</p></div>
-      </article>
+      {{template "gallery_folder_item" .}}
     {{end}}
     {{range .Files}}
-      <article class="file-card has-actions">
-        <a class="card-preview" href="{{.ContentPath}}">
-            {{if .ThumbnailURL}}
-              <img class="grid-thumb" data-public-src="{{.ThumbnailURL}}" alt="" onerror="this.hidden=true; this.nextElementSibling.hidden=false">
-              <span class="file-fallback" hidden>{{.Type}}</span>
-              <noscript><img class="grid-thumb" src="{{.ThumbnailURL}}" alt=""></noscript>
-            {{else}}
-              <span class="file-fallback grid-auth-thumb" data-auth-src="{{$.APIBasePath}}/files/{{.FileID}}/thumbnail?size={{$.ThumbnailSize}}">{{.Type}}</span>
-            {{end}}
-        </a>
-        <div class="card-body">
-          <h2><a class="name-link" href="{{.ContentPath}}">{{if eq $.BrowseMode "tree"}}{{.Name}}{{else}}{{.RelativeURI}}{{end}}</a></h2>
-          <p>{{formatBytes .Size}} · {{formatTime .Modified}}</p>
-        </div>
-        <div class="card-actions">
-          {{template "file_actions_menu" (dict "Root" $ "File" .)}}
-        </div>
-      </article>
+      {{template "gallery_file_item" (dict "Root" $ "File" .)}}
     {{end}}
     {{if not .HasEntries}}
       <div class="empty">No files found.</div>
