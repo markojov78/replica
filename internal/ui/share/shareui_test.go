@@ -119,12 +119,14 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 	})
 	for _, want := range []string{
 		`class="file-grid"`,
-		`src="/s/public-link/files/10/thumbnail?size=256"`,
+		`data-public-src="/s/public-link/files/10/thumbnail?size=256"`,
 		`href="/w/public-link/files/10/content"`,
 		`data-default-view="grid"`,
 		`data-default-page-size="25"`,
 		`data-default-thumbnail-size="256"`,
 		`data-default-theme="dark"`,
+		`data-share-default-theme="dark"`,
+		`localStorage.getItem("replica_share_theme")`,
 		`<option value="25" selected>25</option>`,
 		`Replace`,
 		`Delete`,
@@ -132,6 +134,12 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 		if !strings.Contains(grid, want) {
 			t.Fatalf("grid view = %s, want %q", grid, want)
 		}
+	}
+	if strings.Contains(grid, `class="grid-thumb" src=`) {
+		t.Fatalf("grid view = %s, want public thumbnail loading deferred until appearance is applied", grid)
+	}
+	if strings.Index(grid, `localStorage.getItem("replica_share_theme")`) > strings.Index(grid, `<link rel="stylesheet"`) {
+		t.Fatalf("grid view = %s, want theme bootstrap before stylesheet", grid)
 	}
 }
 

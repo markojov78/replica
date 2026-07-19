@@ -209,7 +209,9 @@
   }
 
   function bindAuthenticatedPage() {
-    applyFileViewPreferences();
+    if (applyFileViewPreferences()) {
+      return;
+    }
     bindActionsMenus();
     bindFolderTreePanel();
     fillCurrentUser();
@@ -265,9 +267,12 @@
   }
 
   function bindPublicPage() {
-    applyFileViewPreferences();
+    if (applyFileViewPreferences()) {
+      return;
+    }
     bindActionsMenus();
     bindFolderTreePanel();
+    loadPublicThumbnails();
   }
 
   function bindActionsMenus() {
@@ -344,10 +349,17 @@
     }
   }
 
+  function loadPublicThumbnails() {
+    for (const image of document.querySelectorAll("img[data-public-src]")) {
+      image.src = image.dataset.publicSrc;
+      image.removeAttribute("data-public-src");
+    }
+  }
+
   function applyFileViewPreferences() {
     const viewRoot = document.querySelector("[data-share-file-view]");
     if (!viewRoot) {
-      return;
+      return false;
     }
     const viewKey = prefix + "file_view_mode";
     const browseKey = prefix + "file_browse_mode";
@@ -423,9 +435,10 @@
     }
 
     if (!changed) {
-      return;
+      return false;
     }
     window.location.replace(`${window.location.pathname}?${params.toString()}`);
+    return true;
   }
 
   function bindFilePreferenceControls() {
