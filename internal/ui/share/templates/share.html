@@ -16,7 +16,8 @@
   </script>
   <link rel="stylesheet" href="/share/static/share.css">
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
-  <script src="/share/static/share.js" defer></script>
+  <script src="/share/static/share.js?v=20260719-2" defer></script>
+  <noscript><style>img[data-public-src]{display:none!important}</style></noscript>
 
   <link rel="icon" type="image/png" sizes="32x32" href="/share/static/favicon-96x96.png">
   <link rel="shortcut icon" type="image/x-icon" href="/share/static/favicon.ico">
@@ -240,6 +241,7 @@
             {{if .ThumbnailURL}}
               <img class="grid-thumb" data-public-src="{{.ThumbnailURL}}" alt="" onerror="this.hidden=true; this.nextElementSibling.hidden=false">
               <span class="file-fallback" hidden>{{.Type}}</span>
+              <noscript><img class="grid-thumb" src="{{.ThumbnailURL}}" alt=""></noscript>
             {{else}}
               <span class="file-fallback grid-auth-thumb" data-auth-src="{{$.APIBasePath}}/files/{{.FileID}}/thumbnail?size={{$.ThumbnailSize}}">{{.Type}}</span>
             {{end}}
@@ -276,7 +278,7 @@
     {{range .Files}}
       <tr>
         <td>
-          <a href="{{.ContentPath}}">{{if .ThumbnailURL}}<img class="thumb" data-public-src="{{.ThumbnailURL}}" alt="">{{else}}<span class="thumb" data-auth-src="{{$.APIBasePath}}/files/{{.FileID}}/thumbnail?size={{$.ThumbnailSize}}"></span>{{end}}</a>
+          <a href="{{.ContentPath}}">{{if .ThumbnailURL}}<img class="thumb" data-public-src="{{.ThumbnailURL}}" alt=""><noscript><img class="thumb" src="{{.ThumbnailURL}}" alt=""></noscript>{{else}}<span class="thumb" data-auth-src="{{$.APIBasePath}}/files/{{.FileID}}/thumbnail?size={{$.ThumbnailSize}}"></span>{{end}}</a>
           <a class="name-link" href="{{.ContentPath}}">{{if eq $.BrowseMode "tree"}}{{.Name}}{{else}}{{.RelativeURI}}{{end}}</a>
         </td>
         <td>{{formatBytes .Size}}</td>

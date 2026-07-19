@@ -531,6 +531,10 @@
     }
   });
 
+  document.addEventListener("htmx:afterSwap", () => {
+    loadPublicThumbnails();
+  });
+
   bindTheme();
   bindFilePreferenceControls();
 

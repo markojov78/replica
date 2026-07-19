@@ -42,6 +42,8 @@ func TestRegisterServesLoginAndStaticAssets(t *testing.T) {
 		!strings.Contains(rec.Body.String(), `thumbnail_size`) ||
 		!strings.Contains(rec.Body.String(), `page_size`) ||
 		!strings.Contains(rec.Body.String(), `defaultThumbnailSize`) ||
+		!strings.Contains(rec.Body.String(), `htmx:afterSwap`) ||
+		!strings.Contains(rec.Body.String(), `loadPublicThumbnails`) ||
 		!strings.Contains(rec.Body.String(), `folder_tree_visible`) ||
 		!strings.Contains(rec.Body.String(), `data-actions-menu-button`) {
 		t.Fatalf("share.js body = %s, want HTMX auth header handling", rec.Body.String())
@@ -127,6 +129,8 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 		`data-default-theme="dark"`,
 		`data-share-default-theme="dark"`,
 		`localStorage.getItem("replica_share_theme")`,
+		`src="/share/static/share.js?v=20260719-2"`,
+		`<noscript><img class="grid-thumb" src="/s/public-link/files/10/thumbnail?size=256" alt=""></noscript>`,
 		`<option value="25" selected>25</option>`,
 		`Replace`,
 		`Delete`,
@@ -134,9 +138,6 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 		if !strings.Contains(grid, want) {
 			t.Fatalf("grid view = %s, want %q", grid, want)
 		}
-	}
-	if strings.Contains(grid, `class="grid-thumb" src=`) {
-		t.Fatalf("grid view = %s, want public thumbnail loading deferred until appearance is applied", grid)
 	}
 	if strings.Index(grid, `localStorage.getItem("replica_share_theme")`) > strings.Index(grid, `<link rel="stylesheet"`) {
 		t.Fatalf("grid view = %s, want theme bootstrap before stylesheet", grid)
