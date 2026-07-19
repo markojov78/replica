@@ -3,9 +3,11 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"image"
 	"image/color"
+	"image/gif"
 	"image/jpeg"
 	"image/png"
 	"io"
@@ -150,6 +152,100 @@ func TestImageThumbnailGeneration(t *testing.T) {
 	}
 	if img.Bounds().Dx() != 64 || img.Bounds().Dy() != 32 {
 		t.Fatalf("thumbnail size = %dx%d, want no upscale 64x32", img.Bounds().Dx(), img.Bounds().Dy())
+	}
+}
+
+func TestGIFThumbnailGeneration(t *testing.T) {
+	service := newThumbnailServiceForTest(t)
+	palette := color.Palette{testRed, testGreen}
+	frame := image.NewPaletted(image.Rect(0, 0, 80, 40), palette)
+	for y := 0; y < 40; y++ {
+		for x := 40; x < 80; x++ {
+			frame.SetColorIndex(x, y, 1)
+		}
+	}
+	data := encodeGIF(t, &gif.GIF{Image: []*image.Paletted{frame}, Delay: []int{0}, Config: image.Config{ColorModel: palette, Width: 80, Height: 40}})
+
+	thumbnail := generateImageThumbnailFromBytes(t, service, 21, "source.gif", data)
+	if got := thumbnail.Bounds().Size(); got.X != 80 || got.Y != 40 {
+		t.Fatalf("thumbnail size = %v, want 80x40", got)
+	}
+	assertNearColor(t, thumbnail.At(10, 20), testRed)
+	assertNearColor(t, thumbnail.At(70, 20), testGreen)
+}
+
+func TestAnimatedGIFThumbnailCompositesPartialFrames(t *testing.T) {
+	service := newThumbnailServiceForTest(t)
+	palette := color.Palette{testRed, testBlue}
+	left := image.NewPaletted(image.Rect(0, 0, 4, 4), palette)
+	right := image.NewPaletted(image.Rect(4, 0, 8, 4), palette)
+	for i := range right.Pix {
+		right.Pix[i] = 1
+	}
+	data := encodeGIF(t, &gif.GIF{
+		Image:    []*image.Paletted{left, right},
+		Delay:    []int{1, 1},
+		Disposal: []byte{gif.DisposalNone, gif.DisposalNone},
+		Config:   image.Config{ColorModel: palette, Width: 8, Height: 4},
+	})
+
+	thumbnail := generateImageThumbnailFromBytes(t, service, 22, "animated.gif", data)
+	if got := thumbnail.Bounds().Size(); got.X != 8 || got.Y != 4 {
+		t.Fatalf("thumbnail size = %v, want logical canvas 8x4", got)
+	}
+	assertNearColor(t, thumbnail.At(1, 2), testRed)
+	assertNearColor(t, thumbnail.At(6, 2), testBlue)
+}
+
+func TestTransparentGIFThumbnailUsesWhiteBackground(t *testing.T) {
+	service := newThumbnailServiceForTest(t)
+	palette := color.Palette{color.NRGBA{A: 0}, testGreen}
+	frame := image.NewPaletted(image.Rect(0, 0, 8, 4), palette)
+	for y := 0; y < 4; y++ {
+		for x := 4; x < 8; x++ {
+			frame.SetColorIndex(x, y, 1)
+		}
+	}
+	data := encodeGIF(t, &gif.GIF{Image: []*image.Paletted{frame}, Delay: []int{0}, Config: image.Config{ColorModel: palette, Width: 8, Height: 4}})
+
+	thumbnail := generateImageThumbnailFromBytes(t, service, 23, "transparent.gif", data)
+	assertNearColor(t, thumbnail.At(1, 2), color.White)
+	assertNearColor(t, thumbnail.At(6, 2), testGreen)
+}
+
+func TestStaticWebPThumbnailGeneration(t *testing.T) {
+	service := newThumbnailServiceForTest(t)
+	data := decodeBase64(t, "UklGRrIBAABXRUJQVlA4TKUBAAAvSsAYAA8w//M///MfeJAkbXvaSG7m8Q3GfYSBJekwQztm/IcZlgwnmWImn2BK7aFmBtnVir6q//8VOkFE/xm4baTIu8c48ArEo6+B3zFKYln3pqClSCKX0begFTAXFOLXHSyF8cCNcZEG4OywuA4KVVfJCiArU7GAgJI8+lJP/OKMT/fBAjevg1cYB7YVkFuWga2lyPi5I0HFy5YTpWIHg0RZpkniRVW9odHAKOwosWuOGdxIyn2OvaCDvhg/we6TwadPBPbqBV58MsLmMJ8yZnOWk8SRz4N+QoyPL+MnamzMvcE1rHNEr91F9GKZPVUcS9w7PhhH36suB9qPeYb/oLk6cuTiJ0wOK3m5h1cKjW6EVZCYMK7dxcKCBdgP9HkKr9gkAO2P8GKZGWVdIAatQa+1IDpt6qyorVwdy01xdW8Jkfk6xjEXmVQQ+HQdFr6OKhIN34dXWq0+0qr6EJSCeeVLH9+gvGTLyqM65PQ44ihzlTXxQKjKbAvshXgir7Lil9w4L2bvMycmjQcqXaMCO6BlY28i+FOLzbfI1vEqxAhotocAAA==")
+	thumbnail := generateImageThumbnailFromBytes(t, service, 24, "source.webp", data)
+	if got := thumbnail.Bounds().Size(); got.X <= 0 || got.Y <= 0 {
+		t.Fatalf("thumbnail size = %v, want non-empty image", got)
+	}
+}
+
+func TestTransparentWebPUsesWhiteBackground(t *testing.T) {
+	// WebP decoding can return an alpha-bearing image. The shared flattening
+	// step used by the WebP path must resolve that alpha before JPEG encoding.
+	src := image.NewNRGBA(image.Rect(0, 0, 2, 1))
+	src.SetNRGBA(0, 0, color.NRGBA{A: 0})
+	src.SetNRGBA(1, 0, testGreen)
+	flattened := flattenOnWhite(src)
+	assertNearColor(t, flattened.At(0, 0), color.White)
+	assertNearColor(t, flattened.At(1, 0), testGreen)
+}
+
+func TestMalformedGIFAndWebPReturnImageGenerationError(t *testing.T) {
+	for i, test := range []struct {
+		name string
+		data []byte
+	}{{"gif", []byte("GIF89a broken")}, {"webp", []byte("RIFF broken WEBP")}} {
+		t.Run(test.name, func(t *testing.T) {
+			service := newThumbnailServiceForTest(t)
+			source := &countingThumbnailSource{name: "broken." + test.name, body: test.data}
+			_, err := service.GetOrCreateThumbnail(context.Background(), ThumbnailRequest{FileID: uint(30 + i), FileVersion: 1, Size: 256, RelativeURI: source.name, Source: source})
+			if !errors.Is(err, ErrThumbnailImageGeneration) {
+				t.Fatalf("error = %v, want ErrThumbnailImageGeneration", err)
+			}
+		})
 	}
 }
 
@@ -559,6 +655,48 @@ func decodeJPEGFile(t *testing.T, path string) image.Image {
 		t.Fatalf("jpeg.Decode(thumbnail) error = %v", err)
 	}
 	return img
+}
+
+func encodeGIF(t *testing.T, animation *gif.GIF) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := gif.EncodeAll(&buf, animation); err != nil {
+		t.Fatalf("gif.EncodeAll() error = %v", err)
+	}
+	return buf.Bytes()
+}
+
+func generateImageThumbnailFromBytes(t *testing.T, service *ThumbnailService, fileID uint, name string, data []byte) image.Image {
+	t.Helper()
+	source := &countingThumbnailSource{name: name, size: int64(len(data)), body: data}
+	result, err := service.GetOrCreateThumbnail(context.Background(), ThumbnailRequest{
+		FileID: fileID, FileVersion: 1, Size: 256, RelativeURI: name, Source: source,
+	})
+	if err != nil {
+		t.Fatalf("GetOrCreateThumbnail(%s) error = %v", name, err)
+	}
+	if result.ContentType != ThumbnailContentTypeJPEG {
+		t.Fatalf("ContentType = %q, want %q", result.ContentType, ThumbnailContentTypeJPEG)
+	}
+	return decodeJPEGFile(t, result.Path)
+}
+
+func decodeBase64(t *testing.T, encoded string) []byte {
+	t.Helper()
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("base64 decode error = %v", err)
+	}
+	return data
+}
+
+func assertNearColor(t *testing.T, got color.Color, want color.Color) {
+	t.Helper()
+	gotNRGBA := color.NRGBAModel.Convert(got).(color.NRGBA)
+	wantNRGBA := color.NRGBAModel.Convert(want).(color.NRGBA)
+	if colorDistanceSquared(gotNRGBA, wantNRGBA) > 40*40 {
+		t.Fatalf("color = %#v, want near %#v", gotNRGBA, wantNRGBA)
+	}
 }
 
 func assertQuadrantColors(t *testing.T, img image.Image, want [4]color.NRGBA) {

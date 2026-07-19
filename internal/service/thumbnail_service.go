@@ -7,8 +7,12 @@ import (
 	"fmt"
 	"html"
 	"image"
+	"image/color"
+	"image/draw"
+	"image/gif"
 	"image/jpeg"
 	_ "image/png"
+	"io"
 	"log"
 	"math"
 	"os"
@@ -25,6 +29,7 @@ import (
 	"replica/internal/config"
 
 	xdraw "golang.org/x/image/draw"
+	"golang.org/x/image/webp"
 )
 
 const (
@@ -276,15 +281,117 @@ func (s *ThumbnailService) generateImageThumbnail(ctx context.Context, req Thumb
 	}
 	defer source.Close()
 
-	img, err := imaging.Decode(source, imaging.AutoOrientation(true))
+	data, err := io.ReadAll(source)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrThumbnailImageGeneration, err)
+	}
+	_, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrThumbnailImageGeneration, err)
+	}
+
+	var img image.Image
+	switch format {
+	case "gif":
+		animation, decodeErr := gif.DecodeAll(bytes.NewReader(data))
+		if decodeErr != nil {
+			return fmt.Errorf("%w: %v", ErrThumbnailImageGeneration, decodeErr)
+		}
+		img, err = compositeGIFFrame(animation)
+	case "webp":
+		img, err = webp.Decode(bytes.NewReader(data))
+	default:
+		img, err = imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
+	}
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrThumbnailImageGeneration, err)
+	}
+	if format == "gif" || format == "webp" {
+		img = flattenOnWhite(img)
 	}
 
 	thumbnail := resizeToFit(img, req.Size)
 	return writeAtomic(s.storageDir, finalPath, func(tmp *os.File) error {
 		return jpeg.Encode(tmp, thumbnail, &jpeg.Options{Quality: defaultThumbnailJPEGQuality})
 	})
+}
+
+func compositeGIFFrame(animation *gif.GIF) (image.Image, error) {
+	if animation == nil || len(animation.Image) == 0 || animation.Config.Width <= 0 || animation.Config.Height <= 0 {
+		return nil, errors.New("GIF has no usable frames")
+	}
+
+	bounds := image.Rect(0, 0, animation.Config.Width, animation.Config.Height)
+	canvas := image.NewRGBA(bounds)
+	covered := make([]bool, bounds.Dx()*bounds.Dy())
+	var last image.Image
+	for i, frame := range animation.Image {
+		frameBounds := frame.Bounds().Intersect(bounds)
+		if frameBounds.Empty() {
+			continue
+		}
+
+		var previous *image.RGBA
+		if gifDisposal(animation, i) == gif.DisposalPrevious {
+			previous = cloneRGBA(canvas)
+		}
+		draw.Draw(canvas, frameBounds, frame, frameBounds.Min, draw.Over)
+		for y := frameBounds.Min.Y; y < frameBounds.Max.Y; y++ {
+			for x := frameBounds.Min.X; x < frameBounds.Max.X; x++ {
+				covered[y*bounds.Dx()+x] = true
+			}
+		}
+		last = cloneRGBA(canvas)
+		if allCovered(covered) {
+			return last, nil
+		}
+
+		switch gifDisposal(animation, i) {
+		case gif.DisposalBackground:
+			draw.Draw(canvas, frameBounds, image.NewUniform(color.Transparent), image.Point{}, draw.Src)
+			for y := frameBounds.Min.Y; y < frameBounds.Max.Y; y++ {
+				for x := frameBounds.Min.X; x < frameBounds.Max.X; x++ {
+					covered[y*bounds.Dx()+x] = false
+				}
+			}
+		case gif.DisposalPrevious:
+			canvas = previous
+		}
+	}
+	if last == nil {
+		return nil, errors.New("GIF has no non-empty frames")
+	}
+	return last, nil
+}
+
+func gifDisposal(animation *gif.GIF, frame int) byte {
+	if frame < len(animation.Disposal) {
+		return animation.Disposal[frame]
+	}
+	return gif.DisposalNone
+}
+
+func cloneRGBA(src *image.RGBA) *image.RGBA {
+	dst := image.NewRGBA(src.Bounds())
+	draw.Draw(dst, dst.Bounds(), src, src.Bounds().Min, draw.Src)
+	return dst
+}
+
+func allCovered(covered []bool) bool {
+	for _, value := range covered {
+		if !value {
+			return false
+		}
+	}
+	return true
+}
+
+func flattenOnWhite(src image.Image) image.Image {
+	bounds := src.Bounds()
+	dst := image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+	draw.Draw(dst, dst.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
+	draw.Draw(dst, dst.Bounds(), src, bounds.Min, draw.Over)
+	return dst
 }
 
 func (s *ThumbnailService) generateVideoThumbnail(ctx context.Context, req ThumbnailRequest, finalPath string) error {
@@ -454,7 +561,7 @@ func thumbnailFileKind(relativeURI string, sourceName string) (thumbnailKind, st
 	if ext == "" {
 		return thumbnailKindUnknown, "FILE"
 	}
-	if slices.Contains([]string{"jpg", "jpeg", "png"}, ext) {
+	if slices.Contains([]string{"jpg", "jpeg", "png", "gif", "webp"}, ext) {
 		return thumbnailKindImage, strings.ToUpper(ext)
 	}
 	if slices.Contains([]string{"mp4", "mov", "m4v", "mkv", "webm", "avi"}, ext) {
