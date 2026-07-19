@@ -19,6 +19,13 @@ import (
 	"replica/internal/config"
 )
 
+var (
+	testRed    = color.NRGBA{R: 240, G: 20, B: 20, A: 255}
+	testGreen  = color.NRGBA{R: 20, G: 240, B: 20, A: 255}
+	testBlue   = color.NRGBA{R: 20, G: 20, B: 240, A: 255}
+	testYellow = color.NRGBA{R: 240, G: 240, B: 20, A: 255}
+)
+
 func TestThumbnailFilenameGeneration(t *testing.T) {
 	req := ThumbnailRequest{FileID: 125, FileVersion: 4, Size: 256}
 	if got := thumbnailFilename(req, ".jpg"); got != "125_4_256.jpg" {
@@ -144,6 +151,92 @@ func TestImageThumbnailGeneration(t *testing.T) {
 	if img.Bounds().Dx() != 64 || img.Bounds().Dy() != 32 {
 		t.Fatalf("thumbnail size = %dx%d, want no upscale 64x32", img.Bounds().Dx(), img.Bounds().Dy())
 	}
+}
+
+func TestImageThumbnailAppliesEXIFOrientation(t *testing.T) {
+	service := newThumbnailServiceForTest(t)
+	tests := []struct {
+		name        string
+		orientation uint16
+		wantWidth   int
+		wantHeight  int
+		wantCorners [4]color.NRGBA
+	}{
+		{
+			name:        "orientation 1",
+			orientation: 1,
+			wantWidth:   80,
+			wantHeight:  60,
+			wantCorners: [4]color.NRGBA{testRed, testGreen, testBlue, testYellow},
+		},
+		{
+			name:        "orientation 6",
+			orientation: 6,
+			wantWidth:   60,
+			wantHeight:  80,
+			wantCorners: [4]color.NRGBA{testBlue, testRed, testYellow, testGreen},
+		},
+		{
+			name:        "orientation 8",
+			orientation: 8,
+			wantWidth:   60,
+			wantHeight:  80,
+			wantCorners: [4]color.NRGBA{testGreen, testYellow, testRed, testBlue},
+		},
+		{
+			name:        "without EXIF",
+			wantWidth:   80,
+			wantHeight:  60,
+			wantCorners: [4]color.NRGBA{testRed, testGreen, testBlue, testYellow},
+		},
+	}
+
+	for i, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sourcePath := filepath.Join(t.TempDir(), "source.jpg")
+			writeQuadrantJPEG(t, sourcePath, 80, 60, test.orientation)
+			req := ThumbnailRequest{
+				FileID:      uint(i + 1),
+				FileVersion: 1,
+				Size:        256,
+				RelativeURI: "source.jpg",
+				Source:      NewLocalFileThumbnailSource(sourcePath, "source.jpg"),
+			}
+
+			result, err := service.GetOrCreateThumbnail(context.Background(), req)
+			if err != nil {
+				t.Fatalf("GetOrCreateThumbnail() error = %v", err)
+			}
+			thumbnail := decodeJPEGFile(t, result.Path)
+			if got := thumbnail.Bounds().Size(); got.X != test.wantWidth || got.Y != test.wantHeight {
+				t.Fatalf("thumbnail size = %dx%d, want %dx%d", got.X, got.Y, test.wantWidth, test.wantHeight)
+			}
+			assertQuadrantColors(t, thumbnail, test.wantCorners)
+		})
+	}
+}
+
+func TestImageThumbnailResizesAfterEXIFOrientation(t *testing.T) {
+	service := newThumbnailServiceForTest(t)
+	sourcePath := filepath.Join(t.TempDir(), "source.jpg")
+	writeQuadrantJPEG(t, sourcePath, 240, 160, 6)
+	req := ThumbnailRequest{
+		FileID:      1,
+		FileVersion: 1,
+		Size:        128,
+		RelativeURI: "source.jpg",
+		Source:      NewLocalFileThumbnailSource(sourcePath, "source.jpg"),
+	}
+
+	result, err := service.GetOrCreateThumbnail(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetOrCreateThumbnail() error = %v", err)
+	}
+	thumbnail := decodeJPEGFile(t, result.Path)
+	if got := thumbnail.Bounds().Size(); got.X != 85 || got.Y != 128 {
+		t.Fatalf("thumbnail size = %dx%d, want 85x128 after orientation", got.X, got.Y)
+	}
+	assertQuadrantColors(t, thumbnail, [4]color.NRGBA{testBlue, testRed, testYellow, testGreen})
 }
 
 func TestS3ImageThumbnailGeneration(t *testing.T) {
@@ -396,6 +489,114 @@ func writePNG(t *testing.T, path string, width int, height int) {
 	if err := png.Encode(file, img); err != nil {
 		t.Fatalf("png.Encode() error = %v", err)
 	}
+}
+
+func writeQuadrantJPEG(t *testing.T, path string, width int, height int, orientation uint16) {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			switch {
+			case x < width/2 && y < height/2:
+				img.SetNRGBA(x, y, testRed)
+			case x >= width/2 && y < height/2:
+				img.SetNRGBA(x, y, testGreen)
+			case x < width/2:
+				img.SetNRGBA(x, y, testBlue)
+			default:
+				img.SetNRGBA(x, y, testYellow)
+			}
+		}
+	}
+
+	var encoded bytes.Buffer
+	if err := jpeg.Encode(&encoded, img, &jpeg.Options{Quality: 100}); err != nil {
+		t.Fatalf("jpeg.Encode() error = %v", err)
+	}
+	data := encoded.Bytes()
+	if orientation != 0 {
+		data = addEXIFOrientation(t, data, orientation)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("WriteFile(jpeg) error = %v", err)
+	}
+}
+
+func addEXIFOrientation(t *testing.T, jpegData []byte, orientation uint16) []byte {
+	t.Helper()
+	if len(jpegData) < 2 || jpegData[0] != 0xff || jpegData[1] != 0xd8 {
+		t.Fatal("encoded JPEG is missing SOI marker")
+	}
+	if orientation < 1 || orientation > 8 {
+		t.Fatalf("invalid test EXIF orientation %d", orientation)
+	}
+	payload := []byte{
+		'E', 'x', 'i', 'f', 0, 0,
+		'I', 'I', 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00,
+		0x01, 0x00,
+		0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
+		byte(orientation), byte(orientation >> 8), 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+	}
+	segmentLength := len(payload) + 2
+	result := make([]byte, 0, len(jpegData)+len(payload)+4)
+	result = append(result, jpegData[:2]...)
+	result = append(result, 0xff, 0xe1, byte(segmentLength>>8), byte(segmentLength))
+	result = append(result, payload...)
+	result = append(result, jpegData[2:]...)
+	return result
+}
+
+func decodeJPEGFile(t *testing.T, path string) image.Image {
+	t.Helper()
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("Open(thumbnail) error = %v", err)
+	}
+	defer file.Close()
+	img, err := jpeg.Decode(file)
+	if err != nil {
+		t.Fatalf("jpeg.Decode(thumbnail) error = %v", err)
+	}
+	return img
+}
+
+func assertQuadrantColors(t *testing.T, img image.Image, want [4]color.NRGBA) {
+	t.Helper()
+	bounds := img.Bounds()
+	points := [4]image.Point{
+		{X: bounds.Min.X + bounds.Dx()/4, Y: bounds.Min.Y + bounds.Dy()/4},
+		{X: bounds.Min.X + 3*bounds.Dx()/4, Y: bounds.Min.Y + bounds.Dy()/4},
+		{X: bounds.Min.X + bounds.Dx()/4, Y: bounds.Min.Y + 3*bounds.Dy()/4},
+		{X: bounds.Min.X + 3*bounds.Dx()/4, Y: bounds.Min.Y + 3*bounds.Dy()/4},
+	}
+	for i, point := range points {
+		got := color.NRGBAModel.Convert(img.At(point.X, point.Y)).(color.NRGBA)
+		if closestTestColor(got) != want[i] {
+			t.Errorf("quadrant %d color at %v = %#v, want closest to %#v", i, point, got, want[i])
+		}
+	}
+}
+
+func closestTestColor(got color.NRGBA) color.NRGBA {
+	palette := [...]color.NRGBA{testRed, testGreen, testBlue, testYellow}
+	closest := palette[0]
+	closestDistance := colorDistanceSquared(got, closest)
+	for _, candidate := range palette[1:] {
+		distance := colorDistanceSquared(got, candidate)
+		if distance < closestDistance {
+			closest = candidate
+			closestDistance = distance
+		}
+	}
+	return closest
+}
+
+func colorDistanceSquared(a color.NRGBA, b color.NRGBA) int {
+	dr := int(a.R) - int(b.R)
+	dg := int(a.G) - int(b.G)
+	db := int(a.B) - int(b.B)
+	return dr*dr + dg*dg + db*db
 }
 
 func pngBytes(t *testing.T, width int, height int) []byte {

@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/disintegration/imaging"
+
 	"replica/internal/config"
 
 	xdraw "golang.org/x/image/draw"
@@ -274,7 +276,7 @@ func (s *ThumbnailService) generateImageThumbnail(ctx context.Context, req Thumb
 	}
 	defer source.Close()
 
-	img, _, err := image.Decode(source)
+	img, err := imaging.Decode(source, imaging.AutoOrientation(true))
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrThumbnailImageGeneration, err)
 	}
