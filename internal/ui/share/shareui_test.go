@@ -244,6 +244,25 @@ func TestSharePaginationDoesNotCapPageSize(t *testing.T) {
 	}
 }
 
+func TestShareFileSortAndOrderSelection(t *testing.T) {
+	for _, tt := range []struct {
+		query     string
+		wantSort  string
+		wantOrder string
+	}{
+		{query: "", wantSort: "name", wantOrder: "asc"},
+		{query: "?sort=modified&order=desc", wantSort: "modified", wantOrder: "desc"},
+		{query: "?sort=size&order=asc", wantSort: "size", wantOrder: "asc"},
+		{query: "?sort=unknown&order=unknown", wantSort: "name", wantOrder: "asc"},
+	} {
+		r := httptest.NewRequest(http.MethodGet, "/share/shares/4"+tt.query, nil)
+		filter := selectedShareFileFilter(r)
+		if filter.Sort != tt.wantSort || filter.Order != tt.wantOrder {
+			t.Fatalf("selectedShareFileFilter(%q) = %+v, want sort=%q order=%q", tt.query, filter, tt.wantSort, tt.wantOrder)
+		}
+	}
+}
+
 func TestFileActionsMenuSharedByListAndGrid(t *testing.T) {
 	file := fileView{
 		ReplicaInventoryFile: apiclient.ReplicaInventoryFile{
@@ -352,7 +371,7 @@ func TestTreeRootFolderRendering(t *testing.T) {
 	html := renderShareTemplate(t, treeTemplateData("list", "", false))
 	for _, want := range []string{
 		`data-browse-mode="tree"`,
-		`href="/share/shares/4?browse=tree&amp;path=sub&amp;thumb=128&amp;view=list"`,
+		`href="/share/shares/4?browse=tree&amp;order=asc&amp;path=sub&amp;sort=name&amp;thumb=128&amp;view=list"`,
 		`Folder sub`,
 		`image01.jpg`,
 		`image02.jpg`,
@@ -373,8 +392,8 @@ func TestTreeNestedFolderRenderingWithParent(t *testing.T) {
 		`Folder videos`,
 		`image03.jpg`,
 		`image04.jpg`,
-		`href="/share/shares/4?browse=tree&amp;thumb=128&amp;view=list"`,
-		`href="/share/shares/4?browse=tree&amp;path=sub%2Fvideos&amp;thumb=128&amp;view=list"`,
+		`href="/share/shares/4?browse=tree&amp;order=asc&amp;sort=name&amp;thumb=128&amp;view=list"`,
+		`href="/share/shares/4?browse=tree&amp;order=asc&amp;path=sub%2Fvideos&amp;sort=name&amp;thumb=128&amp;view=list"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("tree nested html = %s, want %q", html, want)
@@ -527,7 +546,7 @@ func TestTreeSidePanelHighlightsCurrentFolderAndRendersNestedFolders(t *testing.
 	for _, want := range []string{
 		`data-tree-path="sub" class="active"`,
 		`data-tree-path="sub/videos"`,
-		`href="/share/shares/4?browse=tree&amp;path=sub%2Fvideos&amp;thumb=128&amp;view=list"`,
+		`href="/share/shares/4?browse=tree&amp;order=asc&amp;path=sub%2Fvideos&amp;sort=name&amp;thumb=128&amp;view=list"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("tree side panel html = %s, want %q", html, want)
@@ -540,7 +559,7 @@ func TestTreeSidePanelHighlightsCurrentFolderAndRendersNestedFolders(t *testing.
 
 func TestTreeSidePanelNavigationPreservesBrowseViewAndThumbnail(t *testing.T) {
 	html := renderShareTemplate(t, treeTemplateData("grid", "sub", false))
-	if !strings.Contains(html, `href="/share/shares/4?browse=tree&amp;path=sub%2Fvideos&amp;thumb=128&amp;view=grid"`) {
+	if !strings.Contains(html, `href="/share/shares/4?browse=tree&amp;order=asc&amp;path=sub%2Fvideos&amp;sort=name&amp;thumb=128&amp;view=grid"`) {
 		t.Fatalf("tree side panel html = %s, want navigation preserving browse/view/thumb", html)
 	}
 }
@@ -572,7 +591,7 @@ func TestTreeModelFeedsMainContentAndSidePanel(t *testing.T) {
 	if !strings.Contains(html, `gallery-folder`) || !strings.Contains(html, `data-folder-tree-panel`) {
 		t.Fatalf("tree html = %s, want main gallery folders and side panel", html)
 	}
-	if !strings.Contains(html, `href="/share/shares/4?browse=tree&amp;path=sub&amp;thumb=128&amp;view=grid"`) {
+	if !strings.Contains(html, `href="/share/shares/4?browse=tree&amp;order=asc&amp;path=sub&amp;sort=name&amp;thumb=128&amp;view=grid"`) {
 		t.Fatalf("tree html = %s, want shared sub folder URL in rendered tree", html)
 	}
 }
@@ -712,12 +731,12 @@ func treeTemplateData(viewMode string, treePath string, public bool) pageData {
 		apiBasePath = "/s/public-link"
 		authenticated = false
 	}
-	folders := treeFolderViews(node.folderEntries(), basePath, viewMode, 128)
-	panel := treePanelFromModel(model, basePath, viewMode, 128, cleanPath)
+	folders := treeFolderViews(node.folderEntries(), basePath, viewMode, 128, "name", "asc")
+	panel := treePanelFromModel(model, basePath, viewMode, 128, cleanPath, "name", "asc")
 	var parent *treeFolderView
 	if cleanPath != "" {
 		parentPath := parentTreePath(cleanPath)
-		parent = &treeFolderView{Name: "Parent folder", Path: parentPath, URL: browseURL(basePath, browseModeTree, viewMode, parentPath, 128), IsParent: true}
+		parent = &treeFolderView{Name: "Parent folder", Path: parentPath, URL: browseURL(basePath, browseModeTree, viewMode, parentPath, 128, "name", "asc"), IsParent: true}
 	}
 	return pageData{
 		Title:          "Photos",
@@ -735,6 +754,8 @@ func treeTemplateData(viewMode string, treePath string, public bool) pageData {
 		ThumbnailSize:  128,
 		ViewMode:       viewMode,
 		BrowseMode:     "tree",
+		Sort:           "name",
+		Order:          "asc",
 		TreePath:       cleanPath,
 		ParentFolder:   parent,
 		Folders:        folders,

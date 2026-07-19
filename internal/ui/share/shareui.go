@@ -55,6 +55,8 @@ type pageData struct {
 	ThumbnailSize  int
 	ViewMode       string
 	BrowseMode     string
+	Sort           string
+	Order          string
 	TreePath       string
 	ParentFolder   *treeFolderView
 	Folders        []treeFolderView
@@ -143,6 +145,7 @@ func templateFuncs() template.FuncMap {
 		"pageURL":         pageURL,
 		"viewURL":         viewURL,
 		"browseURL":       browseURL,
+		"orderURL":        orderURL,
 		"thumbStyle":      thumbStyle,
 		"dict":            templateDict,
 	}
@@ -327,7 +330,7 @@ func (h *Handler) shareFilesPage(w http.ResponseWriter, r *http.Request, auth au
 	if browseMode == browseModeTree {
 		page, count = 1, treeBrowseFileLimit
 	}
-	result, err := h.runtime.ListUserShareFiles(auth.UserID, shareID, page, count, storage.ShareFileListFilter{})
+	result, err := h.runtime.ListUserShareFiles(auth.UserID, shareID, page, count, selectedShareFileFilter(r))
 	if err != nil {
 		h.renderShareError(w, err)
 		return
@@ -342,7 +345,7 @@ func (h *Handler) publicSharePage(w http.ResponseWriter, r *http.Request) {
 		page, count = 1, treeBrowseFileLimit
 	}
 	linkHash := strings.TrimSpace(r.PathValue("link_hash"))
-	result, err := h.runtime.ListPublicShareFiles(linkHash, page, count, storage.ShareFileListFilter{})
+	result, err := h.runtime.ListPublicShareFiles(linkHash, page, count, selectedShareFileFilter(r))
 	if err != nil {
 		h.renderShareError(w, err)
 		return
@@ -506,6 +509,8 @@ func shareViewURL(basePath string, r *http.Request) string {
 	query.Set("page", strconv.Itoa(parsePositiveRequestValue(r, "page", 1)))
 	query.Set("count", strconv.Itoa(parsePositiveRequestValue(r, "count", 20)))
 	query.Set("browse", selectedBrowseMode(r))
+	query.Set("sort", selectedSort(r))
+	query.Set("order", selectedOrder(r))
 	if thumb := strings.TrimSpace(requestValue(r, "thumb")); thumb != "" {
 		query.Set("thumb", thumb)
 	}
@@ -519,7 +524,7 @@ func shareViewURL(basePath string, r *http.Request) string {
 }
 
 func (h *Handler) renderAuthenticatedFilePageWithMessage(w http.ResponseWriter, r *http.Request, auth authContext, shareID uint, errMessage, message string) {
-	result, err := h.runtime.ListUserShareFiles(auth.UserID, shareID, 1, parseCount(r), storage.ShareFileListFilter{})
+	result, err := h.runtime.ListUserShareFiles(auth.UserID, shareID, 1, parseCount(r), selectedShareFileFilter(r))
 	if err != nil {
 		h.renderShareError(w, err)
 		return
@@ -528,7 +533,7 @@ func (h *Handler) renderAuthenticatedFilePageWithMessage(w http.ResponseWriter, 
 }
 
 func (h *Handler) renderPublicFilePageWithMessage(w http.ResponseWriter, r *http.Request, linkHash string, errMessage, message string) {
-	result, err := h.runtime.ListPublicShareFiles(linkHash, 1, parseCount(r), storage.ShareFileListFilter{})
+	result, err := h.runtime.ListPublicShareFiles(linkHash, 1, parseCount(r), selectedShareFileFilter(r))
 	if err != nil {
 		h.renderShareError(w, err)
 		return
@@ -545,6 +550,8 @@ func (h *Handler) renderFilePageWithMessages(w http.ResponseWriter, r *http.Requ
 	size := selectedThumbnailSize(r, cfg)
 	viewMode := selectedViewMode(r)
 	browseMode := selectedBrowseMode(r)
+	sortBy := selectedSort(r)
+	order := selectedOrder(r)
 	treePath := selectedTreePath(r)
 	basePath := fmt.Sprintf("/share/shares/%d", result.Share.ID)
 	apiBase := fmt.Sprintf("/api/share/shares/%d", result.Share.ID)
@@ -575,16 +582,16 @@ func (h *Handler) renderFilePageWithMessages(w http.ResponseWriter, r *http.Requ
 				node = model.Root
 				treePath = ""
 			}
-			panel := treePanelFromModel(model, basePath, viewMode, size, treePath)
+			panel := treePanelFromModel(model, basePath, viewMode, size, treePath, sortBy, order)
 			treePanel = &panel
 			files = node.Files
-			folders = treeFolderViews(node.folderEntries(), basePath, viewMode, size)
+			folders = treeFolderViews(node.folderEntries(), basePath, viewMode, size, sortBy, order)
 			if treePath != "" {
 				parentPath := parentTreePath(treePath)
 				parentFolder = &treeFolderView{
 					Name:     "Parent folder",
 					Path:     parentPath,
-					URL:      browseURL(basePath, browseModeTree, viewMode, parentPath, size),
+					URL:      browseURL(basePath, browseModeTree, viewMode, parentPath, size, sortBy, order),
 					IsParent: true,
 				}
 			}
@@ -606,6 +613,8 @@ func (h *Handler) renderFilePageWithMessages(w http.ResponseWriter, r *http.Requ
 		ThumbnailSize:  size,
 		ViewMode:       viewMode,
 		BrowseMode:     browseMode,
+		Sort:           sortBy,
+		Order:          order,
 		TreePath:       treePath,
 		ParentFolder:   parentFolder,
 		Folders:        folders,
@@ -697,6 +706,26 @@ func selectedBrowseMode(r *http.Request) string {
 	default:
 		return browseModeFlat
 	}
+}
+
+func selectedShareFileFilter(r *http.Request) storage.ShareFileListFilter {
+	return storage.ShareFileListFilter{Sort: selectedSort(r), Order: selectedOrder(r)}
+}
+
+func selectedSort(r *http.Request) string {
+	switch strings.TrimSpace(requestValue(r, "sort")) {
+	case "id", "name", "size", "created", "modified":
+		return strings.TrimSpace(requestValue(r, "sort"))
+	default:
+		return "name"
+	}
+}
+
+func selectedOrder(r *http.Request) string {
+	if strings.TrimSpace(requestValue(r, "order")) == "desc" {
+		return "desc"
+	}
+	return "asc"
 }
 
 func selectedTreePath(r *http.Request) string {
@@ -847,13 +876,13 @@ func fileViews(files []apiclient.ReplicaInventoryFile, apiBasePath string, conte
 	return result
 }
 
-func treeFolderViews(entries []treeFolderEntry, basePath string, viewMode string, thumbSize int) []treeFolderView {
+func treeFolderViews(entries []treeFolderEntry, basePath string, viewMode string, thumbSize int, sortBy string, order string) []treeFolderView {
 	result := make([]treeFolderView, 0, len(entries))
 	for _, entry := range entries {
 		result = append(result, treeFolderView{
 			Name: entry.Name,
 			Path: entry.Path,
-			URL:  browseURL(basePath, browseModeTree, viewMode, entry.Path, thumbSize),
+			URL:  browseURL(basePath, browseModeTree, viewMode, entry.Path, thumbSize, sortBy, order),
 		})
 	}
 	return result
@@ -880,27 +909,31 @@ func isPlayableVideo(ext string) bool {
 	return ext == "mp4" || ext == "webm"
 }
 
-func pageURL(base string, page, count, thumb int, viewMode string, browseMode string, treePath string) string {
+func pageURL(base string, page, count, thumb int, viewMode string, browseMode string, treePath string, sortBy string, order string) string {
 	query := url.Values{}
 	query.Set("page", strconv.Itoa(page))
 	query.Set("count", strconv.Itoa(count))
 	query.Set("thumb", strconv.Itoa(thumb))
 	query.Set("view", selectedViewValue(viewMode))
 	query.Set("browse", selectedBrowseValue(browseMode))
+	query.Set("sort", selectedSortValue(sortBy))
+	query.Set("order", selectedOrderValue(order))
 	if cleanPath := cleanTreePath(treePath); cleanPath != "" {
 		query.Set("path", cleanPath)
 	}
 	return base + "?" + query.Encode()
 }
 
-func viewURL(base string, page, count, thumb int, viewMode string, browseMode string, treePath string) string {
-	return pageURL(base, page, count, thumb, viewMode, browseMode, treePath)
+func viewURL(base string, page, count, thumb int, viewMode string, browseMode string, treePath string, sortBy string, order string) string {
+	return pageURL(base, page, count, thumb, viewMode, browseMode, treePath, sortBy, order)
 }
 
-func browseURL(base string, browseMode string, viewMode string, treePath string, thumb int) string {
+func browseURL(base string, browseMode string, viewMode string, treePath string, thumb int, sortBy string, order string) string {
 	query := url.Values{}
 	query.Set("browse", selectedBrowseValue(browseMode))
 	query.Set("view", selectedViewValue(viewMode))
+	query.Set("sort", selectedSortValue(sortBy))
+	query.Set("order", selectedOrderValue(order))
 	if thumb > 0 {
 		query.Set("thumb", strconv.Itoa(thumb))
 	}
@@ -908,6 +941,26 @@ func browseURL(base string, browseMode string, viewMode string, treePath string,
 		query.Set("path", cleanPath)
 	}
 	return base + "?" + query.Encode()
+}
+
+func orderURL(base string, page, count, thumb int, viewMode string, browseMode string, treePath string, sortBy string, order string) string {
+	return pageURL(base, page, count, thumb, viewMode, browseMode, treePath, sortBy, order)
+}
+
+func selectedSortValue(sortBy string) string {
+	switch sortBy {
+	case "id", "size", "created", "modified":
+		return sortBy
+	default:
+		return "name"
+	}
+}
+
+func selectedOrderValue(order string) string {
+	if order == "desc" {
+		return "desc"
+	}
+	return "asc"
 }
 
 func selectedViewValue(viewMode string) string {

@@ -127,9 +127,6 @@ func (n *folderNode) sortedChildren() []*folderNode {
 }
 
 func (n *folderNode) sort() {
-	sort.SliceStable(n.Files, func(i, j int) bool {
-		return strings.ToLower(path.Base(n.Files[i].RelativeURI)) < strings.ToLower(path.Base(n.Files[j].RelativeURI))
-	})
 	for _, child := range n.Children {
 		child.sort()
 	}
@@ -159,29 +156,29 @@ func parentTreePath(value string) string {
 	return parent
 }
 
-func treePanelFromModel(model treeModel, basePath string, viewMode string, thumbSize int, currentPath string) treePanelView {
+func treePanelFromModel(model treeModel, basePath string, viewMode string, thumbSize int, currentPath string, sortBy string, order string) treePanelView {
 	currentPath = cleanTreePath(currentPath)
 	root := treePanelNode{
 		Name:        "/",
-		URL:         browseURL(basePath, browseModeTree, viewMode, "", thumbSize),
+		URL:         browseURL(basePath, browseModeTree, viewMode, "", thumbSize, sortBy, order),
 		Active:      currentPath == "",
 		HasChildren: len(model.Root.Children) > 0,
-		Children:    treePanelChildren(model.Root, basePath, viewMode, thumbSize, currentPath),
+		Children:    treePanelChildren(model.Root, basePath, viewMode, thumbSize, currentPath, sortBy, order),
 	}
 	return treePanelView{Root: root}
 }
 
-func treePanelChildren(node *folderNode, basePath string, viewMode string, thumbSize int, currentPath string) []treePanelNode {
+func treePanelChildren(node *folderNode, basePath string, viewMode string, thumbSize int, currentPath string, sortBy string, order string) []treePanelNode {
 	children := node.sortedChildren()
 	result := make([]treePanelNode, 0, len(children))
 	for _, child := range children {
 		panelNode := treePanelNode{
 			Name:        child.Name,
 			Path:        child.Path,
-			URL:         browseURL(basePath, browseModeTree, viewMode, child.Path, thumbSize),
+			URL:         browseURL(basePath, browseModeTree, viewMode, child.Path, thumbSize, sortBy, order),
 			Active:      child.Path == currentPath,
 			HasChildren: len(child.Children) > 0,
-			Children:    treePanelChildren(child, basePath, viewMode, thumbSize, currentPath),
+			Children:    treePanelChildren(child, basePath, viewMode, thumbSize, currentPath, sortBy, order),
 		}
 		result = append(result, panelNode)
 	}
