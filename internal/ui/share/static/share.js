@@ -189,25 +189,106 @@
     });
   }
 
-  function bindUploadFilenamePrefill() {
+  function bindUploadForm() {
     document.body.addEventListener("change", (event) => {
       const input = event.target;
-      if (!(input instanceof HTMLInputElement) || input.type !== "file" || input.name !== "file") {
+      if (!(input instanceof HTMLInputElement) || !input.matches('.upload-form input[type="file"][name="file"]')) {
         return;
       }
       const form = input.closest(".upload-form");
-      if (!form) {
-        return;
-      }
-      const relativeURI = form.querySelector("input[name=relative_uri]");
-      if (!(relativeURI instanceof HTMLInputElement)) {
-        return;
-      }
-      const fileName = input.files?.[0]?.name || input.value.split(/[/\\]/).pop() || "";
-      if (fileName) {
-        relativeURI.value = fileName;
+      if (form instanceof HTMLFormElement) {
+        uploadSelectedFiles(form);
       }
     });
+  }
+
+  async function uploadSelectedFiles(form) {
+    const input = form.querySelector('input[type="file"][name="file"]');
+    const files = input instanceof HTMLInputElement ? [...(input.files || [])] : [];
+    if (!files.length) {
+      return;
+    }
+
+    const error = document.querySelector("[data-upload-error]");
+    if (error) {
+      error.hidden = true;
+      error.textContent = "";
+    }
+    input.disabled = true;
+
+    const listURL = new URL(form.dataset.uploadAction || form.action, window.location.origin);
+    listURL.searchParams.set("page", "1");
+    listURL.searchParams.set("count", "1");
+    const initialTotal = await currentShareTotal(listURL);
+    if (initialTotal === null) {
+      input.disabled = false;
+      input.value = "";
+      if (error) {
+        error.textContent = "Unable to determine the current file count.";
+        error.hidden = false;
+      }
+      return;
+    }
+
+    const prefix = (form.dataset.uploadPrefix || "").replace(/^\/+|\/+$/g, "");
+    for (const file of files) {
+      const body = new FormData();
+      body.set("relative_uri", prefix ? `${prefix}/${file.name}` : file.name);
+      body.set("file", file, file.name);
+      let response;
+      try {
+        response = await request(form.dataset.uploadAction || form.action, {method: "POST", body});
+      } catch {
+        input.disabled = false;
+        input.value = "";
+        if (error) {
+          error.textContent = `Upload failed for ${file.name}.`;
+          error.hidden = false;
+        }
+        return;
+      }
+      if (!response || !response.ok) {
+        input.disabled = false;
+        input.value = "";
+        if (error && response) {
+          const problem = await response.json().catch(() => ({}));
+          const message = problem.detail || problem.error || problem.title || "Upload failed.";
+          error.textContent = `${file.name}: ${message}`;
+          error.hidden = false;
+        }
+        return;
+      }
+    }
+    const expectedTotal = initialTotal + files.length;
+    for (const delaySeconds of [0, 1, 2, 4, 8, 16, 32]) {
+      if (delaySeconds) {
+        await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
+      }
+      const total = await currentShareTotal(listURL);
+      if (total !== null && total >= expectedTotal) {
+        window.location.reload();
+        return;
+      }
+    }
+    input.disabled = false;
+    input.value = "";
+    if (error) {
+      error.textContent = "Uploads were accepted, but the files did not appear in the share within the expected time.";
+      error.hidden = false;
+    }
+  }
+
+  async function currentShareTotal(listURL) {
+    try {
+      const response = await request(listURL.toString());
+      if (!response?.ok) {
+        return null;
+      }
+      const total = Number((await response.json()).total);
+      return Number.isFinite(total) ? total : null;
+    } catch {
+      return null;
+    }
   }
 
   function bindAuthenticatedPage() {
@@ -541,12 +622,12 @@
   bindFilePreferenceControls();
 
   if (document.body.dataset.shareAuthenticated === "true") {
-    bindUploadFilenamePrefill();
+    bindUploadForm();
     bindAuthenticatedPage();
   } else if (document.querySelector("[data-share-login-form]")) {
     bootstrapLogin();
   } else {
-    bindUploadFilenamePrefill();
+    bindUploadForm();
     bindPublicPage();
   }
 })();

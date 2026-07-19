@@ -45,7 +45,12 @@ func TestRegisterServesLoginAndStaticAssets(t *testing.T) {
 		!strings.Contains(rec.Body.String(), `htmx:afterSwap`) ||
 		!strings.Contains(rec.Body.String(), `loadPublicThumbnails`) ||
 		!strings.Contains(rec.Body.String(), `folder_tree_visible`) ||
-		!strings.Contains(rec.Body.String(), `data-actions-menu-button`) {
+		!strings.Contains(rec.Body.String(), `data-actions-menu-button`) ||
+		!strings.Contains(rec.Body.String(), `uploadSelectedFiles`) ||
+		!strings.Contains(rec.Body.String(), `currentShareTotal`) ||
+		!strings.Contains(rec.Body.String(), `[0, 1, 2, 4, 8, 16, 32]`) ||
+		!strings.Contains(rec.Body.String(), `window.location.reload()`) ||
+		!strings.Contains(rec.Body.String(), `relative_uri`) {
 		t.Fatalf("share.js body = %s, want HTMX auth header handling", rec.Body.String())
 	}
 }
@@ -133,10 +138,9 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 		`data-default-theme="dark"`,
 		`data-share-default-theme="dark"`,
 		`localStorage.getItem("replica_share_theme")`,
-		`src="/share/static/share.js?v=20260719-3"`,
+		`src="/share/static/share.js?v=20260719-5"`,
 		`<noscript><img class="grid-thumb" src="/s/public-link/files/10/thumbnail?size=256" alt=""></noscript>`,
 		`<option value="25" selected>25</option>`,
-		`Replace`,
 		`Delete`,
 	} {
 		if !strings.Contains(grid, want) {
@@ -199,6 +203,7 @@ func TestUploadPanelRemainsPermissionGatedAndPreservesFormContract(t *testing.T)
 		Page:           2,
 		Count:          50,
 		BasePath:       "/share/shares/4",
+		APIBasePath:    "/api/share/shares/4",
 		ThumbnailSizes: []int{128, 256},
 		ThumbnailSize:  256,
 		ViewMode:       "grid",
@@ -207,23 +212,22 @@ func TestUploadPanelRemainsPermissionGatedAndPreservesFormContract(t *testing.T)
 	}
 
 	data.Permissions = []string{"read"}
-	if html := renderShareTemplate(t, data); strings.Contains(html, `class="upload-panel"`) {
+	if html := renderShareTemplate(t, data); strings.Contains(html, `class="upload-form"`) {
 		t.Fatalf("read-only share = %s, do not want upload controls", html)
 	}
 
 	data.Permissions = []string{"read", "create"}
 	html := renderShareTemplate(t, data)
 	for _, want := range []string{
-		`<details class="upload-panel">`,
-		`<summary class="btn upload-toggle">Upload file</summary>`,
 		`action="/share/shares/4/files"`,
-		`hx-post="/share/shares/4/files"`,
-		`hx-target="body"`,
-		`hx-swap="outerHTML"`,
 		`class="upload-form"`,
-		`name="file" type="file" required`,
-		`name="relative_uri"`,
-		`aria-describedby="share-upload-path-hint" required`,
+		`class="btn upload-picker"`,
+		`>Upload files<input`,
+		`data-upload-action="/api/share/shares/4/files"`,
+		`data-upload-prefix="photos"`,
+		`data-upload-error`,
+		`name="file" type="file" multiple required`,
+		`name="relative_uri" value=""`,
 		`name="page" value="2"`,
 		`name="count" value="50"`,
 		`name="thumb" value="256"`,
@@ -234,6 +238,20 @@ func TestUploadPanelRemainsPermissionGatedAndPreservesFormContract(t *testing.T)
 		if !strings.Contains(html, want) {
 			t.Fatalf("writable share = %s, want %q", html, want)
 		}
+	}
+	if strings.Contains(html, `hx-post="/share/shares/4/files"`) {
+		t.Fatalf("writable share = %s, upload must be sequenced by the UI", html)
+	}
+
+	data.Authenticated = false
+	data.Public = true
+	data.BasePath = "/w/public-link"
+	data.APIBasePath = "/s/public-link"
+	data.BrowseMode = "flat"
+	data.TreePath = ""
+	publicHTML := renderShareTemplate(t, data)
+	if !strings.Contains(publicHTML, `data-upload-action="/s/public-link/files"`) || !strings.Contains(publicHTML, `data-upload-prefix=""`) {
+		t.Fatalf("public flat share = %s, want public API upload with base prefix", publicHTML)
 	}
 }
 
@@ -303,7 +321,6 @@ func TestFileActionsMenuSharedByListAndGrid(t *testing.T) {
 			`data-actions-menu-button`,
 			`data-actions-menu-popover`,
 			`data-auth-download="/api/share/shares/4/files/10/content"`,
-			`Replace`,
 			`Delete`,
 		} {
 			if !strings.Contains(html, want) {
@@ -312,6 +329,9 @@ func TestFileActionsMenuSharedByListAndGrid(t *testing.T) {
 		}
 		if strings.Count(html, `data-actions-menu-button`) != 1 {
 			t.Fatalf("%s view = %s, want one compact actions menu for one file", mode, html)
+		}
+		if strings.Contains(html, `Replace`) {
+			t.Fatalf("%s view = %s, do not want replace action", mode, html)
 		}
 	}
 }

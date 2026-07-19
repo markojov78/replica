@@ -16,7 +16,7 @@
   </script>
   <link rel="stylesheet" href="/share/static/share.css">
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
-  <script src="/share/static/share.js?v=20260719-3" defer></script>
+  <script src="/share/static/share.js?v=20260719-5" defer></script>
   <noscript><style>img[data-public-src]{display:none!important}</style></noscript>
 
   <link rel="icon" type="image/png" sizes="32x32" href="/share/static/favicon-96x96.png">
@@ -179,20 +179,6 @@
     {{else}}
       <a href="{{$file.DownloadPath}}" download="{{$file.Name}}" role="menuitem">Download</a>
     {{end}}
-    {{if hasPermission $root.Permissions "update"}}
-    <form action="{{$root.BasePath}}/files/{{$file.FileID}}/replace" method="post" enctype="multipart/form-data" data-share-form hx-post="{{$root.BasePath}}/files/{{$file.FileID}}/replace" hx-target="body" hx-swap="outerHTML">
-      <input type="hidden" name="version" value="{{$file.InventoryVersion}}">
-      <input type="hidden" name="page" value="{{$root.Page}}">
-      <input type="hidden" name="count" value="{{$root.Count}}">
-      <input type="hidden" name="thumb" value="{{$root.ThumbnailSize}}">
-      <input type="hidden" name="view" value="{{$root.ViewMode}}">
-      <input type="hidden" name="browse" value="{{$root.BrowseMode}}">
-      <input type="hidden" name="sort" value="{{$root.Sort}}">
-      <input type="hidden" name="order" value="{{$root.Order}}">
-      {{if $root.TreePath}}<input type="hidden" name="path" value="{{$root.TreePath}}">{{end}}
-      <label class="menu-file-button" role="menuitem">Replace<input name="file" type="file" required onchange="this.form.requestSubmit()"></label>
-    </form>
-    {{end}}
     {{if hasPermission $root.Permissions "delete"}}
     <form action="{{$root.BasePath}}/files/{{$file.FileID}}/delete" method="post" data-share-form hx-post="{{$root.BasePath}}/files/{{$file.FileID}}/delete" hx-target="body" hx-swap="outerHTML">
       <input type="hidden" name="version" value="{{$file.InventoryVersion}}">
@@ -251,9 +237,8 @@
 <section class="panel" data-share-file-view data-view-mode="{{.ViewMode}}" data-browse-mode="{{.BrowseMode}}" data-thumbnail-size="{{.ThumbnailSize}}" data-page-size="{{.Count}}" data-default-view="{{with .Share.Properties.View}}{{.}}{{end}}" data-default-page-size="{{with .Share.Properties.PageSize}}{{.}}{{end}}" data-default-thumbnail-size="{{with .Share.Properties.ThumbnailSize}}{{.}}{{end}}" data-default-theme="{{with .Share.Properties.Theme}}{{.}}{{end}}">
   {{template "notice" .}}
   {{if hasPermission .Permissions "create"}}
-  <details class="upload-panel">
-    <summary class="btn upload-toggle">Upload file</summary>
-    <form action="{{.BasePath}}/files" method="post" enctype="multipart/form-data" class="upload-form" data-share-form hx-post="{{.BasePath}}/files" hx-target="body" hx-swap="outerHTML">
+  <div class="alert upload-error" data-upload-error role="alert" hidden></div>
+  <form action="{{.BasePath}}/files" method="post" enctype="multipart/form-data" class="upload-form" data-upload-action="{{.APIBasePath}}/files" data-upload-prefix="{{if eq .BrowseMode "tree"}}{{.TreePath}}{{end}}">
       <input type="hidden" name="page" value="{{.Page}}">
       <input type="hidden" name="count" value="{{.Count}}">
       <input type="hidden" name="thumb" value="{{.ThumbnailSize}}">
@@ -262,12 +247,9 @@
       <input type="hidden" name="sort" value="{{.Sort}}">
       <input type="hidden" name="order" value="{{.Order}}">
       {{if .TreePath}}<input type="hidden" name="path" value="{{.TreePath}}">{{end}}
-      <label class="upload-field" for="share-upload-file"><span>File</span><input id="share-upload-file" name="file" type="file" required></label>
-      <label class="upload-field" for="share-upload-path"><span>Relative path <span class="field-hint">(optional to edit)</span></span><input id="share-upload-path" name="relative_uri" placeholder="relative/path/file.ext" aria-describedby="share-upload-path-hint" required></label>
-      <span class="upload-help" id="share-upload-path-hint">Defaults to the selected filename.</span>
-      <button type="submit" class="primary">Upload</button>
-    </form>
-  </details>
+      <input type="hidden" name="relative_uri" value="">
+      <label class="btn upload-picker" for="share-upload-file">Upload files<input id="share-upload-file" name="file" type="file" multiple required></label>
+  </form>
   {{end}}
   {{if .TreePanel}}
   <button type="button" class="btn folder-panel-button" data-folder-panel-toggle>Folders</button>
