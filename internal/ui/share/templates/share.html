@@ -16,7 +16,7 @@
   </script>
   <link rel="stylesheet" href="/share/static/share.css">
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
-  <script src="/share/static/share.js?v=20260719-6" defer></script>
+  <script src="/share/static/share.js?v=20260719-7" defer></script>
   <noscript><style>img[data-public-src]{display:none!important}</style></noscript>
 
   <link rel="icon" type="image/png" sizes="32x32" href="/share/static/favicon-96x96.png">
@@ -234,7 +234,7 @@
 
 {{define "share_files"}}
 {{template "layout_start" .}}
-<section class="panel share-files-panel" data-share-file-view data-view-mode="{{.ViewMode}}" data-browse-mode="{{.BrowseMode}}" data-thumbnail-size="{{.ThumbnailSize}}" data-page-size="{{.Count}}" data-default-view="{{with .Share.Properties.View}}{{.}}{{end}}" data-default-page-size="{{with .Share.Properties.PageSize}}{{.}}{{end}}" data-default-thumbnail-size="{{with .Share.Properties.ThumbnailSize}}{{.}}{{end}}" data-default-theme="{{with .Share.Properties.Theme}}{{.}}{{end}}">
+<section class="panel share-files-panel" data-share-file-view data-view-mode="{{.ViewMode}}" data-browse-mode="{{.BrowseMode}}" data-result-page="{{.Page}}" data-result-total="{{.Total}}" data-thumbnail-size="{{.ThumbnailSize}}" data-page-size="{{.Count}}" data-default-view="{{with .Share.Properties.View}}{{.}}{{end}}" data-default-page-size="{{with .Share.Properties.PageSize}}{{.}}{{end}}" data-default-thumbnail-size="{{with .Share.Properties.ThumbnailSize}}{{.}}{{end}}" data-default-theme="{{with .Share.Properties.Theme}}{{.}}{{end}}">
   {{template "notice" .}}
   {{if hasPermission .Permissions "create"}}
   <div class="alert upload-error" data-upload-error role="alert" hidden></div>
@@ -329,6 +329,7 @@
   <button type="button" class="preview-nav preview-previous" data-preview-previous aria-label="Preview previous file">‹</button>
   <div class="preview-frame" data-preview-frame>
     <div class="preview-content" data-preview-content></div>
+    <div class="preview-status" data-preview-status role="status" aria-live="polite"></div>
     <div class="preview-caption"><span id="preview-viewer-title" data-preview-filename></span></div>
   </div>
   <button type="button" class="preview-nav preview-next" data-preview-next aria-label="Preview next file">›</button>

@@ -617,36 +617,122 @@
     let current;
     let opener;
     let scrollY = 0;
+    let contextURL;
+    let resultMode = "tree";
+    let pageSize = 20;
+    let total = 0;
+    let loading = false;
+    let retryOffset = 0;
+    const pages = new Map();
+    const knownIDs = new Set();
 
     const dialog = () => document.querySelector("[data-preview-dialog]");
     const items = () => [...document.querySelectorAll("[data-preview-item]")];
-    const inlineItems = () => items().filter((item) => item.dataset.previewKind !== "fallback");
 
-    function previewURL(fileID) {
+    function itemData(item, page) {
+      return {
+        fileID: item.dataset.fileId,
+        fileName: item.dataset.fileName,
+        fileType: item.dataset.fileType,
+        fileSize: item.dataset.fileSize,
+        contentURL: item.dataset.contentUrl,
+        previewKind: item.dataset.previewKind,
+        page,
+        element: item.isConnected ? item : undefined,
+      };
+    }
+
+    function initializeSequence() {
+      const root = document.querySelector("[data-share-file-view]");
+      if (!root) {
+        return;
+      }
+      resultMode = root.dataset.browseMode === "flat" ? "flat" : "tree";
+      pageSize = Number(root.dataset.pageSize) || 20;
+      total = Number(root.dataset.resultTotal) || 0;
+      const page = Number(root.dataset.resultPage) || 1;
+      contextURL = new URL(window.location.href);
+      contextURL.searchParams.delete("preview");
+      contextURL.searchParams.delete("preview_page");
+      const pageItems = items().map((item) => itemData(item, page));
+      pages.clear();
+      knownIDs.clear();
+      pages.set(page, pageItems);
+      for (const item of pageItems) {
+        knownIDs.add(item.fileID);
+      }
+    }
+
+    function inlinePage(page) {
+      return (pages.get(page) || []).filter((item) => item.previewKind !== "fallback");
+    }
+
+    function totalPages() {
+      return Math.max(1, Math.ceil(total / pageSize));
+    }
+
+    function previewURL(fileID, page) {
       const url = new URL(window.location.href);
       if (fileID) {
         url.searchParams.set("preview", fileID);
+        if (page) {
+          url.searchParams.set("preview_page", page);
+        }
       } else {
         url.searchParams.delete("preview");
+        url.searchParams.delete("preview_page");
       }
       return `${url.pathname}${url.search}${url.hash}`;
     }
 
+    function setStatus(message, retry = false) {
+      const status = dialog()?.querySelector("[data-preview-status]");
+      if (!status) {
+        return;
+      }
+      status.replaceChildren();
+      if (!message) {
+        return;
+      }
+      status.append(document.createTextNode(message));
+      if (retry) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn";
+        button.dataset.previewRetry = "";
+        button.textContent = "Retry";
+        status.append(button);
+      }
+    }
+
+    function updateControls() {
+      const modal = dialog();
+      if (!modal || !current) {
+        return;
+      }
+      const pageItems = inlinePage(current.page);
+      const index = pageItems.findIndex((item) => item.fileID === current.fileID);
+      const previousAvailable = index > 0 || (resultMode === "flat" && current.page > 1);
+      const nextAvailable = index >= 0 && (index < pageItems.length - 1 || (resultMode === "flat" && current.page < totalPages()));
+      modal.querySelector("[data-preview-previous]").disabled = loading || !previousAvailable;
+      modal.querySelector("[data-preview-next]").disabled = loading || !nextAvailable;
+    }
+
     function render(item) {
       const modal = dialog();
-      if (!modal || !item?.isConnected) {
+      if (!modal || !item) {
         close(false);
         return;
       }
       current = item;
       const content = modal.querySelector("[data-preview-content]");
-      const kind = item.dataset.previewKind;
-      const url = item.dataset.contentUrl;
+      const kind = item.previewKind;
+      const url = item.contentURL;
       content.replaceChildren();
       let media;
       if (kind === "image") {
         media = document.createElement("img");
-        media.alt = item.dataset.fileName || "File preview";
+        media.alt = item.fileName || "File preview";
         media.src = url;
       } else if (kind === "video") {
         media = document.createElement("video");
@@ -658,15 +744,15 @@
         media.src = url;
       } else if (kind === "pdf") {
         media = document.createElement("iframe");
-        media.title = `PDF preview: ${item.dataset.fileName || "file"}`;
+        media.title = `PDF preview: ${item.fileName || "file"}`;
         media.src = url;
       } else {
         media = document.createElement("div");
         media.className = "preview-fallback";
         const name = document.createElement("strong");
-        name.textContent = item.dataset.fileName || "File";
+        name.textContent = item.fileName || "File";
         const details = document.createElement("p");
-        details.textContent = [item.dataset.fileType, item.dataset.fileSize].filter(Boolean).join(" · ");
+        details.textContent = [item.fileType, item.fileSize].filter(Boolean).join(" · ");
         const original = document.createElement("a");
         original.className = "btn primary";
         original.href = url;
@@ -674,11 +760,9 @@
         media.append(name, details, original);
       }
       content.append(media);
-      modal.querySelector("[data-preview-filename]").textContent = item.dataset.fileName || "File preview";
-      const navigable = inlineItems();
-      const index = navigable.indexOf(item);
-      modal.querySelector("[data-preview-previous]").disabled = index <= 0;
-      modal.querySelector("[data-preview-next]").disabled = index < 0 || index >= navigable.length - 1;
+      modal.querySelector("[data-preview-filename]").textContent = item.fileName || "File preview";
+      setStatus("");
+      updateControls();
     }
 
     function open(item, addHistory = true) {
@@ -686,15 +770,19 @@
       if (!modal) {
         return;
       }
+      if (!contextURL) {
+        initializeSequence();
+      }
+      const data = item instanceof Element ? itemData(item, Number(document.querySelector("[data-share-file-view]")?.dataset.resultPage) || 1) : item;
       if (modal.hidden) {
-        opener = item;
+        opener = data.element;
         scrollY = window.scrollY;
         modal.hidden = false;
         document.body.classList.add("preview-open");
       }
-      render(item);
+      render(data);
       if (addHistory) {
-        history.pushState({...history.state, replicaPreview: true}, "", previewURL(item.dataset.fileId));
+        history.pushState({...history.state, replicaPreview: true}, "", previewURL(data.fileID, data.page));
       }
       modal.querySelector("[data-preview-close]").focus();
     }
@@ -720,17 +808,74 @@
         opener.focus();
       }
       opener = undefined;
+      pages.clear();
+      knownIDs.clear();
+      contextURL = undefined;
     }
 
-    function move(offset) {
-      const navigable = inlineItems();
-      const index = navigable.indexOf(current);
-      const next = navigable[index + offset];
-      if (!next) {
+    async function loadPage(page) {
+      if (pages.has(page)) {
+        return pages.get(page);
+      }
+      const url = new URL(contextURL);
+      url.searchParams.set("page", page);
+      const response = await request(url.toString());
+      if (!response?.ok) {
+        throw new Error("page request failed");
+      }
+      const parsed = new DOMParser().parseFromString(await response.text(), "text/html");
+      const root = parsed.querySelector("[data-share-file-view]");
+      if (!root || root.dataset.browseMode !== resultMode) {
+        throw new Error("result context changed");
+      }
+      total = Number(root.dataset.resultTotal) || 0;
+      const resultPage = Number(root.dataset.resultPage) || page;
+      const result = [];
+      for (const element of parsed.querySelectorAll("[data-preview-item]")) {
+        const data = itemData(element, resultPage);
+        if (knownIDs.has(data.fileID)) {
+          continue;
+        }
+        knownIDs.add(data.fileID);
+        result.push(data);
+      }
+      pages.set(resultPage, result);
+      return result;
+    }
+
+    async function move(offset) {
+      if (!current || loading || current.previewKind === "fallback") {
         return;
       }
-      render(next);
-      history.replaceState({...history.state, replicaPreview: true}, "", previewURL(next.dataset.fileId));
+      const currentItems = inlinePage(current.page);
+      const index = currentItems.findIndex((item) => item.fileID === current.fileID);
+      let next = currentItems[index + offset];
+      let page = current.page;
+      loading = true;
+      retryOffset = offset;
+      setStatus(next ? "" : "Loading files…");
+      updateControls();
+      try {
+        while (!next && resultMode === "flat") {
+          page += offset;
+          if (page < 1 || page > totalPages()) {
+            break;
+          }
+          await loadPage(page);
+          const candidates = inlinePage(page);
+          next = offset > 0 ? candidates[0] : candidates[candidates.length - 1];
+        }
+        if (next) {
+          render(next);
+          history.replaceState({...history.state, replicaPreview: true}, "", previewURL(next.fileID, next.page));
+        }
+        setStatus("");
+      } catch {
+        setStatus("Unable to load more files.", true);
+      } finally {
+        loading = false;
+        updateControls();
+      }
     }
 
     document.addEventListener("click", (event) => {
@@ -746,6 +891,8 @@
         move(-1);
       } else if (event.target.closest("[data-preview-next]")) {
         move(1);
+      } else if (event.target.closest("[data-preview-retry]")) {
+        move(retryOffset);
       } else if (event.target.matches("[data-preview-dialog]")) {
         close();
       }
@@ -783,25 +930,35 @@
       }
     });
 
-    window.addEventListener("popstate", () => {
+    async function restoreURLPreview(fromPopState = false) {
       const fileID = new URL(window.location.href).searchParams.get("preview");
-      const item = fileID && items().find((candidate) => candidate.dataset.fileId === fileID);
-      if (current || item) {
+      if (fromPopState && (current || fileID)) {
         window.replicaPreviewHistoryHandled = true;
+      }
+      let item = fileID && ([...pages.values()].flat().find((candidate) => candidate.fileID === fileID) || items().find((candidate) => candidate.dataset.fileId === fileID));
+      const previewPage = Number(new URL(window.location.href).searchParams.get("preview_page"));
+      if (!item && fileID && resultMode === "flat" && previewPage > 0 && previewPage <= totalPages()) {
+        try {
+          await loadPage(previewPage);
+          item = (pages.get(previewPage) || []).find((candidate) => candidate.fileID === fileID);
+        } catch {
+          setStatus("Unable to load the linked file.", true);
+        }
       }
       if (item) {
         open(item, false);
       } else {
         close(false);
       }
+    }
+
+    window.addEventListener("popstate", () => {
+      restoreURLPreview(true);
     });
 
     document.addEventListener("htmx:beforeSwap", () => close(false));
-    const fileID = new URL(window.location.href).searchParams.get("preview");
-    const initial = fileID && items().find((item) => item.dataset.fileId === fileID);
-    if (initial) {
-      open(initial, false);
-    }
+    initializeSequence();
+    restoreURLPreview();
   }
 
   document.body.addEventListener("htmx:configRequest", (event) => {

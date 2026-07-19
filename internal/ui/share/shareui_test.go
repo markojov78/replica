@@ -53,6 +53,10 @@ func TestRegisterServesLoginAndStaticAssets(t *testing.T) {
 		!strings.Contains(rec.Body.String(), `bindPreviewViewer`) ||
 		!strings.Contains(rec.Body.String(), `replicaPreview`) ||
 		!strings.Contains(rec.Body.String(), `data-preview-item`) ||
+		!strings.Contains(rec.Body.String(), `async function loadPage(page)`) ||
+		!strings.Contains(rec.Body.String(), `knownIDs`) ||
+		!strings.Contains(rec.Body.String(), `Loading files`) ||
+		!strings.Contains(rec.Body.String(), `DOMParser`) ||
 		!strings.Contains(rec.Body.String(), `relative_uri`) {
 		t.Fatalf("share.js body = %s, want HTMX auth header handling", rec.Body.String())
 	}
@@ -147,7 +151,10 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 		`data-default-theme="dark"`,
 		`data-share-default-theme="dark"`,
 		`localStorage.getItem("replica_share_theme")`,
-		`src="/share/static/share.js?v=20260719-6"`,
+		`src="/share/static/share.js?v=20260719-7"`,
+		`data-result-page="1"`,
+		`data-result-total="1"`,
+		`data-preview-status role="status" aria-live="polite"`,
 		`<noscript><img class="grid-thumb" src="/s/public-link/files/10/thumbnail?size=256" alt=""></noscript>`,
 		`<option value="25" selected>25</option>`,
 		`Delete`,
