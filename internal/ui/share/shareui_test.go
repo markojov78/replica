@@ -50,6 +50,9 @@ func TestRegisterServesLoginAndStaticAssets(t *testing.T) {
 		!strings.Contains(rec.Body.String(), `currentShareTotal`) ||
 		!strings.Contains(rec.Body.String(), `[0, 1, 2, 4, 8, 16, 32]`) ||
 		!strings.Contains(rec.Body.String(), `window.location.reload()`) ||
+		!strings.Contains(rec.Body.String(), `bindPreviewViewer`) ||
+		!strings.Contains(rec.Body.String(), `replicaPreview`) ||
+		!strings.Contains(rec.Body.String(), `data-preview-item`) ||
 		!strings.Contains(rec.Body.String(), `relative_uri`) {
 		t.Fatalf("share.js body = %s, want HTMX auth header handling", rec.Body.String())
 	}
@@ -68,6 +71,7 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 		Type:         "Image (JPG)",
 		ContentPath:  "/share/shares/4/files/10/content",
 		DownloadPath: "/api/share/shares/4/files/10/content",
+		PreviewKind:  "image",
 	}
 
 	list := renderShareTemplate(t, pageData{
@@ -131,6 +135,11 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 		`class="gallery-actions"`,
 		`class="gallery-caption"`,
 		`data-public-src="/s/public-link/files/10/thumbnail?size=256"`,
+		`data-preview-item`,
+		`data-file-id="10"`,
+		`data-preview-kind="image"`,
+		`role="dialog" aria-modal="true"`,
+		`aria-label="Preview previous file"`,
 		`href="/w/public-link/files/10/content"`,
 		`data-default-view="grid"`,
 		`data-default-page-size="25"`,
@@ -138,7 +147,7 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 		`data-default-theme="dark"`,
 		`data-share-default-theme="dark"`,
 		`localStorage.getItem("replica_share_theme")`,
-		`src="/share/static/share.js?v=20260719-5"`,
+		`src="/share/static/share.js?v=20260719-6"`,
 		`<noscript><img class="grid-thumb" src="/s/public-link/files/10/thumbnail?size=256" alt=""></noscript>`,
 		`<option value="25" selected>25</option>`,
 		`Delete`,

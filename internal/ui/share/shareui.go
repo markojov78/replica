@@ -75,6 +75,7 @@ type fileView struct {
 	DownloadPath string
 	ThumbnailURL string
 	CanPreview   bool
+	PreviewKind  string
 }
 
 const (
@@ -867,6 +868,7 @@ func fileViews(files []apiclient.ReplicaInventoryFile, apiBasePath string, conte
 			DownloadPath:         contentPath,
 			ThumbnailURL:         fmt.Sprintf("%s/files/%d/thumbnail?size=%d", apiBasePath, file.FileID, thumbSize),
 			CanPreview:           cfg.VideoPlaybackEnabled && isPlayableVideo(ext) && file.Size <= int64(cfg.VideoInlineMaxSizeMB)*1024*1024,
+			PreviewKind:          previewKind(ext, cfg, file.Size),
 		}
 		if authenticated {
 			view.ThumbnailURL = ""
@@ -874,6 +876,22 @@ func fileViews(files []apiclient.ReplicaInventoryFile, apiBasePath string, conte
 		result = append(result, view)
 	}
 	return result
+}
+
+func previewKind(ext string, cfg config.SharingConfig, size int64) string {
+	switch ext {
+	case "jpg", "jpeg", "png", "gif", "webp":
+		return "image"
+	case "mp4", "webm":
+		if cfg.VideoPlaybackEnabled && size <= int64(cfg.VideoInlineMaxSizeMB)*1024*1024 {
+			return "video"
+		}
+	case "mp3", "wav", "ogg", "m4a":
+		return "audio"
+	case "pdf":
+		return "pdf"
+	}
+	return "fallback"
 }
 
 func treeFolderViews(entries []treeFolderEntry, basePath string, viewMode string, thumbSize int, sortBy string, order string) []treeFolderView {

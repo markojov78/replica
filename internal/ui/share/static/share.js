@@ -345,7 +345,13 @@
       const path = method === "GET" ? `${form.action}?${new URLSearchParams(new FormData(form))}` : form.action;
       showPage(path, {method, body});
     });
-    window.addEventListener("popstate", () => showPage(window.location.href, undefined, false));
+    window.addEventListener("popstate", () => {
+      if (window.replicaPreviewHistoryHandled) {
+        window.replicaPreviewHistoryHandled = false;
+        return;
+      }
+      showPage(window.location.href, undefined, false);
+    });
     loadAuthenticatedThumbnails();
   }
 
@@ -607,6 +613,197 @@
     });
   }
 
+  function bindPreviewViewer() {
+    let current;
+    let opener;
+    let scrollY = 0;
+
+    const dialog = () => document.querySelector("[data-preview-dialog]");
+    const items = () => [...document.querySelectorAll("[data-preview-item]")];
+    const inlineItems = () => items().filter((item) => item.dataset.previewKind !== "fallback");
+
+    function previewURL(fileID) {
+      const url = new URL(window.location.href);
+      if (fileID) {
+        url.searchParams.set("preview", fileID);
+      } else {
+        url.searchParams.delete("preview");
+      }
+      return `${url.pathname}${url.search}${url.hash}`;
+    }
+
+    function render(item) {
+      const modal = dialog();
+      if (!modal || !item?.isConnected) {
+        close(false);
+        return;
+      }
+      current = item;
+      const content = modal.querySelector("[data-preview-content]");
+      const kind = item.dataset.previewKind;
+      const url = item.dataset.contentUrl;
+      content.replaceChildren();
+      let media;
+      if (kind === "image") {
+        media = document.createElement("img");
+        media.alt = item.dataset.fileName || "File preview";
+        media.src = url;
+      } else if (kind === "video") {
+        media = document.createElement("video");
+        media.controls = true;
+        media.src = url;
+      } else if (kind === "audio") {
+        media = document.createElement("audio");
+        media.controls = true;
+        media.src = url;
+      } else if (kind === "pdf") {
+        media = document.createElement("iframe");
+        media.title = `PDF preview: ${item.dataset.fileName || "file"}`;
+        media.src = url;
+      } else {
+        media = document.createElement("div");
+        media.className = "preview-fallback";
+        const name = document.createElement("strong");
+        name.textContent = item.dataset.fileName || "File";
+        const details = document.createElement("p");
+        details.textContent = [item.dataset.fileType, item.dataset.fileSize].filter(Boolean).join(" · ");
+        const original = document.createElement("a");
+        original.className = "btn primary";
+        original.href = url;
+        original.textContent = "Download / open original";
+        media.append(name, details, original);
+      }
+      content.append(media);
+      modal.querySelector("[data-preview-filename]").textContent = item.dataset.fileName || "File preview";
+      const navigable = inlineItems();
+      const index = navigable.indexOf(item);
+      modal.querySelector("[data-preview-previous]").disabled = index <= 0;
+      modal.querySelector("[data-preview-next]").disabled = index < 0 || index >= navigable.length - 1;
+    }
+
+    function open(item, addHistory = true) {
+      const modal = dialog();
+      if (!modal) {
+        return;
+      }
+      if (modal.hidden) {
+        opener = item;
+        scrollY = window.scrollY;
+        modal.hidden = false;
+        document.body.classList.add("preview-open");
+      }
+      render(item);
+      if (addHistory) {
+        history.pushState({...history.state, replicaPreview: true}, "", previewURL(item.dataset.fileId));
+      }
+      modal.querySelector("[data-preview-close]").focus();
+    }
+
+    function close(useHistory = true) {
+      const modal = dialog();
+      if (!modal || modal.hidden) {
+        return;
+      }
+      if (useHistory && history.state?.replicaPreview) {
+        history.back();
+        return;
+      }
+      if (new URL(window.location.href).searchParams.has("preview")) {
+        history.replaceState(history.state, "", previewURL(""));
+      }
+      modal.hidden = true;
+      modal.querySelector("[data-preview-content]")?.replaceChildren();
+      document.body.classList.remove("preview-open");
+      current = undefined;
+      window.scrollTo(0, scrollY);
+      if (opener?.isConnected) {
+        opener.focus();
+      }
+      opener = undefined;
+    }
+
+    function move(offset) {
+      const navigable = inlineItems();
+      const index = navigable.indexOf(current);
+      const next = navigable[index + offset];
+      if (!next) {
+        return;
+      }
+      render(next);
+      history.replaceState({...history.state, replicaPreview: true}, "", previewURL(next.dataset.fileId));
+    }
+
+    document.addEventListener("click", (event) => {
+      const item = event.target.closest("[data-preview-item]");
+      if (item) {
+        event.preventDefault();
+        open(item);
+        return;
+      }
+      if (event.target.closest("[data-preview-close]")) {
+        close();
+      } else if (event.target.closest("[data-preview-previous]")) {
+        move(-1);
+      } else if (event.target.closest("[data-preview-next]")) {
+        move(1);
+      } else if (event.target.matches("[data-preview-dialog]")) {
+        close();
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      const modal = dialog();
+      if (!modal || modal.hidden) {
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+      } else if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        move(-1);
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        move(1);
+      } else if (event.key === "Tab") {
+        const focusable = [...modal.querySelectorAll('button:not([disabled]),a[href],video[controls],audio[controls],iframe')];
+        if (!focusable.length) {
+          event.preventDefault();
+          return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    });
+
+    window.addEventListener("popstate", () => {
+      const fileID = new URL(window.location.href).searchParams.get("preview");
+      const item = fileID && items().find((candidate) => candidate.dataset.fileId === fileID);
+      if (current || item) {
+        window.replicaPreviewHistoryHandled = true;
+      }
+      if (item) {
+        open(item, false);
+      } else {
+        close(false);
+      }
+    });
+
+    document.addEventListener("htmx:beforeSwap", () => close(false));
+    const fileID = new URL(window.location.href).searchParams.get("preview");
+    const initial = fileID && items().find((item) => item.dataset.fileId === fileID);
+    if (initial) {
+      open(initial, false);
+    }
+  }
+
   document.body.addEventListener("htmx:configRequest", (event) => {
     event.detail.headers["X-API-Version"] = "1";
     if (token("access_token") && !event.detail.path.startsWith("/share")) {
@@ -620,6 +817,7 @@
 
   bindTheme();
   bindFilePreferenceControls();
+  bindPreviewViewer();
 
   if (document.body.dataset.shareAuthenticated === "true") {
     bindUploadForm();

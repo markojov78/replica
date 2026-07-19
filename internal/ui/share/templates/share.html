@@ -16,7 +16,7 @@
   </script>
   <link rel="stylesheet" href="/share/static/share.css">
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
-  <script src="/share/static/share.js?v=20260719-5" defer></script>
+  <script src="/share/static/share.js?v=20260719-6" defer></script>
   <noscript><style>img[data-public-src]{display:none!important}</style></noscript>
 
   <link rel="icon" type="image/png" sizes="32x32" href="/share/static/favicon-96x96.png">
@@ -212,7 +212,7 @@
 {{$file := .File}}
 <article class="gallery-item has-actions">
   <div class="gallery-media">
-    <a class="gallery-surface" href="{{$file.ContentPath}}">
+    <a class="gallery-surface" href="{{$file.ContentPath}}" data-preview-item data-file-id="{{$file.FileID}}" data-file-name="{{$file.Name}}" data-file-type="{{$file.Type}}" data-file-size="{{formatBytes $file.Size}}" data-content-url="{{$file.ContentPath}}" data-preview-kind="{{$file.PreviewKind}}">
       {{if $file.ThumbnailURL}}
         <img class="grid-thumb" data-public-src="{{$file.ThumbnailURL}}" alt="" onerror="this.hidden=true; this.nextElementSibling.hidden=false">
         <span class="file-fallback" hidden>{{$file.Type}}</span>
@@ -324,6 +324,15 @@
   </div>
   {{end}}
 </section>
+<div class="preview-viewer" data-preview-dialog role="dialog" aria-modal="true" aria-labelledby="preview-viewer-title" hidden>
+  <button type="button" class="preview-close" data-preview-close aria-label="Close file preview">×</button>
+  <button type="button" class="preview-nav preview-previous" data-preview-previous aria-label="Preview previous file">‹</button>
+  <div class="preview-frame" data-preview-frame>
+    <div class="preview-content" data-preview-content></div>
+    <div class="preview-caption"><span id="preview-viewer-title" data-preview-filename></span></div>
+  </div>
+  <button type="button" class="preview-nav preview-next" data-preview-next aria-label="Preview next file">›</button>
+</div>
 {{template "layout_end" .}}
 {{end}}
 
