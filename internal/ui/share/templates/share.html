@@ -16,7 +16,7 @@
   </script>
   <link rel="stylesheet" href="/share/static/share.css">
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
-  <script src="/share/static/share.js?v=20260719-2" defer></script>
+  <script src="/share/static/share.js?v=20260719-3" defer></script>
   <noscript><style>img[data-public-src]{display:none!important}</style></noscript>
 
   <link rel="icon" type="image/png" sizes="32x32" href="/share/static/favicon-96x96.png">
@@ -30,13 +30,17 @@
 <body data-share-authenticated="{{if .Authenticated}}true{{else}}false{{end}}">
 <div class="share-app">
   <header class="topbar">
-    <a class="brand" href="{{if .Authenticated}}/share/shares{{else if .Public}}{{.BasePath}}{{else}}/share{{end}}"><img class="logo-mark" src="/share/static/apple-touch-icon.png" alt=""><span>Replica Share</span></a>
-    {{if .Authenticated}}
+    <div class="share-title">
+      <a class="brand" href="{{if .Share.Name}}/share/shares{{else if .Authenticated}}/share/shares{{else}}/share{{end}}"><img class="logo-mark" src="/share/static/apple-touch-icon.png" alt=""><span>Replica Share</span></a>
+      {{if .Share.Name}}<span class="breadcrumb-separator" aria-hidden="true">›</span><span class="share-name">{{.Share.Name}}</span>{{end}}
+    </div>
     <div class="top-actions">
+      {{if .Share.Name}}{{template "file_view_controls" .}}{{end}}
+      {{if .Authenticated}}
       <span class="current-user">User: <span data-share-current-username></span></span>
       <form action="/share/logout" method="post" data-share-logout><button type="submit">Log out</button></form>
+      {{end}}
     </div>
-    {{end}}
   </header>
   <main class="page">
 {{end}}
@@ -54,9 +58,37 @@
 {{end}}
 
 {{define "theme_toggle"}}
-<div class="view-toggle theme-toggle" data-share-theme-toggle>
-  <button type="button" class="btn" data-theme="light" aria-pressed="false">Light</button>
-  <button type="button" class="btn" data-theme="dark" aria-pressed="false">Dark</button>
+<button type="button" class="btn icon-toggle theme-toggle" data-share-theme-toggle aria-label="Switch color theme" title="Switch color theme">
+  <span class="theme-icon theme-icon-light" aria-hidden="true">☀</span>
+  <span class="theme-icon theme-icon-dark" aria-hidden="true">☾</span>
+</button>
+{{end}}
+
+{{define "file_view_controls"}}
+<div class="file-view-controls" aria-label="Share view controls">
+  <form method="get" action="{{.BasePath}}" hx-get="{{.BasePath}}" hx-target="body" hx-swap="outerHTML" class="inline-form thumbnail-control">
+    <input type="hidden" name="page" value="{{.Page}}">
+    <input type="hidden" name="count" value="{{.Count}}">
+    <input type="hidden" name="view" value="{{.ViewMode}}">
+    <input type="hidden" name="browse" value="{{.BrowseMode}}">
+    {{if .TreePath}}<input type="hidden" name="path" value="{{.TreePath}}">{{end}}
+    <label><span class="control-label">Thumbnail</span>
+      <select name="thumb" onchange="this.form.requestSubmit()" aria-label="Thumbnail size" title="Thumbnail size">
+        {{range .ThumbnailSizes}}<option value="{{.}}" {{if eq . $.ThumbnailSize}}selected{{end}}>{{.}}</option>{{end}}
+      </select>
+    </label>
+  </form>
+  {{if eq .ViewMode "grid"}}
+    <a class="btn icon-toggle" href="{{viewURL .BasePath .Page .Count .ThumbnailSize "list" .BrowseMode .TreePath}}" hx-get="{{viewURL .BasePath .Page .Count .ThumbnailSize "list" .BrowseMode .TreePath}}" hx-target="body" hx-swap="outerHTML" data-share-view-toggle data-view-mode="list" aria-label="Switch to list view" title="Switch to list view">☷</a>
+  {{else}}
+    <a class="btn icon-toggle" href="{{viewURL .BasePath .Page .Count .ThumbnailSize "grid" .BrowseMode .TreePath}}" hx-get="{{viewURL .BasePath .Page .Count .ThumbnailSize "grid" .BrowseMode .TreePath}}" hx-target="body" hx-swap="outerHTML" data-share-view-toggle data-view-mode="grid" aria-label="Switch to grid view" title="Switch to grid view">▦</a>
+  {{end}}
+  {{if eq .BrowseMode "tree"}}
+    <a class="btn icon-toggle" href="{{browseURL .BasePath "flat" .ViewMode "" .ThumbnailSize}}" hx-get="{{browseURL .BasePath "flat" .ViewMode "" .ThumbnailSize}}" hx-target="body" hx-swap="outerHTML" data-share-browse-toggle data-browse-mode="flat" aria-label="Switch to flat browsing" title="Switch to flat browsing">≡</a>
+  {{else}}
+    <a class="btn icon-toggle" href="{{browseURL .BasePath "tree" .ViewMode .TreePath .ThumbnailSize}}" hx-get="{{browseURL .BasePath "tree" .ViewMode .TreePath .ThumbnailSize}}" hx-target="body" hx-swap="outerHTML" data-share-browse-toggle data-browse-mode="tree" aria-label="Switch to tree browsing" title="Switch to tree browsing">⑂</a>
+  {{end}}
+  {{template "theme_toggle" .}}
 </div>
 {{end}}
 
@@ -163,36 +195,6 @@
 {{define "share_files"}}
 {{template "layout_start" .}}
 <section class="panel" data-share-file-view data-view-mode="{{.ViewMode}}" data-browse-mode="{{.BrowseMode}}" data-thumbnail-size="{{.ThumbnailSize}}" data-page-size="{{.Count}}" data-default-view="{{with .Share.Properties.View}}{{.}}{{end}}" data-default-page-size="{{with .Share.Properties.PageSize}}{{.}}{{end}}" data-default-thumbnail-size="{{with .Share.Properties.ThumbnailSize}}{{.}}{{end}}" data-default-theme="{{with .Share.Properties.Theme}}{{.}}{{end}}">
-  <div class="section-head">
-    <div>
-      {{if .Authenticated}}<a class="back-link" href="/share/shares">My shares</a>{{end}}
-      <h1>{{.Share.Name}}</h1>
-      <p>{{joinPermissions .Permissions ", "}}{{if eq .BrowseMode "tree"}} · /{{.TreePath}}{{end}}</p>
-    </div>
-    <div class="toolbar">
-      <form method="get" action="{{.BasePath}}" hx-get="{{.BasePath}}" hx-target="body" hx-swap="outerHTML" class="inline-form">
-        <input type="hidden" name="page" value="{{.Page}}">
-        <input type="hidden" name="count" value="{{.Count}}">
-        <input type="hidden" name="view" value="{{.ViewMode}}">
-        <input type="hidden" name="browse" value="{{.BrowseMode}}">
-        {{if .TreePath}}<input type="hidden" name="path" value="{{.TreePath}}">{{end}}
-        <label>Thumbnail size
-          <select name="thumb" onchange="this.form.requestSubmit()">
-            {{range .ThumbnailSizes}}<option value="{{.}}" {{if eq . $.ThumbnailSize}}selected{{end}}>{{.}}</option>{{end}}
-          </select>
-        </label>
-      </form>
-      <div class="view-toggle" data-share-view-toggle>
-        <a class="btn {{if eq .ViewMode "list"}}active{{end}}" href="{{viewURL .BasePath .Page .Count .ThumbnailSize "list" .BrowseMode .TreePath}}" hx-get="{{viewURL .BasePath .Page .Count .ThumbnailSize "list" .BrowseMode .TreePath}}" hx-target="body" hx-swap="outerHTML" data-view-mode="list">List</a>
-        <a class="btn {{if eq .ViewMode "grid"}}active{{end}}" href="{{viewURL .BasePath .Page .Count .ThumbnailSize "grid" .BrowseMode .TreePath}}" hx-get="{{viewURL .BasePath .Page .Count .ThumbnailSize "grid" .BrowseMode .TreePath}}" hx-target="body" hx-swap="outerHTML" data-view-mode="grid">Grid</a>
-      </div>
-      <div class="view-toggle" data-share-browse-toggle>
-        <a class="btn {{if eq .BrowseMode "flat"}}active{{end}}" href="{{browseURL .BasePath "flat" .ViewMode "" .ThumbnailSize}}" hx-get="{{browseURL .BasePath "flat" .ViewMode "" .ThumbnailSize}}" hx-target="body" hx-swap="outerHTML" data-browse-mode="flat">Flat</a>
-        <a class="btn {{if eq .BrowseMode "tree"}}active{{end}}" href="{{browseURL .BasePath "tree" .ViewMode .TreePath .ThumbnailSize}}" hx-get="{{browseURL .BasePath "tree" .ViewMode .TreePath .ThumbnailSize}}" hx-target="body" hx-swap="outerHTML" data-browse-mode="tree">Tree</a>
-      </div>
-      {{template "theme_toggle" .}}
-    </div>
-  </div>
   {{template "notice" .}}
   {{if hasPermission .Permissions "create"}}
   <form action="{{.BasePath}}/files" method="post" enctype="multipart/form-data" class="upload-form" data-share-form hx-post="{{.BasePath}}/files" hx-target="body" hx-swap="outerHTML">

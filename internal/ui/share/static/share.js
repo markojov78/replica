@@ -157,10 +157,12 @@
   function applyTheme(theme) {
     const selected = theme === "dark" ? "dark" : "light";
     document.documentElement.dataset.theme = selected;
-    for (const button of document.querySelectorAll("[data-share-theme-toggle] [data-theme]")) {
-      const active = button.dataset.theme === selected;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-pressed", active ? "true" : "false");
+    for (const button of document.querySelectorAll("[data-share-theme-toggle]")) {
+      const next = selected === "dark" ? "light" : "dark";
+      const label = `Switch to ${next} theme`;
+      button.dataset.theme = next;
+      button.setAttribute("aria-label", label);
+      button.setAttribute("title", label);
     }
   }
 
@@ -177,7 +179,7 @@
       applyTheme(storedTheme);
     }
     document.body.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-share-theme-toggle] [data-theme]");
+      const button = event.target.closest("[data-share-theme-toggle]");
       if (!button) {
         return;
       }
@@ -373,7 +375,7 @@
     const defaultView = viewRoot.dataset.defaultView || "";
     const defaultThumb = viewRoot.dataset.defaultThumbnailSize || "";
     const defaultPageSize = viewRoot.dataset.defaultPageSize || "";
-    const allowedThumbs = new Set([...viewRoot.querySelectorAll('select[name="thumb"] option')].map((option) => option.value));
+    const allowedThumbs = new Set([...document.querySelectorAll('select[name="thumb"] option')].map((option) => option.value));
 
     let storedView = localStorage.getItem(viewKey);
     let storedBrowse = localStorage.getItem(browseKey);
@@ -443,12 +445,12 @@
 
   function bindFilePreferenceControls() {
     document.body.addEventListener("click", (event) => {
-      const view = event.target.closest("[data-share-view-toggle] [data-view-mode]");
+      const view = event.target.closest("[data-share-view-toggle][data-view-mode]");
       if (view) {
         localStorage.setItem(prefix + "file_view_mode", view.dataset.viewMode);
         return;
       }
-      const browse = event.target.closest("[data-share-browse-toggle] [data-browse-mode]");
+      const browse = event.target.closest("[data-share-browse-toggle][data-browse-mode]");
       if (browse) {
         localStorage.setItem(prefix + "file_browse_mode", browse.dataset.browseMode);
       }

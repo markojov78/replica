@@ -129,7 +129,7 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 		`data-default-theme="dark"`,
 		`data-share-default-theme="dark"`,
 		`localStorage.getItem("replica_share_theme")`,
-		`src="/share/static/share.js?v=20260719-2"`,
+		`src="/share/static/share.js?v=20260719-3"`,
 		`<noscript><img class="grid-thumb" src="/s/public-link/files/10/thumbnail?size=256" alt=""></noscript>`,
 		`<option value="25" selected>25</option>`,
 		`Replace`,
@@ -141,6 +141,47 @@ func TestShareFileTemplateRendersListAndGridModes(t *testing.T) {
 	}
 	if strings.Index(grid, `localStorage.getItem("replica_share_theme")`) > strings.Index(grid, `<link rel="stylesheet"`) {
 		t.Fatalf("grid view = %s, want theme bootstrap before stylesheet", grid)
+	}
+}
+
+func TestShareFileHeaderUsesBreadcrumbAndCompactControls(t *testing.T) {
+	html := renderShareTemplate(t, pageData{
+		Authenticated:  true,
+		Share:          apiclient.Share{ID: 4, Name: "Bali"},
+		Permissions:    []string{"read", "create"},
+		Page:           2,
+		Count:          50,
+		BasePath:       "/share/shares/4",
+		ThumbnailSizes: []int{128, 256},
+		ThumbnailSize:  256,
+		ViewMode:       "grid",
+		BrowseMode:     "tree",
+		TreePath:       "photos",
+	})
+
+	for _, want := range []string{
+		`href="/share/shares"`,
+		`<span>Replica Share</span>`,
+		`<span class="share-name">Bali</span>`,
+		`name="thumb"`,
+		`data-share-view-toggle data-view-mode="list"`,
+		`aria-label="Switch to list view"`,
+		`data-share-browse-toggle data-browse-mode="flat"`,
+		`aria-label="Switch to flat browsing"`,
+		`data-share-theme-toggle`,
+		`aria-label="Switch color theme"`,
+		`name="page" value="2"`,
+		`name="count" value="50"`,
+		`name="path" value="photos"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("share header = %s, want %q", html, want)
+		}
+	}
+	for _, unwanted := range []string{`class="back-link"`, `>My shares</a>`, `read, create`} {
+		if strings.Contains(html, unwanted) {
+			t.Fatalf("share header = %s, do not want %q", html, unwanted)
+		}
 	}
 }
 

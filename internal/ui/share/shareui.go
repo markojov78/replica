@@ -81,7 +81,7 @@ const (
 	browseModeFlat       = "flat"
 	browseModeTree       = "tree"
 	// Tree mode intentionally uses one existing file-list request and refuses larger shares.
-	treeBrowseFileLimit = 100
+	treeBrowseFileLimit = 1000
 )
 
 func Register(mux *http.ServeMux, runtime *storage.Runtime, authServices ...*service.AuthService) error {
