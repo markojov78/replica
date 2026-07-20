@@ -20,6 +20,8 @@ var ErrInvalidNodeCommandStatus = errors.New("invalid node command status")
 var ErrInvalidNodeCommandType = errors.New("invalid node command type")
 var ErrInvalidNodeCommandStatusTransition = errors.New("invalid node command status transition")
 var ErrInvalidNodeCommandDateFilter = errors.New("invalid command date filter")
+var ErrInvalidNodeCommandSort = errors.New("invalid command sort")
+var ErrInvalidNodeCommandOrder = errors.New("invalid command order")
 var ErrNodeCommandNotFound = errors.New("node command not found")
 var ErrNodeCommandOwnership = errors.New("node command ownership mismatch")
 
@@ -72,6 +74,8 @@ type NodeCommandListFilter struct {
 	Status        string
 	CreatedAfter  *time.Time
 	CreatedBefore *time.Time
+	Sort          string
+	Order         string
 }
 
 type UpdateNodeInput struct {
@@ -429,10 +433,25 @@ func (s *NodeService) ListCommands(page, perPage int, filter NodeCommandListFilt
 	if filter.CreatedAfter != nil && filter.CreatedBefore != nil && !filter.CreatedAfter.Before(*filter.CreatedBefore) {
 		return nil, ErrInvalidNodeCommandDateFilter
 	}
+	if filter.Sort == "" {
+		filter.Sort = "id"
+	}
+	switch filter.Sort {
+	case "id", "created_at", "updated_at":
+	default:
+		return nil, ErrInvalidNodeCommandSort
+	}
+	if filter.Order == "" {
+		filter.Order = "asc"
+	}
+	if filter.Order != "asc" && filter.Order != "desc" {
+		return nil, ErrInvalidNodeCommandOrder
+	}
 
 	commands, total, err := s.commands.List(page, perPage, repository.CommandListFilter{
 		NodeID: filter.NodeID, Type: commandType, Status: status,
 		CreatedAfter: filter.CreatedAfter, CreatedBefore: filter.CreatedBefore,
+		Sort: filter.Sort, Order: filter.Order,
 	})
 	if err != nil {
 		return nil, err

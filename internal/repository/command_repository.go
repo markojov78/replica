@@ -13,6 +13,8 @@ type CommandListFilter struct {
 	Status        model.CommandStatus
 	CreatedAfter  *time.Time
 	CreatedBefore *time.Time
+	Sort          string
+	Order         string
 }
 
 type CommandRepository struct {
@@ -75,7 +77,7 @@ func (r *CommandRepository) List(page, perPage int, filter CommandListFilter) ([
 		return nil, 0, err
 	}
 	var commands []model.Command
-	err := query.Order("id asc").Offset((page - 1) * perPage).Limit(perPage).Find(&commands).Error
+	err := query.Order(filter.Sort + " " + filter.Order).Offset((page - 1) * perPage).Limit(perPage).Find(&commands).Error
 	return commands, total, err
 }
 

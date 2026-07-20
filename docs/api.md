@@ -585,6 +585,8 @@ Query parameters:
   - `canceled`
 - `created_after` optional RFC3339 timestamp
 - `created_before` optional RFC3339 timestamp
+- `sort` optional, can be `id`, `created_at`, `updated_at`, default `id`
+- `order` optional, `asc` or `desc`, default `asc`
 
 Example response:
 ```json
@@ -620,6 +622,7 @@ Possible errors:
 - `400` invalid command type
 - `400` invalid command status
 - `400` invalid date filter
+- `400` invalid `sort`, `order`, `page`, or `count` value
 
 #### GET /commands/{id}
 Returns a single command.
@@ -989,6 +992,8 @@ Query parameters:
 - `page` optional, default `1`
 - `count` optional, default `20`
 - `status` optional, filter by inventory file status: `active`, `deleted`
+- `sort` optional, can be `id`, `name`, `size`, `created`, `modified`, default `id`
+- `order` optional, `asc` or `desc`, default `asc`
 
 Example response:
 
@@ -1018,6 +1023,7 @@ Returns a single file belonging to the inventory.
 
 Possible errors:
 - `401` missing authenticated user
+- `400` invalid `sort`, `order`, `page`, or `count` value
 - `403` missing required permission
 - `400` invalid inventory file status
 - `404` inventory not found
@@ -1164,6 +1170,7 @@ Query parameters:
 - `count` optional, default `20`
 - `status` optional, filter by replica file status: `changed`, `pending`, `synchronized`, `conflict`, `error`
 - `version` optional, filter by exact replica file version
+- `order` optional, `asc` or `desc`, default `asc`
 
 Example response:
 ```json
@@ -1199,6 +1206,7 @@ Possible errors:
 - `401` missing authenticated user
 - `403` missing required permission
 - `400` invalid replica file status
+- `400` invalid `order` value
 - `404` replica or replica file not found
 
 #### PATCH /replicas/{id}/files/{file_id}

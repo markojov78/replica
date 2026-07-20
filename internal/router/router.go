@@ -281,6 +281,10 @@ func mapNodeError(err error, nodeService *service.NodeService) error {
 		return huma.Error400BadRequest("invalid command status transition")
 	case errors.Is(err, service.ErrInvalidNodeCommandDateFilter):
 		return huma.Error400BadRequest("invalid date filter")
+	case errors.Is(err, service.ErrInvalidNodeCommandSort):
+		return huma.Error400BadRequest("invalid sort")
+	case errors.Is(err, service.ErrInvalidNodeCommandOrder):
+		return huma.Error400BadRequest("invalid order")
 	case strings.Contains(lower, "unique"):
 		return huma.Error409Conflict("node already exists")
 	default:
@@ -298,6 +302,10 @@ func mapInventoryError(err error, inventoryService *service.InventoryService) er
 		return huma.Error400BadRequest("invalid inventory status")
 	case errors.Is(err, service.ErrInvalidInventoryFileStatus):
 		return huma.Error400BadRequest("invalid inventory file status")
+	case errors.Is(err, service.ErrInvalidInventoryFileSort):
+		return huma.Error400BadRequest("invalid sort")
+	case errors.Is(err, service.ErrInvalidListOrder):
+		return huma.Error400BadRequest("invalid order")
 	case errors.Is(err, service.ErrInvalidInventoryType):
 		return huma.Error400BadRequest("invalid inventory type")
 	case errors.Is(err, service.ErrInvalidPermissions):

@@ -80,6 +80,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		files, err := svc.replicas.ListFiles(input.ID, page, count, service.ReplicaFileListFilter{
 			Status:  input.Status,
 			Version: version,
+			Order:   input.Order,
 		})
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
@@ -226,6 +227,7 @@ type listReplicaFilesInput struct {
 	Count         int    `query:"count" default:"20"`
 	Status        string `query:"status"`
 	Version       uint   `query:"version"`
+	Order         string `query:"order" default:"asc"`
 }
 
 type getReplicaFileInput struct {

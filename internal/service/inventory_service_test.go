@@ -894,6 +894,17 @@ func TestInventoryServiceListReplicaFilesWithFilters(t *testing.T) {
 	if files.Items[0].Status != string(model.ReplicaFileStatusPending) {
 		t.Fatalf("files.Items[0].Status = %q, want %q", files.Items[0].Status, model.ReplicaFileStatusPending)
 	}
+
+	files, err = svc.ListFiles(replica.ID, 1, 20, ReplicaFileListFilter{Order: "desc"})
+	if err != nil {
+		t.Fatalf("ListFiles(descending) error = %v", err)
+	}
+	if len(files.Items) != 2 || files.Items[0].FileID != 11 || files.Items[1].FileID != 10 {
+		t.Fatalf("ListFiles(descending) = %+v, want descending file_id order", files.Items)
+	}
+	if _, err := svc.ListFiles(replica.ID, 1, 20, ReplicaFileListFilter{Order: "up"}); err != ErrInvalidListOrder {
+		t.Fatalf("ListFiles(invalid order) error = %v, want %v", err, ErrInvalidListOrder)
+	}
 }
 
 func TestInventoryServiceListReplicaFilesRejectsInvalidStatus(t *testing.T) {
@@ -975,6 +986,19 @@ func TestInventoryAndReplicaListsFilterByStatus(t *testing.T) {
 	}
 	if fileList.Total != 1 || len(fileList.Items) != 1 || fileList.Items[0].Status != string(model.InventoryFileStatusDeleted) {
 		t.Fatalf("fileList = %+v, want one deleted inventory file", fileList)
+	}
+	fileList, err = inventoryService.ListFiles(inventories[0].ID, 1, 20, InventoryFileListFilter{Sort: "name", Order: "desc"})
+	if err != nil {
+		t.Fatalf("ListFiles(sorted) error = %v", err)
+	}
+	if len(fileList.Items) != 2 || fileList.Items[0].RelativeURI != "deleted.txt" || fileList.Items[1].RelativeURI != "active.txt" {
+		t.Fatalf("ListFiles(sorted) = %+v, want descending name order", fileList.Items)
+	}
+	if _, err := inventoryService.ListFiles(inventories[0].ID, 1, 20, InventoryFileListFilter{Sort: "hash"}); err != ErrInvalidInventoryFileSort {
+		t.Fatalf("ListFiles(invalid sort) error = %v, want %v", err, ErrInvalidInventoryFileSort)
+	}
+	if _, err := inventoryService.ListFiles(inventories[0].ID, 1, 20, InventoryFileListFilter{Order: "up"}); err != ErrInvalidListOrder {
+		t.Fatalf("ListFiles(invalid order) error = %v, want %v", err, ErrInvalidListOrder)
 	}
 
 	replicaService := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))

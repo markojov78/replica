@@ -64,6 +64,8 @@ func registerInventoryRoutes(api huma.API, svc services) {
 		}
 		files, err := svc.inventories.ListFiles(input.ID, page, count, service.InventoryFileListFilter{
 			Status: input.Status,
+			Sort:   input.Sort,
+			Order:  input.Order,
 		})
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
@@ -202,6 +204,8 @@ type listInventoryFilesInput struct {
 	Page          int    `query:"page" default:"1"`
 	Count         int    `query:"count" default:"20"`
 	Status        string `query:"status"`
+	Sort          string `query:"sort" default:"id"`
+	Order         string `query:"order" default:"asc"`
 }
 
 type getInventoryFileInput struct {

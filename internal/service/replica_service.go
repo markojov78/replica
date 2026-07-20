@@ -337,10 +337,17 @@ func (s *ReplicaService) ListFiles(replicaID uint, page, perPage int, filter Rep
 		}
 		filter.Status = string(status)
 	}
+	if filter.Order == "" {
+		filter.Order = "asc"
+	}
+	if filter.Order != "asc" && filter.Order != "desc" {
+		return nil, ErrInvalidListOrder
+	}
 
 	files, total, err := s.repo.ListFiles(replicaID, page, perPage, repository.ReplicaFileListFilter{
 		Status:  filter.Status,
 		Version: filter.Version,
+		Order:   filter.Order,
 	})
 	if err != nil {
 		return nil, err

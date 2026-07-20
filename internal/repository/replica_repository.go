@@ -341,6 +341,7 @@ type ReplicaListFilter struct {
 type ReplicaFileListFilter struct {
 	Status  string
 	Version *uint
+	Order   string
 }
 
 func (r *ReplicaRepository) ListFiltered(filter ReplicaListFilter) ([]model.Replica, error) {
@@ -473,7 +474,7 @@ func (r *ReplicaRepository) ListFiles(replicaID uint, page, perPage int, filter 
 			}
 			return tx
 		}).
-		Order("file_id asc").
+		Order("file_id " + filter.Order).
 		Limit(perPage).
 		Offset((page - 1) * perPage).
 		Find(&files).Error

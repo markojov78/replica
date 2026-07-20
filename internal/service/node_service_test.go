@@ -546,6 +546,20 @@ func TestNodeServiceAdminCommandEndpoints(t *testing.T) {
 		t.Fatalf("ListCommands() = %+v", list)
 	}
 
+	list, err = nodeService.ListCommands(1, 20, NodeCommandListFilter{Sort: "created_at", Order: "desc"})
+	if err != nil {
+		t.Fatalf("ListCommands(sorted) error = %v", err)
+	}
+	if len(list.Items) != 2 || list.Items[0].ID != commands[1].ID || list.Items[1].ID != commands[0].ID {
+		t.Fatalf("ListCommands(sorted) = %+v, want descending created_at order", list.Items)
+	}
+	if _, err := nodeService.ListCommands(1, 20, NodeCommandListFilter{Sort: "status"}); err != ErrInvalidNodeCommandSort {
+		t.Fatalf("ListCommands(invalid sort) error = %v, want %v", err, ErrInvalidNodeCommandSort)
+	}
+	if _, err := nodeService.ListCommands(1, 20, NodeCommandListFilter{Order: "up"}); err != ErrInvalidNodeCommandOrder {
+		t.Fatalf("ListCommands(invalid order) error = %v, want %v", err, ErrInvalidNodeCommandOrder)
+	}
+
 	subscription, unsubscribe := nodeService.Subscribe("node-a")
 	defer unsubscribe()
 	updated, err := nodeService.UpdateCommandStatus(commands[0].ID, string(model.NodeCommandStatusPending))

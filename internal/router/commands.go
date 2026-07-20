@@ -35,6 +35,7 @@ func registerCommandRoutes(api huma.API, svc services) {
 		commands, err := svc.nodes.ListCommands(page, count, service.NodeCommandListFilter{
 			NodeID: input.NodeID, Type: input.Type, Status: input.Status,
 			CreatedAfter: createdAfter, CreatedBefore: createdBefore,
+			Sort: input.Sort, Order: input.Order,
 		})
 		if err != nil {
 			return nil, mapNodeError(err, svc.nodes)
@@ -95,6 +96,8 @@ type listCommandsInput struct {
 	Status        string `query:"status"`
 	CreatedAfter  string `query:"created_after"`
 	CreatedBefore string `query:"created_before"`
+	Sort          string `query:"sort" default:"id"`
+	Order         string `query:"order" default:"asc"`
 }
 
 type getCommandInput struct {

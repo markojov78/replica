@@ -95,6 +95,8 @@ type InventoryListFilter struct {
 
 type InventoryFileListFilter struct {
 	Status string
+	Sort   string
+	Order  string
 }
 
 func (r *InventoryRepository) List(page, perPage int, filter InventoryListFilter) ([]model.Inventory, int64, error) {
@@ -184,8 +186,12 @@ func (r *InventoryRepository) ListFiles(inventoryID uint, page, perPage int, fil
 	}
 
 	var files []model.InventoryFile
+	sortColumn := filter.Sort
+	if sortColumn == "name" {
+		sortColumn = "relative_uri"
+	}
 	err := query.
-		Order("id asc").
+		Order(sortColumn + " " + filter.Order).
 		Limit(perPage).
 		Offset((page - 1) * perPage).
 		Find(&files).Error

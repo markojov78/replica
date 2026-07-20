@@ -24,6 +24,8 @@ type InventoryService struct {
 var (
 	ErrInvalidInventoryStatus       = errors.New("invalid inventory status")
 	ErrInvalidInventoryFileStatus   = errors.New("invalid inventory file status")
+	ErrInvalidInventoryFileSort     = errors.New("invalid inventory file sort")
+	ErrInvalidListOrder             = errors.New("invalid list order")
 	ErrInvalidInventoryType         = errors.New("invalid inventory type")
 	ErrInvalidInventoryURI          = errors.New("invalid inventory uri")
 	ErrInventoryFileNotFound        = errors.New("inventory file not found")
@@ -128,6 +130,7 @@ type ReplicaFileList struct {
 type ReplicaFileListFilter struct {
 	Status  string
 	Version *uint
+	Order   string
 }
 
 type InventoryListFilter struct {
@@ -136,6 +139,8 @@ type InventoryListFilter struct {
 
 type InventoryFileListFilter struct {
 	Status string
+	Sort   string
+	Order  string
 }
 
 type InventoryList struct {
@@ -565,9 +570,25 @@ func (s *InventoryService) ListFiles(inventoryID uint, page, perPage int, filter
 		}
 		filter.Status = string(status)
 	}
+	if filter.Sort == "" {
+		filter.Sort = "id"
+	}
+	switch filter.Sort {
+	case "id", "name", "size", "created", "modified":
+	default:
+		return nil, ErrInvalidInventoryFileSort
+	}
+	if filter.Order == "" {
+		filter.Order = "asc"
+	}
+	if filter.Order != "asc" && filter.Order != "desc" {
+		return nil, ErrInvalidListOrder
+	}
 
 	files, total, err := s.repo.ListFiles(inventoryID, page, perPage, repository.InventoryFileListFilter{
 		Status: filter.Status,
+		Sort:   filter.Sort,
+		Order:  filter.Order,
 	})
 	if err != nil {
 		return nil, err
