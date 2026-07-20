@@ -316,6 +316,7 @@ func Register(mux *http.ServeMux, api http.Handler, cfg config.Config) error {
 	mux.HandleFunc("GET /dashboard/inventories/new", handler.protected(handler.newInventoryPage))
 	mux.HandleFunc("POST /dashboard/inventories", handler.protected(handler.createInventory))
 	mux.HandleFunc("GET /dashboard/inventories/{id}", handler.protected(handler.inventoryPage))
+	mux.HandleFunc("GET /dashboard/inventories/{id}/graph", handler.protected(handler.inventoryGraphPage))
 	mux.HandleFunc("GET /dashboard/inventories/{id}/edit", handler.protected(handler.editInventoryPage))
 	mux.HandleFunc("POST /dashboard/inventories/{id}", handler.protected(handler.updateInventory))
 	mux.HandleFunc("POST /dashboard/inventories/{id}/delete", handler.protected(handler.deleteInventory))
@@ -533,6 +534,19 @@ func (h *Handler) createInventory(w http.ResponseWriter, r *http.Request, sess a
 
 func (h *Handler) inventoryPage(w http.ResponseWriter, r *http.Request, sess authContext) {
 	h.renderInventoryPage(w, r, sess, "")
+}
+
+func (h *Handler) inventoryGraphPage(w http.ResponseWriter, r *http.Request, _ authContext) {
+	id, err := strconv.ParseUint(r.PathValue("id"), 10, strconv.IntSize)
+	if err != nil || id == 0 {
+		h.renderStatus(w, http.StatusNotFound, "error", pageData{
+			Title: "Inventory not found", Active: "inventories", Error: "The requested inventory ID is invalid.",
+		})
+		return
+	}
+	h.render(w, "inventory_graph", pageData{
+		Title: "Inventory graph", Subtitle: "Replication and sharing topology", Active: "inventories", Inventory: inventory{ID: uint(id)},
+	})
 }
 
 func (h *Handler) renderInventoryPage(w http.ResponseWriter, r *http.Request, sess authContext, message string) {

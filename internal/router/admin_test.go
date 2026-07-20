@@ -95,6 +95,10 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "data-login-form") {
 		t.Fatalf("protected response = %d body=%q, want login page", response.Code, response.Body.String())
 	}
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1/graph", nil, "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "data-login-form") {
+		t.Fatalf("unauthorized graph response = %d body=%q, want login page", response.Code, response.Body.String())
+	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/static/admin.js", nil, "")
 	for _, required := range []string{
@@ -350,7 +354,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), "Inventory #1 · folder · active · 0 shares") ||
 		strings.Contains(response.Body.String(), `<section class="card detail">`) ||
 		!strings.Contains(response.Body.String(), `href="/dashboard/shares?inventory_id=1">View shares</a>`) ||
-		!strings.Contains(response.Body.String(), `<button class="btn" type="button" disabled aria-disabled="true">View graph</button>`) ||
+		!strings.Contains(response.Body.String(), `href="/dashboard/inventories/1/graph">View graph</a>`) ||
 		!strings.Contains(response.Body.String(), `href="/dashboard/inventories/1/edit">Edit inventory</a>`) ||
 		!strings.Contains(response.Body.String(), `href="/dashboard/inventories/1/replicas/new">Add replica</a>`) ||
 		!strings.Contains(response.Body.String(), `action="/dashboard/inventories/1/delete"`) ||
@@ -368,6 +372,18 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), `name="order" value="desc"`) ||
 		strings.Contains(response.Body.String(), ">Apply</button>") {
 		t.Fatalf("inventory detail response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1/graph", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `data-inventory-graph data-inventory-id="1"`) ||
+		!strings.Contains(response.Body.String(), `href="/dashboard/inventories/1">← Back to inventory</a>`) ||
+		!strings.Contains(response.Body.String(), "Replication and sharing topology") ||
+		!strings.Contains(response.Body.String(), `data-graph-zoom-out`) ||
+		!strings.Contains(response.Body.String(), `data-graph-zoom-in`) ||
+		!strings.Contains(response.Body.String(), `data-graph-fit`) ||
+		!strings.Contains(response.Body.String(), `/dashboard/static/inventory-graph.js`) {
+		t.Fatalf("inventory graph response = %d body=%q", response.Code, response.Body.String())
 	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1?page=2&count=20", nil, accessToken)

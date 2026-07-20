@@ -309,6 +309,7 @@
       history.pushState({}, "", response.url);
     }
     const html = await response.text();
+    window.dispatchEvent(new CustomEvent("replica:page-dispose"));
     document.open();
     document.write(html);
     document.close();
@@ -389,6 +390,8 @@
       await showPage(destination, undefined, false);
     }
   }
+
+  window.ReplicaAdmin = {requestWithRefresh, showPage};
 
   if (document.body.dataset.adminAuthenticated === "true") {
     bindAdminPage();

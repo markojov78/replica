@@ -438,7 +438,7 @@
 {{template "layout_start" .}}
 <div class="actions">
   {{if .CanViewShares}}<a class="btn" href="/dashboard/shares?inventory_id={{.Inventory.ID}}">View shares</a>{{end}}
-  <button class="btn" type="button" disabled aria-disabled="true">View graph</button>
+  <a class="btn" href="/dashboard/inventories/{{.Inventory.ID}}/graph">View graph</a>
   <a class="btn" href="/dashboard/inventories/{{.Inventory.ID}}/edit">Edit inventory</a>
   <a class="btn primary" href="/dashboard/inventories/{{.Inventory.ID}}/replicas/new">Add replica</a>
   {{if ne .Inventory.Status "deleted"}}<form action="/dashboard/inventories/{{.Inventory.ID}}/delete" method="post"><button class="danger" type="submit">Delete inventory</button></form>{{end}}
@@ -522,6 +522,46 @@
     {{else}}<tr><td colspan="7" class="empty">No inventory files found.</td></tr>{{end}}
     </tbody>
   </table>
+</section>
+{{template "layout_end" .}}
+{{end}}
+
+{{define "inventory_graph"}}
+{{template "layout_start" .}}
+<script src="/dashboard/static/vendor/cytoscape.min.js" defer></script>
+<script src="/dashboard/static/vendor/elk.bundled.js" defer></script>
+<script src="/dashboard/static/vendor/cytoscape-elk.js" defer></script>
+<script src="/dashboard/static/inventory-graph.js" defer></script>
+<section class="graph-page" data-inventory-graph data-inventory-id="{{.Inventory.ID}}">
+  <div class="graph-navigation"><a href="/dashboard/inventories/{{.Inventory.ID}}">← Back to inventory</a></div>
+  <div class="graph-toolbar" aria-label="Graph controls">
+    <div class="graph-toolbar-buttons">
+      <button type="button" data-graph-zoom-out aria-label="Zoom out">−</button>
+      <button type="button" data-graph-zoom-in aria-label="Zoom in">+</button>
+      <button type="button" data-graph-fit aria-label="Fit graph to viewport">Fit</button>
+    </div>
+    <details class="graph-legend">
+      <summary>Legend</summary>
+      <div class="graph-legend-grid">
+        <span><img src="/dashboard/static/icons/drive.svg" alt="">Filesystem replica</span>
+        <span><img src="/dashboard/static/icons/cloud.svg" alt="">Storage replica</span>
+        <span><img src="/dashboard/static/icons/usb.svg" alt="">Removable replica</span>
+        <span><img src="/dashboard/static/icons/link.svg" alt="">Share</span>
+        <span><i class="legend-line bidirectional"></i>Base synchronization</span>
+        <span><i class="legend-line directed"></i>Downstream replication</span>
+        <span><i class="legend-line share-edge"></i>Share served from replica</span>
+        <span><i class="legend-public"></i>Anonymous/public access</span>
+      </div>
+    </details>
+  </div>
+  <div class="graph-shell card">
+    <div class="graph-message" data-graph-message role="status">Loading topology…</div>
+    <div class="inventory-graph" data-graph-canvas aria-label="Inventory replication and sharing graph"></div>
+  </div>
+  <section class="card graph-details" data-graph-details aria-live="polite">
+    <h2>Entity details</h2>
+    <p>Select a replica or share to inspect it and open its existing admin page.</p>
+  </section>
 </section>
 {{template "layout_end" .}}
 {{end}}
