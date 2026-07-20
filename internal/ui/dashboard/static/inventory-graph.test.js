@@ -59,6 +59,14 @@ test("share labels use fallbacks and optional anonymous permission line", () => 
   assert.equal(graph.shareLabel({id: 4, name: "Private", status: "active"}, backing).split("\n").length, 4);
 });
 
+test("share details collapse anonymous permissions into one optional value", () => {
+  assert.equal(graph.anonymousDetailsValue(["read"]), "read");
+  assert.equal(graph.anonymousDetailsValue(["update"]), "write");
+  assert.equal(graph.anonymousDetailsValue(["read", "update"]), "read, write");
+  assert.equal(graph.anonymousDetailsValue([]), "");
+  assert.equal(graph.anonymousDetailsValue(undefined), "");
+});
+
 test("base pairs occur once and downstream edges point upstream to downstream", () => {
   const result = graph.buildElements(inventory([
     {id: 3, type: "filesystem", upstream_replica_id: null},

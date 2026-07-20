@@ -65,6 +65,14 @@
     return {label: "Private", kind: "private", permissions};
   }
 
+  function anonymousDetailsValue(permissions) {
+    if (!Array.isArray(permissions)) return "";
+    const values = [];
+    if (permissions.includes("read")) values.push("read");
+    if (permissions.includes("update")) values.push("update");
+    return values.join(", ");
+  }
+
   function replicaElement(replica, warning) {
     const id = positiveID(replica.id);
     if (!id) return undefined;
@@ -113,7 +121,7 @@
         uri: "—",
         href: `/dashboard/shares/${id}/edit`,
         access: access.label,
-        permissions: access.permissions.join(", ") || "None",
+        anonymousDetails: anonymousDetailsValue(access.permissions),
         warning: unresolved || access.kind === "warning" ? "true" : "false",
       },
       classes: `share status-${status} access-${access.kind}${unresolved ? " unresolved warning" : access.kind === "warning" ? " warning" : ""}`,
@@ -221,7 +229,8 @@
     const details = root.querySelector("[data-graph-details]");
     const rows = data.entity === "replica"
       ? [["Entity", "Replica"], ["ID", data.entityID], ["Node", data.nodeID], ["Status", data.status], ["Sync status", data.syncStatus], ["URI", data.uri]]
-      : [["Entity", "Share"], ["ID", data.entityID], ["Node", data.nodeID], ["Status", data.status], ["Anonymous access", data.access], ["Permissions", data.permissions]];
+      : [["Entity", "Share"], ["ID", data.entityID], ["Node", data.nodeID], ["Status", data.status]];
+    if (data.entity === "share" && data.anonymousDetails) rows.push(["Anonymous", data.anonymousDetails]);
     details.replaceChildren();
     const heading = document.createElement("h2");
     heading.textContent = `${rows[0][1]} #${data.entityID}`;
@@ -296,5 +305,5 @@
   window.addEventListener("replica:page-dispose", dispose, {once: true});
   window.addEventListener("pagehide", dispose, {once: true});
   document.querySelectorAll("[data-inventory-graph]").forEach(initialize);
-  window.ReplicaInventoryGraphTest = {anonymousState, buildElements, graphStyles, loadAllShares, positiveID, replicaLabel, shareLabel, zoomAtCenter};
+  window.ReplicaInventoryGraphTest = {anonymousDetailsValue, anonymousState, buildElements, graphStyles, loadAllShares, positiveID, replicaLabel, shareLabel, zoomAtCenter};
 })();
