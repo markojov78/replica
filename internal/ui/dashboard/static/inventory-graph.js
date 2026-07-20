@@ -15,16 +15,19 @@
     return text || fallback;
   }
 
-  function displayReplicaType(type) {
+  function displayReplicaType(type, storageProfile) {
     if (!validReplicaTypes.has(type)) return "Unknown";
-    return type.charAt(0).toUpperCase() + type.slice(1);
+    const displayType = type.charAt(0).toUpperCase() + type.slice(1);
+    if (type !== "storage") return displayType;
+    const profile = cleanText(storageProfile, "");
+    return profile ? `${displayType} (${profile})` : displayType;
   }
 
   function replicaLabel(replica) {
     const id = positiveID(replica.id);
     return [
       `Replica #${id}`,
-      `Type: ${displayReplicaType(replica.type)}`,
+      `Type: ${displayReplicaType(replica.type, replica.storage_profile)}`,
       `Node: ${cleanText(replica.node_id, "unknown")}`,
       `Status: ${cleanText(replica.status, "unknown")}`,
     ].join("\n");
@@ -87,7 +90,7 @@
         entity: "replica",
         kind: type,
         label: replicaLabel(replica),
-        displayType: displayReplicaType(replica.type),
+        displayType: displayReplicaType(replica.type, replica.storage_profile),
         nodeID: cleanText(replica.node_id, "unknown"),
         status,
         syncStatus: sync || "—",
@@ -212,7 +215,7 @@
 
   function graphStyles() {
     return [
-      {selector: "node", style: {shape: "round-rectangle", width: 280, height: 138, padding: 12, "background-color": "#fff", "border-width": 1.5, "border-color": "#d9e0ea", label: "data(label)", "font-family": "Inter, system-ui, sans-serif", "font-size": 14, "font-weight": 500, "line-height": 1.4, color: "#172033", "text-wrap": "wrap", "text-max-width": 220, "text-valign": "center", "text-halign": "center", "text-justification": "center", "overlay-opacity": 0}},
+      {selector: "node", style: {shape: "round-rectangle", width: 280, height: 138, padding: 12, "background-color": "#fff", "border-width": 1.5, "border-color": "#d9e0ea", label: "data(label)", "font-family": "Inter, system-ui, sans-serif", "font-size": 20, "font-weight": 500, "line-height": 1.4, color: "#172033", "text-wrap": "wrap", "text-max-width": 250, "text-valign": "center", "text-halign": "center", "text-justification": "center", "overlay-opacity": 0}},
       {selector: "node:selected", style: {"border-width": 3, "border-color": "#2563eb"}},
       {selector: "node.share", style: {height: 154, "border-color": "#027a48"}},
       {selector: "node.share:selected", style: {"border-width": 3, "border-color": "#027a48"}},

@@ -34,6 +34,7 @@ test("node styles contain no images and center labels", () => {
   assert.equal(base["text-halign"], "center");
   assert.equal(base["text-valign"], "center");
   assert.equal(base["text-justification"], "center");
+  assert.equal(base["font-size"], 17);
   assert.ok(!("text-margin-x" in base));
 
   const replicaSelected = styles.find((entry) => entry.selector === "node:selected").style;
@@ -46,6 +47,9 @@ test("node styles contain no images and center labels", () => {
 
 test("replica labels use the exact semantic four-line structure", () => {
   assert.equal(graph.replicaLabel({id: 4, type: "storage", node_id: "hetz", status: "active"}), "Replica #4\nType: Storage\nNode: hetz\nStatus: active");
+  assert.equal(graph.replicaLabel({id: 21, type: "storage", storage_profile: "backblaze", node_id: "hetz", status: "active"}), "Replica #21\nType: Storage (backblaze)\nNode: hetz\nStatus: active");
+  assert.equal(graph.replicaLabel({id: 22, type: "storage", storage_profile: "", node_id: "hetz", status: "active"}), "Replica #22\nType: Storage\nNode: hetz\nStatus: active");
+  assert.equal(graph.replicaLabel({id: 23, type: "storage", storage_profile: null, node_id: "hetz", status: "active"}), "Replica #23\nType: Storage\nNode: hetz\nStatus: active");
   assert.equal(graph.replicaLabel({id: 1, type: "filesystem", node_id: "laptop", status: "active"}), "Replica #1\nType: Filesystem\nNode: laptop\nStatus: active");
   assert.equal(graph.replicaLabel({id: 17, type: "removable", node_id: "laptop", status: "active"}), "Replica #17\nType: Removable\nNode: laptop\nStatus: active");
   assert.equal(graph.replicaLabel({id: 18, type: "other"}), "Replica #18\nType: Unknown\nNode: unknown\nStatus: unknown");
