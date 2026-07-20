@@ -69,7 +69,10 @@
   function bindChoiceFilters() {
     for (const filter of document.querySelectorAll("[data-list-filter]")) {
       const key = preferenceKey(`${filter.dataset.listFilter}_${filter.dataset.filterField}`);
-      if (key) {
+      const initialValue = filter.dataset.initialValue;
+      if (initialValue && [...filter.options].some((option) => option.value === initialValue)) {
+        filter.value = initialValue;
+      } else if (key) {
         const value = localStorage.getItem(key) || "";
         if ([...filter.options].some((option) => option.value === value)) {
           filter.value = value;

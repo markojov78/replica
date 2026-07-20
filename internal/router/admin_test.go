@@ -347,6 +347,13 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "Documents") ||
+		!strings.Contains(response.Body.String(), "Inventory #1 · folder · active · 0 shares") ||
+		strings.Contains(response.Body.String(), `<section class="card detail">`) ||
+		!strings.Contains(response.Body.String(), `href="/dashboard/shares?inventory_id=1">View shares</a>`) ||
+		!strings.Contains(response.Body.String(), `<button class="btn" type="button" disabled aria-disabled="true">View graph</button>`) ||
+		!strings.Contains(response.Body.String(), `href="/dashboard/inventories/1/edit">Edit inventory</a>`) ||
+		!strings.Contains(response.Body.String(), `href="/dashboard/inventories/1/replicas/new">Add replica</a>`) ||
+		!strings.Contains(response.Body.String(), `action="/dashboard/inventories/1/delete"`) ||
 		!strings.Contains(response.Body.String(), "Replicas") ||
 		!strings.Contains(response.Body.String(), `data-hide-deleted="replicas"`) ||
 		!strings.Contains(response.Body.String(), `data-filter-item="replicas"`) ||
@@ -575,6 +582,32 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		createdShare.Properties.ThumbnailSize == nil || *createdShare.Properties.ThumbnailSize != 256 ||
 		createdShare.Properties.Theme == nil || *createdShare.Properties.Theme != "dark" {
 		t.Fatalf("createdShare.Properties = %+v, want configured appearance", createdShare.Properties)
+	}
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "Inventory #1 · folder · active · 1 share") {
+		t.Fatalf("inventory single share subtitle response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	secondShare := &model.Share{ReplicaID: 2, Name: "Documents backup", Status: model.ShareStatusActive}
+	if err := database.Create(secondShare).Error; err != nil {
+		t.Fatalf("Create(second share) error = %v", err)
+	}
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "Inventory #1 · folder · active · 2 shares") {
+		t.Fatalf("inventory multiple shares subtitle response = %d body=%q", response.Code, response.Body.String())
+	}
+	if err := database.Delete(secondShare).Error; err != nil {
+		t.Fatalf("Delete(second share fixture) error = %v", err)
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/shares?inventory_id=1", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `data-initial-value="1"`) ||
+		!strings.Contains(response.Body.String(), `<option value="1" selected>#1 · Documents</option>`) ||
+		!strings.Contains(response.Body.String(), `data-inventory-id="1"`) {
+		t.Fatalf("inventory-filtered shares response = %d body=%q", response.Code, response.Body.String())
 	}
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories", nil, accessToken)
 	if response.Code != http.StatusOK ||

@@ -260,6 +260,8 @@ type pageData struct {
 	IsEdit              bool
 	FolderURI           string
 	FileURIs            string
+	CanViewShares       bool
+	InventoryFilter     uint
 }
 
 func Register(mux *http.ServeMux, api http.Handler, cfg config.Config) error {
@@ -543,6 +545,19 @@ func (h *Handler) renderInventoryPage(w http.ResponseWriter, r *http.Request, se
 		h.renderInventoryPageLoadError(w, r, sess, err, message)
 		return
 	}
+	var shares shareList
+	sharesPath := fmt.Sprintf("/api/admin/shares?inventory_id=%d&status=active&count=1", item.ID)
+	canViewShares := true
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, sharesPath, nil, &shares); err != nil {
+		var responseErr *responseError
+		if errors.As(err, &responseErr) && responseErr.Status == http.StatusForbidden {
+			canViewShares = false
+		} else {
+			h.renderInventoryPageLoadError(w, r, sess, err, message)
+			return
+		}
+	}
+	item.ShareCount = int(shares.Total)
 	page := positiveInt(r.URL.Query().Get("page"), 1)
 	count := filePageSize(r.URL.Query().Get("count"))
 	sortBy := inventoryFileSort(r.URL.Query().Get("sort"))
@@ -560,9 +575,17 @@ func (h *Handler) renderInventoryPage(w http.ResponseWriter, r *http.Request, se
 		}
 	}
 	h.render(w, "inventory", pageData{
-		Title: item.Name, Subtitle: fmt.Sprintf("Inventory #%d · %s · %s", item.ID, item.Type, item.Status),
-		Active: "inventories", Error: message, Inventory: item, Files: newFilePage(files, sortBy, order),
+		Title: item.Name, Subtitle: inventorySubtitle(item),
+		Active: "inventories", Error: message, Inventory: item, Files: newFilePage(files, sortBy, order), CanViewShares: canViewShares,
 	})
+}
+
+func inventorySubtitle(item inventory) string {
+	shareLabel := "shares"
+	if item.ShareCount == 1 {
+		shareLabel = "share"
+	}
+	return fmt.Sprintf("Inventory #%d · %s · %s · %d %s", item.ID, item.Type, item.Status, item.ShareCount, shareLabel)
 }
 
 func (h *Handler) loadInventoryReplicaSyncStatuses(ctx context.Context, sess *authContext, item *inventory) error {
@@ -778,18 +801,27 @@ func (h *Handler) deleteReplica(w http.ResponseWriter, r *http.Request, sess aut
 }
 
 func (h *Handler) sharesPage(w http.ResponseWriter, r *http.Request, sess authContext) {
+	inventoryID := optionalUint(r.URL.Query().Get("inventory_id"))
+	path := "/api/admin/shares?count=100"
+	if inventoryID != nil {
+		path += "&inventory_id=" + strconv.FormatUint(uint64(*inventoryID), 10)
+	}
 	var list shareList
-	if !h.load(w, r, sess, "/api/admin/shares?count=100", &list) {
+	if !h.load(w, r, sess, path, &list) {
 		return
 	}
 	inventories, ok := h.loadInventories(w, r, sess)
 	if !ok {
 		return
 	}
-	h.render(w, "shares", pageData{
+	data := pageData{
 		Title: "Shares", Subtitle: "Expose selected replicas through share records.",
-		Active: "shares", Shares: shareViews(list.Items, inventories),
-	})
+		Active: "shares", Shares: shareViews(list.Items, inventories), Inventories: inventories,
+	}
+	if inventoryID != nil {
+		data.InventoryFilter = *inventoryID
+	}
+	h.render(w, "shares", data)
 }
 
 func (h *Handler) newSharePage(w http.ResponseWriter, r *http.Request, sess authContext) {

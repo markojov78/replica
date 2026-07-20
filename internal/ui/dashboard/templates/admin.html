@@ -159,9 +159,13 @@
     </select>
   </label>
   <label class="filter-select">Inventory
-    <select data-list-filter="shares" data-filter-field="inventoryId">
+    <select data-list-filter="shares" data-filter-field="inventoryId" {{if .InventoryFilter}}data-initial-value="{{.InventoryFilter}}"{{end}}>
       <option value="">All inventories</option>
-      {{range shareFilterInventories .Shares}}<option value="{{.ID}}">#{{.ID}}{{if .Name}} · {{.Name}}{{end}}</option>{{end}}
+      {{if .InventoryFilter}}
+        {{range .Inventories}}{{if eq .ID $.InventoryFilter}}<option value="{{.ID}}" selected>#{{.ID}} · {{.Name}}</option>{{end}}{{end}}
+      {{else}}
+        {{range shareFilterInventories .Shares}}<option value="{{.ID}}">#{{.ID}}{{if .Name}} · {{.Name}}{{end}}</option>{{end}}
+      {{end}}
     </select>
   </label>
   <label class="filter-toggle"><input type="checkbox" data-hide-deleted="shares"> Hide deleted</label>
@@ -433,14 +437,13 @@
 {{define "inventory"}}
 {{template "layout_start" .}}
 <div class="actions">
+  {{if .CanViewShares}}<a class="btn" href="/dashboard/shares?inventory_id={{.Inventory.ID}}">View shares</a>{{end}}
+  <button class="btn" type="button" disabled aria-disabled="true">View graph</button>
   <a class="btn" href="/dashboard/inventories/{{.Inventory.ID}}/edit">Edit inventory</a>
   <a class="btn primary" href="/dashboard/inventories/{{.Inventory.ID}}/replicas/new">Add replica</a>
   {{if ne .Inventory.Status "deleted"}}<form action="/dashboard/inventories/{{.Inventory.ID}}/delete" method="post"><button class="danger" type="submit">Delete inventory</button></form>{{end}}
 </div>
 {{template "alert" .}}
-<section class="card detail">
-  <dl><dt>ID</dt><dd>#{{.Inventory.ID}}</dd><dt>Type</dt><dd>{{.Inventory.Type}}</dd><dt>Status</dt><dd><span class="pill {{statusClass .Inventory.Status}}">{{.Inventory.Status}}</span></dd></dl>
-</section>
 <section class="card">
   <div class="section-head">
     <div><h2>Replicas</h2><p>Physical locations belonging to this inventory.</p></div>
