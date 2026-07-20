@@ -1047,9 +1047,9 @@ Returns a paginated list of replicas filtered by optional query parameters.
 Query parameters:
 - `page` optional, default `1`
 - `count` optional, default `20`
-- `inventory_id`
-- `node_id`
-- `uri_prefix`
+- `inventory_id` optional
+- `node_id` optional
+- `uri_prefix` optional
 - `status` optional, filter by replica status: `active`, `deleted`
 
 Example response:
@@ -1246,7 +1246,9 @@ Query parameters:
 - `page` optional, default `1`
 - `count` optional, default `20`
 - `status` optional, filter by share status: `active`, `deleted`
+- `inventory_id` optional
 - `replica_id` optional
+- `node_id` optional
 - `name` optional
 
 Example response:

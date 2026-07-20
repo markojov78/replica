@@ -169,6 +169,61 @@ func TestShareRoutesValidatePaginationWithoutUpperLimit(t *testing.T) {
 	}
 }
 
+func TestShareRoutesFilterByInventoryAndNode(t *testing.T) {
+	database := openRouterTestDB(t)
+	_, accessToken := createShareRouteUser(t, database, []model.Permission{
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionRead},
+	})
+	firstReplica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
+	secondReplica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
+	if err := database.Model(secondReplica).Update("node_id", "node-b").Error; err != nil {
+		t.Fatalf("Update(replica node) error = %v", err)
+	}
+
+	firstShare := &model.Share{ReplicaID: firstReplica.ID, Name: "First", Status: model.ShareStatusActive}
+	secondShare := &model.Share{ReplicaID: secondReplica.ID, Name: "Second", Status: model.ShareStatusActive}
+	if err := database.Create(firstShare).Error; err != nil {
+		t.Fatalf("Create(first share) error = %v", err)
+	}
+	if err := database.Create(secondShare).Error; err != nil {
+		t.Fatalf("Create(second share) error = %v", err)
+	}
+
+	handler := newShareRouteHandler(database)
+	tests := []struct {
+		name    string
+		query   string
+		wantID  uint
+		wantLen int
+	}{
+		{name: "inventory", query: "inventory_id=" + strconv.FormatUint(uint64(firstReplica.InventoryID), 10), wantID: firstShare.ID, wantLen: 1},
+		{name: "node", query: "node_id=node-b", wantID: secondShare.ID, wantLen: 1},
+		{name: "combined mismatch", query: "inventory_id=" + strconv.FormatUint(uint64(firstReplica.InventoryID), 10) + "&node_id=node-b", wantLen: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/admin/shares?"+tt.query, nil)
+			req.Header.Set("Authorization", "Bearer "+accessToken)
+			req.Header.Set("X-API-Version", "1")
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, req)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+			}
+			var list service.ShareList
+			if err := json.Unmarshal(recorder.Body.Bytes(), &list); err != nil {
+				t.Fatalf("Unmarshal(list) error = %v", err)
+			}
+			if list.Total != int64(tt.wantLen) || len(list.Items) != tt.wantLen {
+				t.Fatalf("list = %+v, want %d item(s)", list, tt.wantLen)
+			}
+			if tt.wantLen > 0 && list.Items[0].ID != tt.wantID {
+				t.Fatalf("item ID = %d, want %d", list.Items[0].ID, tt.wantID)
+			}
+		})
+	}
+}
+
 func TestShareRoutesCreatePatchAndValidateProperties(t *testing.T) {
 	database := openRouterTestDB(t)
 	_, accessToken := createShareRouteUser(t, database, []model.Permission{

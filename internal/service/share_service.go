@@ -53,9 +53,11 @@ type ShareList struct {
 }
 
 type ShareListFilter struct {
-	Status    string
-	ReplicaID *uint
-	Name      string
+	Status      string
+	InventoryID *uint
+	ReplicaID   *uint
+	NodeID      string
+	Name        string
 }
 
 type CreateShareInput struct {
@@ -98,9 +100,11 @@ func (s *ShareService) ListPage(page, perPage int, filter ShareListFilter) (*Sha
 	}
 
 	shares, total, err := s.repo.ListPage(page, perPage, repository.ShareListFilter{
-		Status:    filter.Status,
-		ReplicaID: filter.ReplicaID,
-		Name:      filter.Name,
+		Status:      filter.Status,
+		InventoryID: filter.InventoryID,
+		ReplicaID:   filter.ReplicaID,
+		NodeID:      filter.NodeID,
+		Name:        filter.Name,
 	})
 	if err != nil {
 		return nil, err

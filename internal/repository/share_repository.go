@@ -25,9 +25,11 @@ func (r *ShareRepository) List() ([]model.Share, error) {
 }
 
 type ShareListFilter struct {
-	Status    string
-	ReplicaID *uint
-	Name      string
+	Status      string
+	InventoryID *uint
+	ReplicaID   *uint
+	NodeID      string
+	Name        string
 }
 
 func (r *ShareRepository) ListPage(page, perPage int, filter ShareListFilter) ([]model.Share, int64, error) {
@@ -275,14 +277,23 @@ func (r *ShareRepository) AnonymousPermissions(shareID uint) ([]string, error) {
 }
 
 func applyShareFilters(query *gorm.DB, filter ShareListFilter) *gorm.DB {
+	if filter.InventoryID != nil || strings.TrimSpace(filter.NodeID) != "" {
+		query = query.Joins("JOIN replicas ON replicas.id = shares.replica_id")
+	}
 	if strings.TrimSpace(filter.Status) != "" {
-		query = query.Where("status = ?", strings.TrimSpace(filter.Status))
+		query = query.Where("shares.status = ?", strings.TrimSpace(filter.Status))
+	}
+	if filter.InventoryID != nil {
+		query = query.Where("replicas.inventory_id = ?", *filter.InventoryID)
 	}
 	if filter.ReplicaID != nil {
-		query = query.Where("replica_id = ?", *filter.ReplicaID)
+		query = query.Where("shares.replica_id = ?", *filter.ReplicaID)
+	}
+	if strings.TrimSpace(filter.NodeID) != "" {
+		query = query.Where("replicas.node_id = ?", strings.TrimSpace(filter.NodeID))
 	}
 	if strings.TrimSpace(filter.Name) != "" {
-		query = query.Where("name = ?", strings.TrimSpace(filter.Name))
+		query = query.Where("shares.name = ?", strings.TrimSpace(filter.Name))
 	}
 	return query
 }

@@ -27,15 +27,21 @@ func registerShareRoutes(api huma.API, svc services) {
 		if input.ReplicaID > 0 {
 			replicaID = &input.ReplicaID
 		}
+		var inventoryID *uint
+		if input.InventoryID > 0 {
+			inventoryID = &input.InventoryID
+		}
 
 		page, count, err := resolvePagination(input.Page, input.Count)
 		if err != nil {
 			return nil, err
 		}
 		shares, err := svc.shares.ListPage(page, count, service.ShareListFilter{
-			Status:    input.Status,
-			ReplicaID: replicaID,
-			Name:      input.Name,
+			Status:      input.Status,
+			InventoryID: inventoryID,
+			ReplicaID:   replicaID,
+			NodeID:      input.NodeID,
+			Name:        input.Name,
 		})
 		if err != nil {
 			return nil, mapShareError(err, svc.shares)
@@ -156,7 +162,9 @@ type listSharesInput struct {
 	Page          int    `query:"page" default:"1"`
 	Count         int    `query:"count" default:"20"`
 	Status        string `query:"status"`
+	InventoryID   uint   `query:"inventory_id"`
 	ReplicaID     uint   `query:"replica_id"`
+	NodeID        string `query:"node_id"`
 	Name          string `query:"name"`
 }
 
