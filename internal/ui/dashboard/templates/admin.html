@@ -470,21 +470,37 @@
     <span>{{.Files.Displayed}} of {{.Files.Total}} files, page {{.Files.Page}} of {{.Files.TotalPages}}</span>
     <form action="/dashboard/inventories/{{.Inventory.ID}}" method="get">
       <input type="hidden" name="page" value="1">
+      <input type="hidden" name="order" value="{{.Files.Order}}">
       <label>Files per page
-        <select name="count">
+        <select name="count" data-auto-submit>
           <option value="10" {{if eq .Files.Count 10}}selected{{end}}>10</option>
           <option value="20" {{if eq .Files.Count 20}}selected{{end}}>20</option>
           <option value="50" {{if eq .Files.Count 50}}selected{{end}}>50</option>
           <option value="100" {{if eq .Files.Count 100}}selected{{end}}>100</option>
         </select>
       </label>
-      <button type="submit">Apply</button>
+      <label>Order by
+        <select name="sort" data-auto-submit>
+          <option value="id" {{if eq .Files.Sort "id"}}selected{{end}}>ID</option>
+          <option value="name" {{if eq .Files.Sort "name"}}selected{{end}}>Name</option>
+          <option value="size" {{if eq .Files.Sort "size"}}selected{{end}}>Size</option>
+          <option value="created" {{if eq .Files.Sort "created"}}selected{{end}}>Created</option>
+          <option value="modified" {{if eq .Files.Sort "modified"}}selected{{end}}>Modified</option>
+        </select>
+      </label>
+    </form>
+    <form action="/dashboard/inventories/{{.Inventory.ID}}" method="get">
+      <input type="hidden" name="page" value="1">
+      <input type="hidden" name="count" value="{{.Files.Count}}">
+      <input type="hidden" name="sort" value="{{.Files.Sort}}">
+      <input type="hidden" name="order" value="{{if eq .Files.Order "asc"}}desc{{else}}asc{{end}}">
+      <button type="submit" title="Switch file ordering">{{if eq .Files.Order "asc"}}Ascending ↑{{else}}Descending ↓{{end}}</button>
     </form>
     <nav class="pagination" aria-label="Inventory files pagination">
-      <a class="btn {{if not .Files.HasPrev}}disabled{{end}}" {{if .Files.HasPrev}}href="/dashboard/inventories/{{.Inventory.ID}}?page=1&count={{.Files.Count}}"{{end}}>First</a>
-      <a class="btn {{if not .Files.HasPrev}}disabled{{end}}" {{if .Files.HasPrev}}href="/dashboard/inventories/{{.Inventory.ID}}?page={{.Files.PrevPage}}&count={{.Files.Count}}"{{end}}>Previous</a>
-      <a class="btn {{if not .Files.HasNext}}disabled{{end}}" {{if .Files.HasNext}}href="/dashboard/inventories/{{.Inventory.ID}}?page={{.Files.NextPage}}&count={{.Files.Count}}"{{end}}>Next</a>
-      <a class="btn {{if not .Files.HasNext}}disabled{{end}}" {{if .Files.HasNext}}href="/dashboard/inventories/{{.Inventory.ID}}?page={{.Files.TotalPages}}&count={{.Files.Count}}"{{end}}>Last</a>
+      <a class="btn {{if not .Files.HasPrev}}disabled{{end}}" {{if .Files.HasPrev}}href="/dashboard/inventories/{{.Inventory.ID}}?page=1&amp;count={{.Files.Count}}&amp;sort={{.Files.Sort}}&amp;order={{.Files.Order}}"{{end}}>First</a>
+      <a class="btn {{if not .Files.HasPrev}}disabled{{end}}" {{if .Files.HasPrev}}href="/dashboard/inventories/{{.Inventory.ID}}?page={{.Files.PrevPage}}&amp;count={{.Files.Count}}&amp;sort={{.Files.Sort}}&amp;order={{.Files.Order}}"{{end}}>Previous</a>
+      <a class="btn {{if not .Files.HasNext}}disabled{{end}}" {{if .Files.HasNext}}href="/dashboard/inventories/{{.Inventory.ID}}?page={{.Files.NextPage}}&amp;count={{.Files.Count}}&amp;sort={{.Files.Sort}}&amp;order={{.Files.Order}}"{{end}}>Next</a>
+      <a class="btn {{if not .Files.HasNext}}disabled{{end}}" {{if .Files.HasNext}}href="/dashboard/inventories/{{.Inventory.ID}}?page={{.Files.TotalPages}}&amp;count={{.Files.Count}}&amp;sort={{.Files.Sort}}&amp;order={{.Files.Order}}"{{end}}>Last</a>
     </nav>
   </div>
   <table>

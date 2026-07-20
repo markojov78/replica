@@ -85,6 +85,12 @@
     }
   }
 
+  function bindAutoSubmitControls() {
+    for (const control of document.querySelectorAll("[data-auto-submit]")) {
+      control.addEventListener("change", () => control.form?.requestSubmit());
+    }
+  }
+
   function bindShareForms() {
     for (const form of document.querySelectorAll("[data-share-form]")) {
       const expirationToggle = form.querySelector("[data-expiration-toggle]");
@@ -311,6 +317,7 @@
     }
     bindDeletedFilters();
     bindChoiceFilters();
+    bindAutoSubmitControls();
     bindShareForms();
     bindReplicaForms();
     bindNodeConfigPreview();

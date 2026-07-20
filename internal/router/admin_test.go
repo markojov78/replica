@@ -354,8 +354,12 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), "Inventory files") ||
 		!strings.Contains(response.Body.String(), "file-1.txt") ||
 		!strings.Contains(response.Body.String(), "20 of 21 files, page 1 of 2") ||
-		!strings.Contains(response.Body.String(), "/dashboard/inventories/1?page=2&count=20") ||
-		!strings.Contains(response.Body.String(), "Files per page") {
+		!strings.Contains(response.Body.String(), "/dashboard/inventories/1?page=2&amp;count=20&amp;sort=id&amp;order=asc") ||
+		!strings.Contains(response.Body.String(), "Files per page") ||
+		!strings.Contains(response.Body.String(), "Order by") ||
+		!strings.Contains(response.Body.String(), `name="sort" data-auto-submit`) ||
+		!strings.Contains(response.Body.String(), `name="order" value="desc"`) ||
+		strings.Contains(response.Body.String(), ">Apply</button>") {
 		t.Fatalf("inventory detail response = %d body=%q", response.Code, response.Body.String())
 	}
 
@@ -363,16 +367,25 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "file-21.txt") ||
 		!strings.Contains(response.Body.String(), "1 of 21 files, page 2 of 2") ||
-		!strings.Contains(response.Body.String(), "/dashboard/inventories/1?page=1&count=20") {
+		!strings.Contains(response.Body.String(), "/dashboard/inventories/1?page=1&amp;count=20&amp;sort=id&amp;order=asc") {
 		t.Fatalf("inventory files page 2 response = %d body=%q", response.Code, response.Body.String())
 	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1?page=2&count=10", nil, accessToken)
 	if response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "10 of 21 files, page 2 of 3") ||
-		!strings.Contains(response.Body.String(), "/dashboard/inventories/1?page=1&count=10") ||
-		!strings.Contains(response.Body.String(), "/dashboard/inventories/1?page=3&count=10") {
+		!strings.Contains(response.Body.String(), "/dashboard/inventories/1?page=1&amp;count=10&amp;sort=id&amp;order=asc") ||
+		!strings.Contains(response.Body.String(), "/dashboard/inventories/1?page=3&amp;count=10&amp;sort=id&amp;order=asc") {
 		t.Fatalf("inventory files custom page size response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1?page=1&count=10&sort=size&order=desc", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "file-21.txt") ||
+		!strings.Contains(response.Body.String(), `<option value="size" selected>Size</option>`) ||
+		!strings.Contains(response.Body.String(), `name="order" value="asc"`) ||
+		!strings.Contains(response.Body.String(), `/dashboard/inventories/1?page=2&amp;count=10&amp;sort=size&amp;order=desc`) {
+		t.Fatalf("inventory files sorted response = %d body=%q", response.Code, response.Body.String())
 	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1/replicas/new", nil, accessToken)

@@ -231,6 +231,8 @@ type filePage struct {
 	NextPage   int
 	HasPrev    bool
 	HasNext    bool
+	Sort       string
+	Order      string
 }
 
 type pageData struct {
@@ -543,21 +545,23 @@ func (h *Handler) renderInventoryPage(w http.ResponseWriter, r *http.Request, se
 	}
 	page := positiveInt(r.URL.Query().Get("page"), 1)
 	count := filePageSize(r.URL.Query().Get("count"))
+	sortBy := inventoryFileSort(r.URL.Query().Get("sort"))
+	order := inventoryFileOrder(r.URL.Query().Get("order"))
 	var files inventoryFileList
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, fmt.Sprintf("/api/admin/inventories/%s/files?page=%d&count=%d", r.PathValue("id"), page, count), nil, &files); err != nil {
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, inventoryFilesAPIPath(r.PathValue("id"), page, count, sortBy, order), nil, &files); err != nil {
 		h.renderInventoryPageLoadError(w, r, sess, err, message)
 		return
 	}
 	totalPages := pageCount(files.Total, files.Count)
 	if files.Total > 0 && files.Page > totalPages {
-		if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, fmt.Sprintf("/api/admin/inventories/%s/files?page=%d&count=%d", r.PathValue("id"), totalPages, count), nil, &files); err != nil {
+		if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, inventoryFilesAPIPath(r.PathValue("id"), totalPages, count, sortBy, order), nil, &files); err != nil {
 			h.renderInventoryPageLoadError(w, r, sess, err, message)
 			return
 		}
 	}
 	h.render(w, "inventory", pageData{
 		Title: item.Name, Subtitle: fmt.Sprintf("Inventory #%d · %s · %s", item.ID, item.Type, item.Status),
-		Active: "inventories", Error: message, Inventory: item, Files: newFilePage(files),
+		Active: "inventories", Error: message, Inventory: item, Files: newFilePage(files, sortBy, order),
 	})
 }
 
@@ -2172,7 +2176,7 @@ func pageCount(total int64, count int) int {
 	return int((total + int64(count) - 1) / int64(count))
 }
 
-func newFilePage(list inventoryFileList) filePage {
+func newFilePage(list inventoryFileList, sortBy, order string) filePage {
 	totalPages := pageCount(list.Total, list.Count)
 	return filePage{
 		Items:      list.Items,
@@ -2185,7 +2189,34 @@ func newFilePage(list inventoryFileList) filePage {
 		NextPage:   list.Page + 1,
 		HasPrev:    list.Page > 1,
 		HasNext:    list.Page < totalPages,
+		Sort:       sortBy,
+		Order:      order,
 	}
+}
+
+func inventoryFileSort(value string) string {
+	switch value {
+	case "name", "size", "created", "modified":
+		return value
+	default:
+		return "id"
+	}
+}
+
+func inventoryFileOrder(value string) string {
+	if value == "desc" {
+		return "desc"
+	}
+	return "asc"
+}
+
+func inventoryFilesAPIPath(inventoryID string, page, count int, sortBy, order string) string {
+	query := url.Values{}
+	query.Set("page", strconv.Itoa(page))
+	query.Set("count", strconv.Itoa(count))
+	query.Set("sort", sortBy)
+	query.Set("order", order)
+	return "/api/admin/inventories/" + url.PathEscape(inventoryID) + "/files?" + query.Encode()
 }
 
 func isUpstream(id uint, upstream *uint) bool {
