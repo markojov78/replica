@@ -565,7 +565,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories", nil, accessToken)
 	if response.Code != http.StatusOK ||
-		!strings.Contains(response.Body.String(), `folder · Inventory #1 · 4 replicas - 1 shares`) {
+		!strings.Contains(response.Body.String(), `folder · Inventory #1 · 3 replicas - 1 shares`) {
 		t.Fatalf("inventories share count response = %d body=%q", response.Code, response.Body.String())
 	}
 	var shareUser model.ShareUser

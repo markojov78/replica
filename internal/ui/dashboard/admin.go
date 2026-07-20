@@ -461,6 +461,7 @@ func (h *Handler) inventoriesPage(w http.ResponseWriter, r *http.Request, sess a
 		return
 	}
 	inventories := withInventoryShareCounts(list.Items, shares)
+	inventories = withActiveInventoryReplicas(inventories)
 	h.render(w, "inventories", pageData{
 		Title: "Inventories", Subtitle: "Logical datasets with replicas managed in inventory context.",
 		Active: "inventories", Inventories: inventories,
@@ -2078,6 +2079,20 @@ func withInventoryShareCounts(inventories []inventory, shares []share) []invento
 	copy(result, inventories)
 	for i := range result {
 		result[i].ShareCount = shareCounts[result[i].ID]
+	}
+	return result
+}
+
+func withActiveInventoryReplicas(inventories []inventory) []inventory {
+	result := make([]inventory, len(inventories))
+	for i, inv := range inventories {
+		result[i] = inv
+		result[i].Replicas = nil
+		for _, rep := range inv.Replicas {
+			if rep.Status == "active" {
+				result[i].Replicas = append(result[i].Replicas, rep)
+			}
+		}
 	}
 	return result
 }
