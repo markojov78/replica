@@ -117,6 +117,10 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 			t.Fatalf("admin.js response = %d, missing %q", response.Code, required)
 		}
 	}
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/static/admin.css", nil, "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), ".graph-navigation{position:relative;z-index:2;width:max-content") {
+		t.Fatalf("admin.css response = %d, graph back navigation is not above the toolbar overlay", response.Code)
+	}
 
 	loginBody, err := json.Marshal(map[string]string{"username": "admin", "password": "secret"})
 	if err != nil {
@@ -382,6 +386,12 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), `data-graph-zoom-out`) ||
 		!strings.Contains(response.Body.String(), `data-graph-zoom-in`) ||
 		!strings.Contains(response.Body.String(), `data-graph-fit`) ||
+		!strings.Contains(response.Body.String(), `Base synchronization`) ||
+		!strings.Contains(response.Body.String(), `Downstream replication`) ||
+		!strings.Contains(response.Body.String(), `Share served from replica`) ||
+		!strings.Contains(response.Body.String(), `Share (green border)`) ||
+		strings.Contains(response.Body.String(), `/dashboard/static/icons/`) ||
+		strings.Contains(response.Body.String(), `Filesystem replica`) ||
 		!strings.Contains(response.Body.String(), `/dashboard/static/inventory-graph.js`) {
 		t.Fatalf("inventory graph response = %d body=%q", response.Code, response.Body.String())
 	}

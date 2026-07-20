@@ -1,12 +1,6 @@
 (() => {
   "use strict";
 
-  const iconURLs = {
-    filesystem: "/dashboard/static/icons/drive.svg",
-    storage: "/dashboard/static/icons/cloud.svg",
-    removable: "/dashboard/static/icons/usb.svg",
-    share: "/dashboard/static/icons/link.svg",
-  };
   const validReplicaTypes = new Set(["filesystem", "storage", "removable"]);
   const graphInstances = new WeakMap();
 
@@ -19,6 +13,35 @@
     if (typeof value !== "string") return fallback;
     const text = value.replace(/[\u0000-\u001f\u007f]/g, " ").trim();
     return text || fallback;
+  }
+
+  function displayReplicaType(type) {
+    if (!validReplicaTypes.has(type)) return "Unknown";
+    return type.charAt(0).toUpperCase() + type.slice(1);
+  }
+
+  function replicaLabel(replica) {
+    const id = positiveID(replica.id);
+    return [
+      `Replica #${id}`,
+      `Type: ${displayReplicaType(replica.type)}`,
+      `Node: ${cleanText(replica.node_id, "unknown")}`,
+      `Status: ${cleanText(replica.status, "unknown")}`,
+    ].join("\n");
+  }
+
+  function shareLabel(share, replica) {
+    const permissions = Array.isArray(share.anonymous_permissions)
+      ? share.anonymous_permissions.filter((value) => typeof value === "string" && value.trim()).map((value) => value.trim())
+      : [];
+    const lines = [
+      `Share #${positiveID(share.id)}`,
+      `Name: ${cleanText(share.name, "unnamed")}`,
+      `Node: ${replica ? cleanText(replica.node_id, "unknown") : "unknown"}`,
+      `Status: ${cleanText(share.status, "unknown")}`,
+    ];
+    if (permissions.length) lines.push(`Anonymous ${permissions.join(", ")}`);
+    return lines.join("\n");
   }
 
   function anonymousState(share, now = Date.now()) {
@@ -45,10 +68,9 @@
   function replicaElement(replica, warning) {
     const id = positiveID(replica.id);
     if (!id) return undefined;
-    const type = validReplicaTypes.has(replica.type) ? replica.type : "filesystem";
+    const type = validReplicaTypes.has(replica.type) ? replica.type : "unknown";
     const status = cleanText(replica.status, "unknown");
     const sync = cleanText(replica.sync_status, "");
-    const state = [status, sync].filter(Boolean).join(" · ");
     return {
       group: "nodes",
       data: {
@@ -56,13 +78,13 @@
         entityID: id,
         entity: "replica",
         kind: type,
-        label: `${type.toUpperCase()}\nReplica #${id}\n${cleanText(replica.node_id, "Unknown node")}\n${state}${warning ? `\n⚠ ${warning}` : ""}`,
-        nodeID: cleanText(replica.node_id, "Unknown node"),
+        label: replicaLabel(replica),
+        displayType: displayReplicaType(replica.type),
+        nodeID: cleanText(replica.node_id, "unknown"),
         status,
         syncStatus: sync || "—",
         uri: cleanText(replica.uri),
         href: `/dashboard/inventories/${positiveID(replica.inventory_id)}/replicas/${id}/edit`,
-        icon: iconURLs[type],
         warning: warning ? "true" : "false",
       },
       classes: `${type} status-${status} sync-${sync || "unknown"}${warning ? " warning" : ""}`,
@@ -75,7 +97,7 @@
     const access = anonymousState(share, now);
     const status = cleanText(share.status, "unknown");
     const unresolved = !replica;
-    const nodeID = replica ? cleanText(replica.node_id, "Unknown node") : "Unknown replica";
+    const nodeID = replica ? cleanText(replica.node_id, "unknown") : "unknown";
     return {
       group: "nodes",
       data: {
@@ -83,13 +105,13 @@
         entityID: id,
         entity: "share",
         kind: "share",
-        label: `SHARE\nShare #${id}\n${cleanText(share.name, "Unnamed share")}\n${nodeID}\n${status} · ${access.label}`,
+        label: shareLabel(share, replica),
+        name: cleanText(share.name, "unnamed"),
         nodeID,
         status,
         syncStatus: "—",
         uri: "—",
         href: `/dashboard/shares/${id}/edit`,
-        icon: iconURLs.share,
         access: access.label,
         permissions: access.permissions.join(", ") || "None",
         warning: unresolved || access.kind === "warning" ? "true" : "false",
@@ -182,8 +204,10 @@
 
   function graphStyles() {
     return [
-      {selector: "node", style: {shape: "round-rectangle", width: 238, height: 126, padding: 12, "background-color": "#fff", "border-width": 1.5, "border-color": "#d9e0ea", label: "data(label)", "font-family": "Inter, system-ui, sans-serif", "font-size": 12, "font-weight": 600, color: "#172033", "text-wrap": "wrap", "text-max-width": 190, "text-valign": "center", "text-halign": "center", "background-image": "data(icon)", "background-width": 21, "background-height": 21, "background-position-x": 16, "background-position-y": 15, "background-fit": "none", "overlay-opacity": 0}},
+      {selector: "node", style: {shape: "round-rectangle", width: 280, height: 138, padding: 12, "background-color": "#fff", "border-width": 1.5, "border-color": "#d9e0ea", label: "data(label)", "font-family": "Inter, system-ui, sans-serif", "font-size": 14, "font-weight": 500, "line-height": 1.4, color: "#172033", "text-wrap": "wrap", "text-max-width": 220, "text-valign": "center", "text-halign": "center", "text-justification": "center", "overlay-opacity": 0}},
       {selector: "node:selected", style: {"border-width": 3, "border-color": "#2563eb"}},
+      {selector: "node.share", style: {height: 154, "border-color": "#027a48"}},
+      {selector: "node.share:selected", style: {"border-width": 3, "border-color": "#027a48"}},
       {selector: "node.warning", style: {"border-color": "#b7791f", "border-style": "dashed"}},
       {selector: "node.status-error, node.sync-error, node.sync-conflict, node.access-expired", style: {"border-color": "#b42318"}},
       {selector: "node.access-public", style: {"border-color": "#027a48"}},
@@ -241,9 +265,7 @@
         message.classList.add("empty");
         return;
       }
-      if (!topology.replicaCount) message.textContent = "This inventory has no active replicas. Shares are shown as unresolved.";
-      else if (!topology.shareCount) message.textContent = "This inventory has replicas but no active shares.";
-      else if (topology.warnings.length) message.textContent = topology.warnings.join(" ");
+      if (topology.warnings.length) message.textContent = topology.warnings.join(" ");
       else message.hidden = true;
       cytoscape.use(cytoscapeElk);
       const cy = cytoscape({container: canvas, elements: topology.elements, style: graphStyles(), minZoom: 0.25, maxZoom: 2.5, wheelSensitivity: 0.18, boxSelectionEnabled: false});
@@ -274,5 +296,5 @@
   window.addEventListener("replica:page-dispose", dispose, {once: true});
   window.addEventListener("pagehide", dispose, {once: true});
   document.querySelectorAll("[data-inventory-graph]").forEach(initialize);
-  window.ReplicaInventoryGraphTest = {anonymousState, buildElements, loadAllShares, positiveID, zoomAtCenter};
+  window.ReplicaInventoryGraphTest = {anonymousState, buildElements, graphStyles, loadAllShares, positiveID, replicaLabel, shareLabel, zoomAtCenter};
 })();
