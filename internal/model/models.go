@@ -57,6 +57,9 @@ type Node struct {
 	PublicKey string     `gorm:"type:text" json:"public_key,omitempty"`
 	Interval  *float64   `json:"interval"`
 	LastSeen  *time.Time `json:"last_seen"`
+	Version   *string    `gorm:"type:text" json:"version,omitempty"`
+	Commit    *string    `gorm:"type:text" json:"commit,omitempty"`
+	Build     *string    `gorm:"type:text" json:"build,omitempty"`
 	Token     *NodeToken `gorm:"foreignKey:NodeID;references:ID" json:"token,omitempty"`
 	Commands  []Command  `gorm:"foreignKey:NodeID;references:ID" json:"commands,omitempty"`
 	Replicas  []Replica  `gorm:"foreignKey:NodeID;references:ID" json:"replicas,omitempty"`

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"replica/internal/buildinfo"
 	"strconv"
 	"strings"
 	"sync"
@@ -274,10 +275,15 @@ func (c *Client) Authenticate(ctx context.Context) (*NodeTokenPair, error) {
 	nodePublicKey := c.nodePublicKey
 	c.mu.Unlock()
 
+	buildInfo := buildinfo.Get()
+
 	reqBody := map[string]string{
 		"node_id":    c.nodeID,
 		"secret":     c.nodeSecret,
 		"public_key": nodePublicKey,
+		"version":    buildInfo.Version,
+		"commit":     buildInfo.Commit,
+		"build":      buildInfo.BuildDate,
 	}
 
 	var pair NodeTokenPair

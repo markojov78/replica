@@ -29,6 +29,7 @@ var assets embed.FS
 type Handler struct {
 	api               http.Handler
 	pages             *template.Template
+	coordinatorNodeID string
 	storageProfiles   []string
 	storageProfileSet map[string]struct{}
 	nodeConfig        nodeConfigTemplate
@@ -45,6 +46,9 @@ type node struct {
 	SharingEnabled bool     `json:"sharing_enabled"`
 	Interval       *float64 `json:"interval"`
 	LastSeen       *string  `json:"last_seen"`
+	Version        string   `json:"version"`
+	Commit         string   `json:"commit"`
+	Build          string   `json:"build"`
 }
 
 type nodeConfigTemplate struct {
@@ -241,6 +245,7 @@ type pageData struct {
 	Active              string
 	Error               string
 	Nodes               []node
+	CoordinatorNodeID   string
 	Node                node
 	Inventories         []inventory
 	Inventory           inventory
@@ -294,6 +299,7 @@ func Register(mux *http.ServeMux, api http.Handler, cfg config.Config) error {
 	handler := &Handler{
 		api:               api,
 		pages:             pages,
+		coordinatorNodeID: cfg.App.NodeID,
 		storageProfiles:   storageProfiles,
 		storageProfileSet: storageProfileSet(storageProfiles),
 		nodeConfig: nodeConfigTemplate{
@@ -378,7 +384,7 @@ func (h *Handler) nodesPage(w http.ResponseWriter, r *http.Request, sess authCon
 	}
 	h.render(w, "nodes", pageData{
 		Title: "Nodes", Subtitle: "Create, disable, revoke, and inspect storage service nodes.",
-		Active: "nodes", Nodes: list.Items,
+		Active: "nodes", Nodes: list.Items, CoordinatorNodeID: h.coordinatorNodeID,
 	})
 }
 

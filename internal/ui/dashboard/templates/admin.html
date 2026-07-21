@@ -71,11 +71,12 @@
 <div class="actions"><a class="btn ghost" href="/dashboard/nodes">Refresh</a><a class="btn primary" href="/dashboard/nodes/new">Add node</a></div>
 <section class="card">
   <table>
-    <thead><tr><th>Node</th><th>Status</th><th>Sharing</th><th>Address</th><th>Interval</th><th>Last seen</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Node</th><th>Version</th><th>Status</th><th>Sharing</th><th>Address</th><th>Interval</th><th>Last seen</th><th>Actions</th></tr></thead>
     <tbody>
     {{range .Nodes}}
       <tr>
-        <td class="mono">{{.ID}}</td>
+        <td class="mono">{{.ID}}{{if eq .ID $.CoordinatorNodeID}} (coordinator){{end}}</td>
+        <td class="mono">{{.Version}} / {{.Commit}} / {{.Build}}</td>
         <td><span class="pill {{statusClass .Status}}">{{.Status}}</span></td>
         <td>{{if .SharingEnabled}}<span class="pill ok">enabled</span>{{else}}<span class="pill neutral">disabled</span>{{end}}</td>
         <td class="mono">{{if .Address}}{{.Address}}{{else}}—{{end}}</td>
@@ -86,7 +87,7 @@
           {{if ne .Status "revoked"}}<form action="/dashboard/nodes/{{pathEscape .ID}}/revoke" method="post"><button class="danger" type="submit">Revoke</button></form>{{end}}
         </td>
       </tr>
-    {{else}}<tr><td colspan="7" class="empty">No nodes found.</td></tr>{{end}}
+    {{else}}<tr><td colspan="8" class="empty">No nodes found.</td></tr>{{end}}
     </tbody>
   </table>
 </section>

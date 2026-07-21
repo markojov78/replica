@@ -41,7 +41,7 @@ func TestRequireAuthenticatedNodeAllowsNodeJWTAndSetsContext(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret", "")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "", "", "", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -292,7 +292,7 @@ func TestInternalAuthMeReturnsAuthenticatedNode(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret", "")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "", "", "", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -355,7 +355,7 @@ func TestInternalNodesReportAvailabilityUpdatesNode(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret", "")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "", "", "", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -454,7 +454,7 @@ func TestInternalNodesReportAvailabilityReturnsPendingCommands(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret", "")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "", "", "", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -576,7 +576,7 @@ func TestInternalReplicasReturnsOnlyAuthenticatedNodeReplicas(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret", "")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "", "", "", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -749,7 +749,7 @@ func TestInternalSharesReturnsOnlyAuthenticatedNodeShares(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret", "")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "", "", "", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -832,7 +832,7 @@ func TestInternalSharesReturnsEmptyListWhenNodeHasNoShares(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret", "")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "", "", "", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -959,7 +959,7 @@ func TestInternalReplicaFilesReturnsInventoryAndReplicaMetadata(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret", "")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "", "", "", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -1204,7 +1204,7 @@ func TestInternalNodesWebSocketAcceptsAuthenticatedNode(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret", "")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "", "", "", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -1303,7 +1303,7 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
-	nodePair, err := authService.NodeLogin("node-a", "node-secret", "")
+	nodePair, err := authService.NodeLogin("node-a", "node-secret", "", "", "", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -1647,7 +1647,7 @@ func TestInternalCommandsPatchUpdatesOwnedCommandStatus(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret", "")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "", "", "", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -1779,7 +1779,7 @@ func TestInternalReplicaFilesReportUpdatesCoordinatorState(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret", "")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "", "", "", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -2003,7 +2003,7 @@ func newInternalReplicaFileStatusTestHandler(t *testing.T, database *gorm.DB) (h
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret", "")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "", "", "", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -2086,7 +2086,7 @@ func newInternalReplicaFilesFilterTestHandler(t *testing.T, database *gorm.DB) (
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-a", "node-secret", "")
+	pair, err := authService.NodeLogin("node-a", "node-secret", "", "", "", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}
@@ -2208,7 +2208,7 @@ func createValidateUserTokenCredentials(t *testing.T, database *gorm.DB, userSta
 			t.Fatalf("GenerateUserAccessToken() error = %v", err)
 		}
 	}
-	nodePair, err := authService.NodeLogin("node-a", "node-secret", "")
+	nodePair, err := authService.NodeLogin("node-a", "node-secret", "", "", "", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}

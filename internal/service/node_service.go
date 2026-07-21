@@ -34,6 +34,9 @@ type NodeDetails struct {
 	SharingEnabled bool     `json:"sharing_enabled"`
 	Interval       *float64 `json:"interval,omitempty"`
 	LastSeen       *string  `json:"last_seen,omitempty"`
+	Version        *string  `json:"version,omitempty"`
+	Commit         *string  `json:"commit,omitempty"`
+	Build          *string  `json:"build,omitempty"`
 }
 
 type NodeList struct {
@@ -564,6 +567,9 @@ func toNodeDetails(node *model.Node) *NodeDetails {
 		SharingEnabled: node.Sharing,
 		Interval:       node.Interval,
 		LastSeen:       timePtr(node.LastSeen),
+		Version:        node.Version,
+		Commit:         node.Commit,
+		Build:          node.Build,
 	}
 }
 

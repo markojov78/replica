@@ -166,7 +166,7 @@ func (s *AuthService) Refresh(refreshToken string) (*TokenPair, error) {
 	return s.issueTokenPair(userToken.UserID)
 }
 
-func (s *AuthService) NodeLogin(nodeID, secret string, publicKey string) (*NodeTokenPair, error) {
+func (s *AuthService) NodeLogin(nodeID, secret string, publicKey string, version string, commit string, build string) (*NodeTokenPair, error) {
 	node, err := s.nodes.FindByID(nodeID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -184,6 +184,10 @@ func (s *AuthService) NodeLogin(nodeID, secret string, publicKey string) (*NodeT
 	}
 
 	node.PublicKey = publicKey
+	node.Version = &version
+	node.Commit = &commit
+	node.Build = &build
+
 	if err := s.nodes.Update(node); err != nil {
 		return nil, err
 	}

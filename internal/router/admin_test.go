@@ -35,7 +35,8 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if err := seed.Run(database, config.SeedConfig{AdminName: "admin", AdminPassword: "secret"}); err != nil {
 		t.Fatalf("seed.Run() error = %v", err)
 	}
-	if err := database.Create(&model.Node{ID: "node-a", Status: model.NodeStatusOffline, Secret: "ignored", Sharing: true}).Error; err != nil {
+	version, commit, build := "1.2.3", "abc123", "2026-07-21"
+	if err := database.Create(&model.Node{ID: "node-a", Status: model.NodeStatusOffline, Secret: "ignored", Sharing: true, Version: &version, Commit: &commit, Build: &build}).Error; err != nil {
 		t.Fatalf("Create(node) error = %v", err)
 	}
 	if err := database.Create(&model.Node{ID: "node-b", Status: model.NodeStatusOffline, Secret: "ignored"}).Error; err != nil {
@@ -60,6 +61,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		config.Config{
 			App: config.AppConfig{
 				Coordinator:       true,
+				NodeID:            "node-a",
 				CoordinatorURL:    "http://coordinator.test:8080",
 				HeartbeatInterval: 60 * time.Second,
 			},
@@ -766,7 +768,9 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/nodes", nil, accessToken)
 	if response.Code != http.StatusOK ||
-		!strings.Contains(response.Body.String(), "node-a") ||
+		!strings.Contains(response.Body.String(), "node-a (coordinator)") ||
+		!strings.Contains(response.Body.String(), "<th>Version</th>") ||
+		!strings.Contains(response.Body.String(), "1.2.3 / abc123 / 2026-07-21") ||
 		!strings.Contains(response.Body.String(), "<th>Sharing</th>") ||
 		!strings.Contains(response.Body.String(), `<span class="pill ok">enabled</span>`) {
 		t.Fatalf("nodes response = %d body=%q", response.Code, response.Body.String())

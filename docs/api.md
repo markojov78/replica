@@ -738,7 +738,10 @@ Example response:
       "address": "http://node-a:8081",
       "interval": 600,
       "last_seen": "2026-05-20T12:00:00Z",
-      "sharing_enabled": true
+      "sharing_enabled": true,
+      "version": "1.0.0",
+      "commit": "7dc762c",
+      "build": "2026-07-21T04:10:53Z"
     }
   ],
   "page": 1,
@@ -760,9 +763,12 @@ Example response:
   "id": "node-a",
   "status": "offline",
   "address": "http://node-a:8081",
-  "sharing_enabled": true,
-  "interval": null,
-  "last_seen": null
+  "sharing_enabled": false,
+  "interval": 60,
+  "last_seen": "2026-07-21T04:19:41Z",
+  "version": "1.0.0",
+  "commit": "7dc762c",
+  "build": "2026-07-21T04:10:53Z"
 }
 ```
 
@@ -803,7 +809,10 @@ Example response:
   "address": "http://node-a:8081",
   "sharing_enabled": true,
   "interval": null,
-  "last_seen": null
+  "last_seen": null,
+  "version": "",
+  "commit": "",
+  "build": ""
 }
 ```
 
@@ -2231,13 +2240,17 @@ Request body:
 - `public_key` required, storage node public key PEM
 - `version` optional, node version
 - `commit` optional, node commit hash
+- `build` optional, build date
 
 Example request:
 ```json
 {
   "node_id": "node-a",
   "secret": "plaintext-node-secret-from-node-config",
-  "public_key": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"
+  "public_key": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n",
+  "version": "1.0.0",
+  "commit": "7dc762c",
+  "build": "2026-07-20T17:20:19Z"
 }
 ```
 

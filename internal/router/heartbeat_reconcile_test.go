@@ -56,7 +56,7 @@ func TestHeartbeatCreatesMissingReconcileCommand(t *testing.T) {
 		t.Fatalf("EnsureTransferKeys() error = %v", err)
 	}
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.NodeLogin("node-b", "node-secret", "")
+	pair, err := authService.NodeLogin("node-b", "node-secret", "", "", "", "")
 	if err != nil {
 		t.Fatalf("NodeLogin() error = %v", err)
 	}

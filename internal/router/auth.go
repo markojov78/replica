@@ -64,7 +64,8 @@ func registerPublicAuthRoutes(api huma.API, svc services) {
 
 func registerInternalAuthRoutes(api huma.API, svc services) {
 	huma.Post(api, "/auth/login", func(ctx context.Context, input *nodeLoginInput) (*nodeTokenPairResponse, error) {
-		pair, err := svc.auth.NodeLogin(input.Body.NodeID, input.Body.Secret, input.Body.PublicKey)
+		pair, err := svc.auth.NodeLogin(input.Body.NodeID, input.Body.Secret, input.Body.PublicKey,
+			input.Body.Version, input.Body.Commit, input.Body.Build)
 		if err != nil {
 			return nil, mapAuthError(err)
 		}
@@ -145,6 +146,9 @@ type nodeLoginInput struct {
 		NodeID    string `json:"node_id" minLength:"1"`
 		Secret    string `json:"secret" minLength:"1"`
 		PublicKey string `json:"public_key" minLength:"1"`
+		Version   string `json:"version,omitempty"`
+		Commit    string `json:"commit,omitempty"`
+		Build     string `json:"build,omitempty"`
 	}
 }
 
