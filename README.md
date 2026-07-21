@@ -26,13 +26,34 @@ go 1.25.0 or newer.
 
 To build the service, use the build script:
 ```bash
+# Detect the current Linux architecture
 ./build.sh
+
+# Build specific target
+./build.sh linux-amd64
+./build.sh linux-arm64
+./build.sh linux-armv7
+./build.sh windows-amd64
+
+# Build every target
+./build.sh all
 ```
-Or for a different platform:
-```bash
-./build.sh pi
+Output will be structured as:
 ```
-Build script will create `bin/replica` and `bin/replica-seed` files.  
+bin/
+├── linux-amd64/
+│   ├── replica
+│   └── replica-seed
+├── linux-arm64/
+│   ├── replica
+│   └── replica-seed
+├── linux-armv7/
+│   ├── replica
+│   └── replica-seed
+└── windows-amd64/
+    ├── replica.exe
+    └── replica-seed.exe
+```
 
 ### 2. Configure coordinator
 Each setup must have one coordinator that holds the application state and any number of storage nodes.  

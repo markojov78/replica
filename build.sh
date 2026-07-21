@@ -1,25 +1,68 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-LDFLAGS="-X replica/internal/buildinfo.Version=$VERSION -X replica/internal/buildinfo.BuildDate=$BUILD_DATE -X replica/internal/buildinfo.Commit=$GIT_COMMIT"
+OUTPUT_DIR="bin"
 
-mkdir -p bin
+VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo "unknown")}"
+BUILD_DATE="${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+GIT_COMMIT="${GIT_COMMIT:-$(git rev-parse HEAD 2>/dev/null || echo "unknown")}"
 
-# Default to host architecture, override if "pi" is passed as an argument
-TARGET="${1:-local}"
+LDFLAGS="-X replica/internal/buildinfo.Version=${VERSION} \
+-X replica/internal/buildinfo.BuildDate=${BUILD_DATE} \
+-X replica/internal/buildinfo.Commit=${GIT_COMMIT}"
 
-if [ "$TARGET" = "pi" ]; then
-    export GOOS=linux
-    export GOARCH=arm64
-    SUFFIX="-pi"
-else
-    # Keeps your default local OS/Arch settings
-    SUFFIX=""
-fi
+build_target() {
+    local goos="$1"
+    local goarch="$2"
+    local extension=""
+    local target_dir="${OUTPUT_DIR}/${goos}-${goarch}"
 
-echo "Building for target: $TARGET..."
-go build -ldflags "$LDFLAGS" -o "bin/replica$SUFFIX" ./cmd/api
-go build -ldflags "$LDFLAGS" -o "bin/replica-seed$SUFFIX" ./cmd/seed
+    if [[ "$goos" == "windows" ]]; then
+        extension=".exe"
+    fi
+
+    mkdir -p "$target_dir"
+
+    echo "Building ${goos}/${goarch}..."
+
+    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+        go build \
+        -trimpath \
+        -ldflags "$LDFLAGS" \
+        -o "${target_dir}/replica${extension}" \
+        ./cmd/api
+
+    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+        go build \
+        -trimpath \
+        -ldflags "$LDFLAGS" \
+        -o "${target_dir}/replica-seed${extension}" \
+        ./cmd/seed
+}
+
+TARGET="${1:-all}"
+
+case "$TARGET" in
+    linux-amd64)
+        build_target linux amd64
+        ;;
+
+    linux-arm64)
+        build_target linux arm64
+        ;;
+
+    windows-amd64)
+        build_target windows amd64
+        ;;
+
+    all)
+        build_target linux amd64
+        build_target linux arm64
+        build_target windows amd64
+        ;;
+
+    *)
+        echo "Usage: $0 {linux-amd64|linux-arm64|windows-amd64|all}" >&2
+        exit 1
+        ;;
+esac
