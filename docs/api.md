@@ -807,12 +807,7 @@ Example response:
   "id": "node-a",
   "status": "offline",
   "address": "http://node-a:8081",
-  "sharing_enabled": true,
-  "interval": null,
-  "last_seen": null,
-  "version": "",
-  "commit": "",
-  "build": ""
+  "sharing_enabled": true
 }
 ```
 
