@@ -94,23 +94,23 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	)
 
 	response := adminRequest(t, handler, http.MethodGet, "/dashboard/nodes", nil, "")
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "data-login-form") {
-		t.Fatalf("protected response = %d body=%q, want login page", response.Code, response.Body.String())
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/login" {
+		t.Fatalf("protected response = %d location=%q, want login redirect", response.Code, response.Header().Get("Location"))
 	}
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1/graph", nil, "")
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "data-login-form") {
-		t.Fatalf("unauthorized graph response = %d body=%q, want login page", response.Code, response.Body.String())
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/login" {
+		t.Fatalf("unauthorized graph response = %d location=%q, want login redirect", response.Code, response.Header().Get("Location"))
 	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/static/admin.js", nil, "")
 	for _, required := range []string{
 		"localStorage",
-		"access_token_expires_at",
-		"refresh_token_expires_at",
-		"/api/admin/auth/login",
-		"/api/admin/auth/refresh",
-		"/api/admin/auth/logout",
-		"/api/admin/auth/me",
+		"/dashboard/auth/login",
+		"/dashboard/logout",
+		"/dashboard/api/auth/me",
+		"X-CSRF-Token",
+		`window.location.pathname !== "/dashboard/login"`,
+		`authRequest("/dashboard/api/auth/me")`,
 		"data-hide-deleted",
 		"replica_admin_user_",
 		"replica_admin_username",
@@ -118,6 +118,9 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), required) {
 			t.Fatalf("admin.js response = %d, missing %q", response.Code, required)
 		}
+	}
+	if strings.Contains(response.Body.String(), `headers.set("Authorization"`) || strings.Contains(response.Body.String(), "/api/admin/auth/refresh") {
+		t.Fatal("admin.js still performs browser bearer authentication or refresh")
 	}
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/static/admin.css", nil, "")
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), ".graph-navigation{position:relative;z-index:2;width:max-content") {
@@ -898,8 +901,8 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/nodes", nil, "invalid")
-	if response.Code != http.StatusUnauthorized {
-		t.Fatalf("invalid token response = %d body=%q, want 401", response.Code, response.Body.String())
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/login" {
+		t.Fatalf("invalid token response = %d location=%q, want login redirect", response.Code, response.Header().Get("Location"))
 	}
 }
 
@@ -910,7 +913,13 @@ func adminRequest(t *testing.T, handler http.Handler, method, path string, form 
 		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 	if accessToken != "" {
-		request.Header.Set("Authorization", "Bearer "+accessToken)
+		if strings.HasPrefix(path, "/api/admin/") {
+			request.Header.Set("Authorization", "Bearer "+accessToken)
+		} else {
+			request.AddCookie(&http.Cookie{Name: "replica_admin_access", Value: accessToken, Path: "/dashboard"})
+			request.AddCookie(&http.Cookie{Name: "replica_admin_csrf", Value: "test-csrf", Path: "/dashboard"})
+			request.Header.Set("X-CSRF-Token", "test-csrf")
+		}
 	}
 	request.Header.Set("X-API-Version", "1")
 	recorder := httptest.NewRecorder()

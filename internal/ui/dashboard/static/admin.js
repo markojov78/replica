@@ -1,35 +1,16 @@
 (() => {
-  const keys = [
-    "access_token",
-    "refresh_token",
-    "access_token_expires_at",
-    "refresh_token_expires_at",
-  ];
-  const userIDKey = "replica_admin_user_id";
-  const usernameKey = "replica_admin_username";
-  let refreshPromise;
+	for (const key of ["access_token", "refresh_token", "access_token_expires_at", "refresh_token_expires_at", "replica_admin_user_id", "replica_admin_username"]) {
+		localStorage.removeItem(key);
+	}
+	let currentUser;
 
-  function token(name) {
-    return localStorage.getItem(name) || "";
-  }
-
-  function storeTokens(pair) {
-    for (const key of keys) {
-      localStorage.setItem(key, pair[key]);
-    }
-    localStorage.setItem(userIDKey, pair.user_id);
-  }
-
-  function clearTokens() {
-    for (const key of keys) {
-      localStorage.removeItem(key);
-    }
-    localStorage.removeItem(userIDKey);
-    localStorage.removeItem(usernameKey);
-  }
+	function csrfToken() {
+		const prefix = "replica_admin_csrf=";
+		return document.cookie.split(";").map((value) => value.trim()).find((value) => value.startsWith(prefix))?.slice(prefix.length) || "";
+	}
 
   function preferenceKey(name) {
-    const userID = localStorage.getItem(userIDKey);
+    const userID = currentUser?.id;
     return userID ? `replica_admin_user_${userID}_${name}` : "";
   }
 
@@ -239,64 +220,29 @@
   async function authRequest(path, options = {}) {
     const headers = new Headers(options.headers);
     headers.set("X-API-Version", "1");
-    if (token("access_token")) {
-      headers.set("Authorization", `Bearer ${token("access_token")}`);
+		if (options.method && !["GET", "HEAD"].includes(options.method.toUpperCase())) {
+			headers.set("X-CSRF-Token", csrfToken());
     }
     return fetch(path, {...options, headers});
   }
 
-  async function refresh() {
-    if (!refreshPromise) {
-      refreshPromise = (async () => {
-        const refreshToken = token("refresh_token");
-        if (!refreshToken) {
-          throw new Error("missing refresh token");
-        }
-        const response = await fetch("/api/admin/auth/refresh", {
-          method: "POST",
-          headers: {"Content-Type": "application/json", "X-API-Version": "1"},
-          body: JSON.stringify({refresh_token: refreshToken}),
-        });
-        if (!response.ok) {
-          throw new Error("refresh failed");
-        }
-        storeTokens(await response.json());
-      })().finally(() => {
-        refreshPromise = undefined;
-      });
-    }
-    return refreshPromise;
-  }
-
   async function requestWithRefresh(path, options = {}) {
-    let response = await authRequest(path, options);
-    if (response.status !== 401) {
-      return response;
-    }
-    try {
-      await refresh();
-    } catch {
-      await logout(false);
-      return undefined;
-    }
-    response = await authRequest(path, options);
-    if (response.status === 401) {
-      await logout();
+		const response = await authRequest(path, options);
+		if (response.status === 401) {
+			if (window.location.pathname !== "/dashboard/login") {
+				window.location.replace("/dashboard/login");
+			}
       return undefined;
     }
     return response;
   }
 
-  async function logout(callAPI = true) {
-    const accessToken = token("access_token");
-    if (callAPI && accessToken) {
-      try {
-        await authRequest("/api/admin/auth/logout", {method: "POST"});
-      } catch {
-        // Local logout must still complete when the service is unavailable.
-      }
-    }
-    clearTokens();
+	async function logout() {
+		try {
+			await authRequest("/dashboard/logout", {method: "POST"});
+		} catch {
+			// Navigation still completes if the service becomes unavailable.
+		}
     window.location.replace("/dashboard/login");
   }
 
@@ -315,9 +261,14 @@
     document.close();
   }
 
-  function bindAdminPage() {
+	async function bindAdminPage() {
+		const me = await requestWithRefresh("/dashboard/api/auth/me");
+		if (!me?.ok) {
+			return;
+		}
+		currentUser = await me.json();
     for (const element of document.querySelectorAll("[data-current-username]")) {
-      element.textContent = localStorage.getItem(usernameKey) || "";
+			element.textContent = currentUser.username || "";
     }
     bindDeletedFilters();
     bindChoiceFilters();
@@ -352,9 +303,9 @@
   }
 
   async function login(form) {
-    const response = await fetch("/api/admin/auth/login", {
+		const response = await fetch("/dashboard/auth/login", {
       method: "POST",
-      headers: {"Content-Type": "application/json", "X-API-Version": "1"},
+			headers: {"Content-Type": "application/json", "X-API-Version": "1", "X-CSRF-Token": csrfToken()},
       body: JSON.stringify({
         username: form.elements.username.value.trim(),
         password: form.elements.password.value,
@@ -366,8 +317,6 @@
         problem.detail || problem.error || problem.title || "Sign in failed.";
       return;
     }
-    storeTokens(await response.json());
-    localStorage.setItem(usernameKey, form.elements.username.value.trim());
     window.location.replace("/dashboard");
   }
 
@@ -377,15 +326,8 @@
       event.preventDefault();
       login(form);
     });
-    if (!token("access_token")) {
-      clearTokens();
-      return;
-    }
-    const response = await requestWithRefresh("/api/admin/auth/me");
+		const response = await authRequest("/dashboard/api/auth/me");
     if (response?.ok) {
-      const user = await response.json();
-      localStorage.setItem(userIDKey, user.id);
-      localStorage.setItem(usernameKey, user.username);
       const destination = window.location.pathname === "/dashboard/login" ? "/dashboard" : window.location.href;
       await showPage(destination, undefined, false);
     }

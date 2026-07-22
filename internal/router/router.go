@@ -98,7 +98,7 @@ func New(
 		registerReplicaRoutes(adminGroup, svc)
 		registerShareRoutes(adminGroup, svc)
 		registerConfigRoutes(adminGroup, svc)
-		if err := dashboard.Register(mux, mux, cfg); err != nil {
+		if err := dashboard.Register(mux, mux, cfg, authService); err != nil {
 			panic(err)
 		}
 	}

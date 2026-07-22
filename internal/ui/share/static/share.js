@@ -1,81 +1,30 @@
 (() => {
-  const keys = [
-    "access_token",
-    "refresh_token",
-    "access_token_expires_at",
-    "refresh_token_expires_at",
-  ];
   const prefix = "replica_share_";
-  let refreshPromise;
+	for (const key of ["access_token", "refresh_token", "access_token_expires_at", "refresh_token_expires_at", "user_id", "username"]) {
+		localStorage.removeItem(prefix + key);
+	}
+	let currentUser;
 
-  function token(name) {
-    return localStorage.getItem(prefix + name) || "";
-  }
-
-  function storeTokens(pair) {
-    for (const key of keys) {
-      if (pair[key]) {
-        localStorage.setItem(prefix + key, pair[key]);
-      }
-    }
-    if (pair.user_id) {
-      localStorage.setItem(prefix + "user_id", pair.user_id);
-    }
-    if (pair.username) {
-      localStorage.setItem(prefix + "username", pair.username);
-    }
-  }
-
-  function clearTokens() {
-    for (const key of keys) {
-      localStorage.removeItem(prefix + key);
-    }
-    localStorage.removeItem(prefix + "user_id");
-    localStorage.removeItem(prefix + "username");
-  }
-
-  async function refresh() {
-    if (!refreshPromise) {
-      refreshPromise = (async () => {
-        const refreshToken = token("refresh_token");
-        if (!refreshToken) {
-          throw new Error("missing refresh token");
-        }
-        const response = await fetch("/api/share/auth/refresh", {
-          method: "POST",
-          headers: {"Content-Type": "application/json", "X-API-Version": "1"},
-          body: JSON.stringify({refresh_token: refreshToken}),
-        });
-        if (!response.ok) {
-          throw new Error("refresh failed");
-        }
-        storeTokens(await response.json());
-      })().finally(() => {
-        refreshPromise = undefined;
-      });
-    }
-    return refreshPromise;
-  }
+	function csrfToken() {
+		const name = "replica_share_csrf=";
+		return document.cookie.split(";").map((value) => value.trim()).find((value) => value.startsWith(name))?.slice(name.length) || "";
+	}
 
   async function request(path, options = {}, retry = true) {
     const url = new URL(path, window.location.origin);
     const headers = new Headers(options.headers);
     headers.set("X-API-Version", "1");
-    if (!url.pathname.startsWith("/share") && token("access_token")) {
-      headers.set("Authorization", `Bearer ${token("access_token")}`);
-    }
-    const response = await fetch(path, {...options, headers});
-    if (url.pathname.startsWith("/share") || response.status !== 401 || !retry) {
-      return response;
-    }
-    try {
-      await refresh();
-    } catch {
-      clearTokens();
-      window.location.replace("/share");
-      return undefined;
-    }
-    return request(path, options, false);
+		if (options.method && !["GET", "HEAD"].includes(options.method.toUpperCase())) {
+			headers.set("X-CSRF-Token", csrfToken());
+		}
+		const response = await fetch(path, {...options, headers});
+		if (response.status === 401) {
+			if (window.location.pathname !== "/share") {
+				window.location.replace("/share");
+			}
+			return undefined;
+		}
+		return response;
   }
 
   async function showPage(path, options, pushState = true) {
@@ -84,8 +33,7 @@
       return;
     }
     if (response.status === 401) {
-      clearTokens();
-      window.location.replace("/share");
+			window.location.replace("/share");
       return;
     }
     const html = await response.text();
@@ -100,7 +48,7 @@
   async function login(form) {
     const response = await fetch(form.action, {
       method: "POST",
-      headers: {"Content-Type": "application/json", "X-API-Version": "1"},
+			headers: {"Content-Type": "application/json", "X-API-Version": "1", "X-CSRF-Token": csrfToken()},
       body: JSON.stringify({
         username: form.elements.username.value.trim(),
         password: form.elements.password.value,
@@ -114,9 +62,7 @@
       }
       return;
     }
-    storeTokens(await response.json());
-    localStorage.setItem(prefix + "username", form.elements.username.value.trim());
-    window.location.replace("/share/shares");
+		window.location.replace("/share/shares");
   }
 
   async function bootstrapLogin() {
@@ -125,11 +71,7 @@
       event.preventDefault();
       login(form);
     });
-    if (!token("access_token")) {
-      clearTokens();
-      return;
-    }
-    const response = await request("/share/auth/me");
+		const response = await fetch("/share/api/auth/me", {headers: {"X-API-Version": "1"}});
     if (response?.ok) {
       storeCurrentUser(await response.json());
       const current = window.location.pathname === "/share" ? "/share/shares" : window.location.href;
@@ -137,18 +79,13 @@
     }
   }
 
-  function storeCurrentUser(user) {
-    if (user.user_id) {
-      localStorage.setItem(prefix + "user_id", user.user_id);
-    }
-    if (user.username) {
-      localStorage.setItem(prefix + "username", user.username);
-    }
-  }
+	function storeCurrentUser(user) {
+		currentUser = user;
+	}
 
-  function fillCurrentUser() {
-    const username = localStorage.getItem(prefix + "username") || "";
-    const userID = localStorage.getItem(prefix + "user_id") || "";
+	function fillCurrentUser() {
+		const username = currentUser?.username || "";
+		const userID = currentUser?.user_id || "";
     for (const element of document.querySelectorAll("[data-share-current-username]")) {
       element.textContent = username || (userID ? `User #${userID}` : "");
     }
@@ -298,7 +235,7 @@
     bindActionsMenus();
     bindFolderTreePanel();
     fillCurrentUser();
-    request("/share/auth/me")
+    request("/share/api/auth/me")
       .then(async (response) => {
         if (!response?.ok) {
           return;
@@ -331,8 +268,7 @@
       }
       event.preventDefault();
       if (form.matches("[data-share-logout]")) {
-        clearTokens();
-        fetch(form.action, {method: "POST", headers: {"X-API-Version": "1"}}).finally(() => {
+				fetch(form.action, {method: "POST", headers: {"X-API-Version": "1", "X-CSRF-Token": csrfToken()}}).finally(() => {
           window.location.replace("/share");
         });
         return;
@@ -963,8 +899,8 @@
 
   document.body.addEventListener("htmx:configRequest", (event) => {
     event.detail.headers["X-API-Version"] = "1";
-    if (token("access_token") && !event.detail.path.startsWith("/share")) {
-      event.detail.headers.Authorization = `Bearer ${token("access_token")}`;
+		if (!["GET", "HEAD"].includes((event.detail.verb || "GET").toUpperCase())) {
+			event.detail.headers["X-CSRF-Token"] = csrfToken();
     }
   });
 

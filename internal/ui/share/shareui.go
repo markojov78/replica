@@ -19,15 +19,18 @@ import (
 	"replica/internal/config"
 	"replica/internal/service"
 	"replica/internal/storage"
+	"replica/internal/ui/uiauth"
 )
 
 //go:embed templates/*.html static/*
 var assets embed.FS
 
 type Handler struct {
-	runtime *storage.Runtime
-	auth    *service.AuthService
-	pages   *template.Template
+	runtime   *storage.Runtime
+	auth      *service.AuthService
+	pages     *template.Template
+	cookies   uiauth.Cookies
+	refreshes *uiauth.RefreshGroup
 }
 
 type authContext struct {
@@ -81,6 +84,7 @@ type fileView struct {
 const (
 	shareUIAccessCookie  = "replica_share_access"
 	shareUIRefreshCookie = "replica_share_refresh"
+	shareUICSRFCookie    = "replica_share_csrf"
 	browseModeFlat       = "flat"
 	browseModeTree       = "tree"
 	// Tree mode intentionally uses one existing file-list request and refuses larger shares.
@@ -96,7 +100,7 @@ func Register(mux *http.ServeMux, runtime *storage.Runtime, authServices ...*ser
 	if len(authServices) > 0 {
 		auth = authServices[0]
 	}
-	handler := &Handler{runtime: runtime, auth: auth, pages: pages}
+	handler := &Handler{runtime: runtime, auth: auth, pages: pages, cookies: uiauth.Cookies{AccessName: shareUIAccessCookie, RefreshName: shareUIRefreshCookie, CSRFName: shareUICSRFCookie, Path: "/share"}, refreshes: uiauth.NewRefreshGroup(256)}
 	gate := handler.sharingGate
 	gateFunc := func(next http.HandlerFunc) http.HandlerFunc {
 		return gate(next).ServeHTTP
@@ -107,6 +111,17 @@ func Register(mux *http.ServeMux, runtime *storage.Runtime, authServices ...*ser
 	mux.HandleFunc("POST /share/auth/login", gateFunc(handler.login))
 	mux.HandleFunc("GET /share/auth/me", gateFunc(handler.protected(handler.me)))
 	mux.HandleFunc("POST /share/logout", gateFunc(handler.logout))
+	mux.HandleFunc("GET /share/api/auth/me", gateFunc(handler.shareAPIMe))
+	mux.HandleFunc("GET /share/api/shares", gateFunc(handler.shareAPI))
+	mux.HandleFunc("GET /share/api/shares/{id}", gateFunc(handler.shareAPI))
+	mux.HandleFunc("GET /share/api/shares/{id}/files", gateFunc(handler.shareAPI))
+	mux.HandleFunc("POST /share/api/shares/{id}/files", gateFunc(handler.shareAPI))
+	mux.HandleFunc("DELETE /share/api/shares/{id}/files/{file_id}", gateFunc(handler.shareAPI))
+	mux.HandleFunc("GET /share/api/shares/{id}/files/{file_id}/content", gateFunc(handler.shareAPI))
+	mux.HandleFunc("HEAD /share/api/shares/{id}/files/{file_id}/content", gateFunc(handler.shareAPI))
+	mux.HandleFunc("GET /share/api/shares/{id}/files/{file_id}/thumbnail", gateFunc(handler.shareAPI))
+	mux.HandleFunc("HEAD /share/api/shares/{id}/files/{file_id}/thumbnail", gateFunc(handler.shareAPI))
+	mux.HandleFunc("PUT /share/api/shares/{id}/files/{file_id}/content", gateFunc(handler.shareAPI))
 	mux.HandleFunc("GET /share/shares", gateFunc(handler.protected(handler.shareListPage)))
 	mux.HandleFunc("GET /share/shares/{id}", gateFunc(handler.protected(handler.shareFilesPage)))
 	mux.HandleFunc("POST /share/shares/{id}/files", gateFunc(handler.protected(handler.uploadShareFile)))
@@ -172,11 +187,19 @@ func mustSub(embedded embed.FS, dir string) fs.FS {
 	return sub
 }
 
-func (h *Handler) loginPage(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.cookies.EnsureCSRF(w, r); err != nil {
+		http.Error(w, "failed to initialize session", http.StatusInternalServerError)
+		return
+	}
 	h.render(w, http.StatusOK, "login", pageData{Title: "Sign in", LoginPath: "/share"})
 }
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
+	if err := uiauth.ValidateCSRF(r, h.cookies); err != nil {
+		writeShareUIError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	username, password, ok := loginCredentials(w, r)
 	if !ok {
 		return
@@ -186,9 +209,12 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), status)
 		return
 	}
-	h.setAuthCookies(w, pair)
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(pair)
+	h.setAuthCookies(w, r, pair)
+	if _, err := h.cookies.RotateCSRF(w, r); err != nil {
+		writeShareUIError(w, http.StatusInternalServerError, "failed to initialize session")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) loginShareUser(r *http.Request, username string, password string) (storage.ShareTokenPair, int, error) {
@@ -224,7 +250,19 @@ func shareTokenPairFromService(pair *service.TokenPair) storage.ShareTokenPair {
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
-	h.clearAuthCookies(w)
+	if err := uiauth.ValidateCSRF(r, h.cookies); err != nil {
+		h.cookies.Clear(w, r)
+		writeShareUIError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	if _, accessToken, err := h.authenticateCookieToken(w, r); err == nil {
+		if h.auth != nil {
+			_ = h.auth.Logout(accessToken)
+		} else {
+			_ = h.runtime.LogoutShareUser(r.Context(), accessToken)
+		}
+	}
+	h.cookies.Clear(w, r)
 	if isHTMX(r) {
 		w.Header().Set("HX-Redirect", "/share")
 		w.WriteHeader(http.StatusNoContent)
@@ -234,24 +272,36 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) authenticateCookie(w http.ResponseWriter, r *http.Request) (*apiclient.ValidatedUserToken, error) {
-	if accessToken := cookieValue(r, shareUIAccessCookie); accessToken != "" {
+	user, _, err := h.authenticateCookieToken(w, r)
+	return user, err
+}
+
+func (h *Handler) authenticateCookieToken(w http.ResponseWriter, r *http.Request) (*apiclient.ValidatedUserToken, string, error) {
+	if accessToken := h.cookies.Access(r); accessToken != "" {
 		user, err := h.validateAccessToken(r, accessToken)
 		if err == nil {
-			return user, nil
+			return user, accessToken, nil
 		}
 	}
 
-	refreshToken := cookieValue(r, shareUIRefreshCookie)
+	refreshToken := h.cookies.Refresh(r)
 	if refreshToken == "" {
-		return nil, errors.New("missing authenticated user")
+		return nil, "", errors.New("missing authenticated user")
 	}
-	pair, _, err := h.refreshShareUser(r, refreshToken)
+	refreshed, err := h.refreshes.Do(refreshToken, func() (uiauth.TokenPair, error) {
+		pair, _, err := h.refreshShareUser(r, refreshToken)
+		if err != nil {
+			return uiauth.TokenPair{}, err
+		}
+		return shareUITokenPair(pair), nil
+	})
 	if err != nil {
-		h.clearAuthCookies(w)
-		return nil, err
+		h.clearAuthCookies(w, r)
+		return nil, "", err
 	}
-	h.setAuthCookies(w, pair)
-	return h.validateAccessToken(r, pair.AccessToken)
+	h.cookies.SetAuth(w, r, refreshed)
+	user, err := h.validateAccessToken(r, refreshed.AccessToken)
+	return user, refreshed.AccessToken, err
 }
 
 func (h *Handler) validateAccessToken(r *http.Request, accessToken string) (*apiclient.ValidatedUserToken, error) {
@@ -270,14 +320,16 @@ func (h *Handler) validateAccessToken(r *http.Request, accessToken string) (*api
 	return h.runtime.AuthenticateShareUserAuthorization(r.Context(), "Bearer "+accessToken)
 }
 
-func (h *Handler) setAuthCookies(w http.ResponseWriter, pair storage.ShareTokenPair) {
-	setShareCookie(w, shareUIAccessCookie, pair.AccessToken, pair.AccessTokenExpiresAt)
-	setShareCookie(w, shareUIRefreshCookie, pair.RefreshToken, pair.RefreshTokenExpiresAt)
+func shareUITokenPair(pair storage.ShareTokenPair) uiauth.TokenPair {
+	return uiauth.TokenPair{AccessToken: pair.AccessToken, RefreshToken: pair.RefreshToken, AccessExpiresAt: pair.AccessTokenExpiresAt, RefreshExpiresAt: pair.RefreshTokenExpiresAt}
 }
 
-func (h *Handler) clearAuthCookies(w http.ResponseWriter) {
-	clearShareCookie(w, shareUIAccessCookie)
-	clearShareCookie(w, shareUIRefreshCookie)
+func (h *Handler) setAuthCookies(w http.ResponseWriter, r *http.Request, pair storage.ShareTokenPair) {
+	h.cookies.SetAuth(w, r, shareUITokenPair(pair))
+}
+
+func (h *Handler) clearAuthCookies(w http.ResponseWriter, r *http.Request) {
+	h.cookies.ClearAuth(w, r)
 }
 
 func (h *Handler) protected(next func(http.ResponseWriter, *http.Request, authContext)) http.HandlerFunc {
@@ -290,8 +342,19 @@ func (h *Handler) protected(next func(http.ResponseWriter, *http.Request, authCo
 			h.render(w, h.shareAuthStatus(err), "login", pageData{Title: "Sign in", Error: apiMessage(err)})
 			return
 		}
+		if err := uiauth.ValidateCSRF(r, h.cookies); err != nil {
+			writeShareUIError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		_, _ = h.cookies.EnsureCSRF(w, r)
 		next(w, r, authContext{UserID: user.UserID, Username: user.Username, Status: user.Status})
 	}
+}
+
+func writeShareUIError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
 func (h *Handler) shareAuthStatus(err error) int {
@@ -307,6 +370,41 @@ func (h *Handler) shareAuthStatus(err error) int {
 func (h *Handler) me(w http.ResponseWriter, _ *http.Request, auth authContext) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"user_id": auth.UserID, "username": auth.Username, "status": auth.Status})
+}
+
+func (h *Handler) shareAPIMe(w http.ResponseWriter, r *http.Request) {
+	user, err := h.authenticateCookie(w, r)
+	if err != nil {
+		h.clearAuthCookies(w, r)
+		writeShareUIError(w, h.shareAuthStatus(err), apiMessage(err))
+		return
+	}
+	_, _ = h.cookies.EnsureCSRF(w, r)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"user_id": user.UserID, "username": user.Username, "status": user.Status})
+}
+
+func (h *Handler) shareAPI(w http.ResponseWriter, r *http.Request) {
+	user, accessToken, err := h.authenticateCookieToken(w, r)
+	if err != nil {
+		h.clearAuthCookies(w, r)
+		writeShareUIError(w, h.shareAuthStatus(err), apiMessage(err))
+		return
+	}
+	_ = user
+	if err := uiauth.ValidateCSRF(r, h.cookies); err != nil {
+		writeShareUIError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	_, _ = h.cookies.EnsureCSRF(w, r)
+	forward := r.Clone(r.Context())
+	forward.URL.Path = strings.Replace(r.URL.Path, "/share/api/", "/api/share/", 1)
+	forward.RequestURI = forward.URL.RequestURI()
+	forward.Header = r.Header.Clone()
+	forward.Header.Set("Authorization", "Bearer "+accessToken)
+	forward.Header.Set("X-API-Version", "1")
+	forward.Header.Del("Cookie")
+	h.runtime.ServeAuthenticatedShares(w, forward)
 }
 
 func (h *Handler) shareListPage(w http.ResponseWriter, r *http.Request, auth authContext) {
@@ -555,7 +653,7 @@ func (h *Handler) renderFilePageWithMessages(w http.ResponseWriter, r *http.Requ
 	order := selectedOrder(r)
 	treePath := selectedTreePath(r)
 	basePath := fmt.Sprintf("/share/shares/%d", result.Share.ID)
-	apiBase := fmt.Sprintf("/api/share/shares/%d", result.Share.ID)
+	apiBase := fmt.Sprintf("/share/api/shares/%d", result.Share.ID)
 	contentBase := basePath
 	title := result.Share.Name
 	if public {
@@ -788,40 +886,6 @@ func loginCredentials(w http.ResponseWriter, r *http.Request) (string, string, b
 		return "", "", false
 	}
 	return strings.TrimSpace(r.FormValue("username")), r.FormValue("password"), true
-}
-
-func cookieValue(r *http.Request, name string) string {
-	cookie, err := r.Cookie(name)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(cookie.Value)
-}
-
-func setShareCookie(w http.ResponseWriter, name string, value string, expires time.Time) {
-	if expires.IsZero() {
-		expires = time.Now().UTC().Add(time.Hour)
-	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     name,
-		Value:    value,
-		Path:     "/share",
-		Expires:  expires,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
-}
-
-func clearShareCookie(w http.ResponseWriter, name string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     name,
-		Value:    "",
-		Path:     "/share",
-		MaxAge:   -1,
-		Expires:  time.Unix(0, 0).UTC(),
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
 }
 
 func localAuthStatus(err error) int {

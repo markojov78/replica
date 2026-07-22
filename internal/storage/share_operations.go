@@ -89,6 +89,17 @@ func (r *Runtime) RefreshShareUser(ctx context.Context, refreshToken string) (Sh
 	return r.proxyShareUserTokenPair(ctx, body, r.client.ProxyUserRefresh)
 }
 
+func (r *Runtime) LogoutShareUser(ctx context.Context, accessToken string) error {
+	status, err := r.client.ProxyUserLogout(ctx, accessToken)
+	if err != nil {
+		return err
+	}
+	if status < 200 || status >= 300 {
+		return &apiclient.APIError{StatusCode: status}
+	}
+	return nil
+}
+
 func (r *Runtime) proxyShareUserTokenPair(ctx context.Context, body []byte, proxy func(context.Context, []byte, string) (int, http.Header, []byte, error)) (ShareTokenPair, int, error) {
 	status, _, responseBody, err := proxy(ctx, body, "application/json")
 	if err != nil {

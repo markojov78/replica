@@ -38,7 +38,9 @@ func TestRegisterServesLoginAndStaticAssets(t *testing.T) {
 		t.Fatalf("GET static status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
 	}
 	if !strings.Contains(rec.Body.String(), `htmx:configRequest`) ||
-		!strings.Contains(rec.Body.String(), `Authorization`) ||
+		!strings.Contains(rec.Body.String(), `X-CSRF-Token`) ||
+		!strings.Contains(rec.Body.String(), `window.location.pathname !== "/share"`) ||
+		!strings.Contains(rec.Body.String(), `fetch("/share/api/auth/me"`) ||
 		!strings.Contains(rec.Body.String(), `thumbnail_size`) ||
 		!strings.Contains(rec.Body.String(), `page_size`) ||
 		!strings.Contains(rec.Body.String(), `defaultThumbnailSize`) ||
@@ -59,6 +61,9 @@ func TestRegisterServesLoginAndStaticAssets(t *testing.T) {
 		!strings.Contains(rec.Body.String(), `DOMParser`) ||
 		!strings.Contains(rec.Body.String(), `relative_uri`) {
 		t.Fatalf("share.js body = %s, want HTMX auth header handling", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `headers.Authorization`) {
+		t.Fatal("share.js must not construct an Authorization header")
 	}
 }
 
@@ -656,14 +661,30 @@ func TestShareUILoginSetsHttpOnlyAuthCookies(t *testing.T) {
 	if err := Register(mux, runtime); err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
+	page := httptest.NewRecorder()
+	mux.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/share", nil))
+	var csrf *http.Cookie
+	for _, cookie := range page.Result().Cookies() {
+		if cookie.Name == shareUICSRFCookie {
+			csrf = cookie
+		}
+	}
+	if csrf == nil {
+		t.Fatal("GET /share did not set CSRF cookie")
+	}
 
 	req := httptest.NewRequest(http.MethodPost, "/share/auth/login", strings.NewReader(`{"username":"alice","password":"secret"}`))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", csrf.Value)
+	req.AddCookie(csrf)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST login status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("POST login status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusNoContent)
+	}
+	if strings.Contains(rec.Body.String(), "access_token") || strings.Contains(rec.Body.String(), "refresh_token") {
+		t.Fatalf("POST login exposed tokens: %s", rec.Body.String())
 	}
 	cookies := rec.Result().Cookies()
 	var accessCookie, refreshCookie *http.Cookie
@@ -699,6 +720,8 @@ func TestShareUIDeletePostRedirectsToCanonicalSharePageAndGetStaysMethodNotAllow
 	}
 	req := httptest.NewRequest(http.MethodPost, "/share/shares/5/files/216/delete", strings.NewReader(form.Encode()))
 	req.AddCookie(&http.Cookie{Name: shareUIAccessCookie, Value: "user-token", Path: "/share"})
+	req.AddCookie(&http.Cookie{Name: shareUICSRFCookie, Value: "csrf-token", Path: "/share"})
+	req.Header.Set("X-CSRF-Token", "csrf-token")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)

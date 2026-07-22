@@ -205,7 +205,7 @@
     const shares = [];
     const count = 100;
     for (let page = 1; ; page += 1) {
-      const response = await request(`/api/admin/shares?inventory_id=${inventoryID}&page=${page}&count=${count}`, {signal});
+      const response = await request(`/dashboard/api/shares?inventory_id=${inventoryID}&page=${page}&count=${count}`, {signal});
       const result = await responseJSON(response, "Shares");
       const items = Array.isArray(result.items) ? result.items : [];
       shares.push(...items);
@@ -264,7 +264,7 @@
       if (!inventoryID || !window.ReplicaAdmin?.requestWithRefresh) throw new Error("The graph page could not be initialized.");
       const request = window.ReplicaAdmin.requestWithRefresh;
       const [inventoryResponse, shares] = await Promise.all([
-        request(`/api/admin/inventories/${inventoryID}`, {signal: controller.signal}),
+        request(`/dashboard/api/inventories/${inventoryID}`, {signal: controller.signal}),
         loadAllShares(inventoryID, request, controller.signal),
       ]);
       const inventory = await responseJSON(inventoryResponse, "Inventory");

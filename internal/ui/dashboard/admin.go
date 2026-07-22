@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"replica/internal/config"
+	"replica/internal/service"
+	"replica/internal/ui/uiauth"
 )
 
 var errUnauthorized = errors.New("unauthorized")
@@ -28,6 +30,9 @@ var assets embed.FS
 
 type Handler struct {
 	api               http.Handler
+	auth              *service.AuthService
+	cookies           uiauth.Cookies
+	refreshes         *uiauth.RefreshGroup
 	pages             *template.Template
 	coordinatorNodeID string
 	storageProfiles   []string
@@ -269,7 +274,7 @@ type pageData struct {
 	InventoryFilter     uint
 }
 
-func Register(mux *http.ServeMux, api http.Handler, cfg config.Config) error {
+func Register(mux *http.ServeMux, api http.Handler, cfg config.Config, authServices ...*service.AuthService) error {
 	pages, err := template.New("admin").Funcs(template.FuncMap{
 		"statusClass":            statusClass,
 		"syncStatusClass":        syncStatusClass,
@@ -296,8 +301,15 @@ func Register(mux *http.ServeMux, api http.Handler, cfg config.Config) error {
 	}
 
 	storageProfiles := storageProfileNames(cfg.Storage)
+	var auth *service.AuthService
+	if len(authServices) > 0 {
+		auth = authServices[0]
+	}
 	handler := &Handler{
 		api:               api,
+		auth:              auth,
+		cookies:           uiauth.Cookies{AccessName: "replica_admin_access", RefreshName: "replica_admin_refresh", CSRFName: "replica_admin_csrf", Path: "/dashboard"},
+		refreshes:         uiauth.NewRefreshGroup(256),
 		pages:             pages,
 		coordinatorNodeID: cfg.App.NodeID,
 		storageProfiles:   storageProfiles,
@@ -311,6 +323,9 @@ func Register(mux *http.ServeMux, api http.Handler, cfg config.Config) error {
 
 	mux.Handle("GET /dashboard/static/", http.StripPrefix("/dashboard/static/", http.FileServer(http.FS(mustSub(assets, "static")))))
 	mux.HandleFunc("GET /dashboard/login", handler.loginPage)
+	mux.HandleFunc("POST /dashboard/auth/login", handler.login)
+	mux.HandleFunc("POST /dashboard/logout", handler.logout)
+	mux.HandleFunc("/dashboard/api/{path...}", handler.dashboardAPI)
 	mux.HandleFunc("GET /dashboard", handler.protected(handler.dashboard))
 	mux.HandleFunc("GET /dashboard/nodes", handler.protected(handler.nodesPage))
 	mux.HandleFunc("GET /dashboard/nodes/new", handler.protected(handler.newNodePage))
@@ -370,7 +385,76 @@ func formatConfigDuration(value time.Duration) string {
 }
 
 func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.cookies.EnsureCSRF(w, r); err != nil {
+		http.Error(w, "failed to initialize session", http.StatusInternalServerError)
+		return
+	}
 	h.render(w, "login", pageData{Title: "Sign in"})
+}
+
+func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
+	if err := uiauth.ValidateCSRF(r, h.cookies); err != nil {
+		writeDashboardError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	var input struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			writeDashboardError(w, http.StatusBadRequest, "invalid JSON payload")
+			return
+		}
+	} else {
+		if err := r.ParseForm(); err != nil {
+			writeDashboardError(w, http.StatusBadRequest, "invalid form payload")
+			return
+		}
+		input.Username, input.Password = r.FormValue("username"), r.FormValue("password")
+	}
+	pair, err := h.auth.Login(strings.TrimSpace(input.Username), input.Password)
+	if err != nil {
+		status := http.StatusInternalServerError
+		message := "authentication failed"
+		switch {
+		case errors.Is(err, service.ErrInvalidCredentials):
+			status, message = http.StatusUnauthorized, "invalid username or password"
+		case errors.Is(err, service.ErrInactiveUser):
+			status, message = http.StatusForbidden, "inactive user"
+		}
+		writeDashboardError(w, status, message)
+		return
+	}
+	h.cookies.SetAuth(w, r, dashboardTokenPair(pair))
+	if _, err := h.cookies.RotateCSRF(w, r); err != nil {
+		writeDashboardError(w, http.StatusInternalServerError, "failed to initialize session")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func dashboardTokenPair(pair *service.TokenPair) uiauth.TokenPair {
+	return uiauth.TokenPair{AccessToken: pair.AccessToken, RefreshToken: pair.RefreshToken, AccessExpiresAt: pair.AccessTokenExpiresAt, RefreshExpiresAt: pair.RefreshTokenExpiresAt}
+}
+
+func writeDashboardError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
+func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
+	if err := uiauth.ValidateCSRF(r, h.cookies); err != nil {
+		h.cookies.Clear(w, r)
+		writeDashboardError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	if token, err := h.authenticate(w, r); err == nil {
+		_ = h.auth.Logout(token)
+	}
+	h.cookies.Clear(w, r)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request, _ authContext) {
@@ -1254,13 +1338,75 @@ func (h *Handler) resetSetting(w http.ResponseWriter, r *http.Request, sess auth
 
 func (h *Handler) protected(next func(http.ResponseWriter, *http.Request, authContext)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		accessToken, ok := bearerToken(r.Header.Get("Authorization"))
-		if !ok {
-			h.render(w, "login", pageData{Title: "Sign in"})
+		accessToken, err := h.authenticate(w, r)
+		if err != nil {
+			h.cookies.ClearAuth(w, r)
+			http.Redirect(w, r, "/dashboard/login", http.StatusSeeOther)
 			return
 		}
+		if err := uiauth.ValidateCSRF(r, h.cookies); err != nil {
+			writeDashboardError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		_, _ = h.cookies.EnsureCSRF(w, r)
 		next(w, r, authContext{AccessToken: accessToken})
 	}
+}
+
+func (h *Handler) authenticate(w http.ResponseWriter, r *http.Request) (string, error) {
+	if accessToken := h.cookies.Access(r); accessToken != "" {
+		if _, err := h.auth.ValidateUserAccessToken(accessToken); err == nil {
+			return accessToken, nil
+		}
+	}
+	refreshToken := h.cookies.Refresh(r)
+	if refreshToken == "" {
+		return "", errUnauthorized
+	}
+	pair, err := h.refreshes.Do(refreshToken, func() (uiauth.TokenPair, error) {
+		refreshed, err := h.auth.Refresh(refreshToken)
+		if err != nil {
+			return uiauth.TokenPair{}, err
+		}
+		return dashboardTokenPair(refreshed), nil
+	})
+	if err != nil {
+		return "", err
+	}
+	h.cookies.SetAuth(w, r, pair)
+	if _, err := h.auth.ValidateUserAccessToken(pair.AccessToken); err != nil {
+		return "", err
+	}
+	return pair.AccessToken, nil
+}
+
+func (h *Handler) dashboardAPI(w http.ResponseWriter, r *http.Request) {
+	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/dashboard/api/"), "/")
+	resource := strings.SplitN(path, "/", 2)[0]
+	allowed := map[string]bool{"auth": true, "users": true, "roles": true, "config": true, "commands": true, "nodes": true, "inventories": true, "replicas": true, "shares": true}
+	if path == "" || !allowed[resource] || strings.HasPrefix(path, "auth/login") || strings.HasPrefix(path, "auth/refresh") || strings.HasPrefix(path, "auth/logout") {
+		http.NotFound(w, r)
+		return
+	}
+	accessToken, err := h.authenticate(w, r)
+	if err != nil {
+		h.cookies.ClearAuth(w, r)
+		writeDashboardError(w, http.StatusUnauthorized, "missing authenticated user")
+		return
+	}
+	if err := uiauth.ValidateCSRF(r, h.cookies); err != nil {
+		writeDashboardError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	_, _ = h.cookies.EnsureCSRF(w, r)
+	forward := r.Clone(r.Context())
+	forward.URL.Path = "/api/admin/" + path
+	forward.RequestURI = forward.URL.RequestURI()
+	forward.Header = r.Header.Clone()
+	forward.Header.Set("Authorization", "Bearer "+accessToken)
+	forward.Header.Set("X-API-Version", "1")
+	forward.Header.Del("Cookie")
+	h.api.ServeHTTP(w, forward)
 }
 
 func (h *Handler) load(w http.ResponseWriter, r *http.Request, sess authContext, path string, output any) bool {

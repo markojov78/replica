@@ -354,6 +354,22 @@ func (c *Client) ProxyUserRefresh(ctx context.Context, body []byte, contentType 
 	return c.proxyAdminAuth(ctx, "/api/admin/auth/refresh", body, contentType)
 }
 
+func (c *Client) ProxyUserLogout(ctx context.Context, accessToken string) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.coordinatorURL+"/api/admin/auth/logout", nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("X-API-Version", apiVersion)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode, nil
+}
+
 func (c *Client) proxyAdminAuth(ctx context.Context, path string, body []byte, contentType string) (int, http.Header, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.coordinatorURL+path, bytes.NewReader(body))
 	if err != nil {
