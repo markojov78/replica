@@ -14,6 +14,7 @@ import (
 	"replica/internal/apiclient"
 	"replica/internal/config"
 	"replica/internal/storage"
+	"replica/internal/ui/uiauth"
 )
 
 func TestRegisterServesLoginAndStaticAssets(t *testing.T) {
@@ -690,17 +691,17 @@ func TestShareUILoginSetsHttpOnlyAuthCookies(t *testing.T) {
 	var accessCookie, refreshCookie *http.Cookie
 	for _, cookie := range cookies {
 		switch cookie.Name {
-		case shareUIAccessCookie:
+		case uiauth.AccessCookieName:
 			accessCookie = cookie
-		case shareUIRefreshCookie:
+		case uiauth.RefreshCookieName:
 			refreshCookie = cookie
 		}
 	}
 	if accessCookie == nil || refreshCookie == nil {
 		t.Fatalf("cookies = %+v, want access and refresh cookies", cookies)
 	}
-	if !accessCookie.HttpOnly || !refreshCookie.HttpOnly || accessCookie.Path != "/share" || refreshCookie.Path != "/share" {
-		t.Fatalf("cookies = %+v, want HttpOnly cookies scoped to /share", cookies)
+	if !accessCookie.HttpOnly || !refreshCookie.HttpOnly || accessCookie.Path != "/" || refreshCookie.Path != "/" {
+		t.Fatalf("cookies = %+v, want HttpOnly cookies scoped to /", cookies)
 	}
 }
 
@@ -719,7 +720,7 @@ func TestShareUIDeletePostRedirectsToCanonicalSharePageAndGetStaysMethodNotAllow
 		"view":    {"grid"},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/share/shares/5/files/216/delete", strings.NewReader(form.Encode()))
-	req.AddCookie(&http.Cookie{Name: shareUIAccessCookie, Value: "user-token", Path: "/share"})
+	req.AddCookie(&http.Cookie{Name: uiauth.AccessCookieName, Value: "user-token", Path: "/"})
 	req.AddCookie(&http.Cookie{Name: shareUICSRFCookie, Value: "csrf-token", Path: "/share"})
 	req.Header.Set("X-CSRF-Token", "csrf-token")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

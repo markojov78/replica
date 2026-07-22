@@ -308,8 +308,8 @@ func Register(mux *http.ServeMux, api http.Handler, cfg config.Config, authServi
 	handler := &Handler{
 		api:               api,
 		auth:              auth,
-		cookies:           uiauth.Cookies{AccessName: "replica_admin_access", RefreshName: "replica_admin_refresh", CSRFName: "replica_admin_csrf", Path: "/dashboard"},
-		refreshes:         uiauth.NewRefreshGroup(256),
+		cookies:           uiauth.SharedCookies("replica_admin_csrf", "/dashboard"),
+		refreshes:         uiauth.SharedUserRefreshes(),
 		pages:             pages,
 		coordinatorNodeID: cfg.App.NodeID,
 		storageProfiles:   storageProfiles,

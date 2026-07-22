@@ -13,11 +13,32 @@ import (
 	"time"
 )
 
+const (
+	AccessCookieName  = "replica_access"
+	RefreshCookieName = "replica_refresh"
+	AuthCookiePath    = "/"
+)
+
+var legacyAuthCookies = []struct {
+	name string
+	path string
+}{
+	{"replica_admin_access", "/dashboard"},
+	{"replica_admin_refresh", "/dashboard"},
+	{"replica_share_access", "/share"},
+	{"replica_share_refresh", "/share"},
+}
+
 type Cookies struct {
 	AccessName  string
 	RefreshName string
 	CSRFName    string
 	Path        string
+	CSRFPath    string
+}
+
+func SharedCookies(csrfName, csrfPath string) Cookies {
+	return Cookies{AccessName: AccessCookieName, RefreshName: RefreshCookieName, CSRFName: csrfName, Path: AuthCookiePath, CSRFPath: csrfPath}
 }
 
 type TokenPair struct {
@@ -39,13 +60,14 @@ func cookieValue(r *http.Request, name string) string {
 }
 
 func (c Cookies) SetAuth(w http.ResponseWriter, r *http.Request, pair TokenPair) {
+	c.clearLegacyAuth(w, r)
 	setCookie(w, r, c.AccessName, pair.AccessToken, pair.AccessExpiresAt, true, c.Path)
 	setCookie(w, r, c.RefreshName, pair.RefreshToken, pair.RefreshExpiresAt, true, c.Path)
 }
 
 func (c Cookies) Clear(w http.ResponseWriter, r *http.Request) {
 	c.ClearAuth(w, r)
-	setCookie(w, r, c.CSRFName, "", time.Unix(0, 0).UTC(), false, c.Path, -1)
+	setCookie(w, r, c.CSRFName, "", time.Unix(0, 0).UTC(), false, c.csrfPath(), -1)
 }
 
 func (c Cookies) ClearAuth(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +79,20 @@ func (c Cookies) ClearAuth(w http.ResponseWriter, r *http.Request) {
 	} {
 		setCookie(w, r, cookie.name, "", time.Unix(0, 0).UTC(), cookie.httpOnly, c.Path, -1)
 	}
+	c.clearLegacyAuth(w, r)
+}
+
+func (c Cookies) clearLegacyAuth(w http.ResponseWriter, r *http.Request) {
+	for _, cookie := range legacyAuthCookies {
+		setCookie(w, r, cookie.name, "", time.Unix(0, 0).UTC(), true, cookie.path, -1)
+	}
+}
+
+func (c Cookies) csrfPath() string {
+	if c.CSRFPath != "" {
+		return c.CSRFPath
+	}
+	return c.Path
 }
 
 func (c Cookies) EnsureCSRF(w http.ResponseWriter, r *http.Request) (string, error) {
@@ -72,7 +108,7 @@ func (c Cookies) RotateCSRF(w http.ResponseWriter, r *http.Request) (string, err
 		return "", err
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
-	setCookie(w, r, c.CSRFName, token, time.Now().UTC().Add(24*time.Hour), false, c.Path)
+	setCookie(w, r, c.CSRFName, token, time.Now().UTC().Add(24*time.Hour), false, c.csrfPath())
 	return token, nil
 }
 
@@ -123,16 +159,25 @@ type refreshCall struct {
 }
 
 type RefreshGroup struct {
-	mu       sync.Mutex
-	inFlight map[[32]byte]*refreshCall
-	max      int
+	mu        sync.Mutex
+	inFlight  map[[32]byte]*refreshCall
+	max       int
+	resultTTL time.Duration
 }
 
+var sharedUserRefreshes = NewRefreshGroup(256)
+
+func SharedUserRefreshes() *RefreshGroup { return sharedUserRefreshes }
+
 func NewRefreshGroup(max int) *RefreshGroup {
+	return newRefreshGroup(max, 2*time.Second)
+}
+
+func newRefreshGroup(max int, resultTTL time.Duration) *RefreshGroup {
 	if max < 1 {
 		max = 128
 	}
-	return &RefreshGroup{inFlight: make(map[[32]byte]*refreshCall), max: max}
+	return &RefreshGroup{inFlight: make(map[[32]byte]*refreshCall), max: max, resultTTL: resultTTL}
 }
 
 func (g *RefreshGroup) Do(refreshToken string, fn func() (TokenPair, error)) (TokenPair, error) {
@@ -153,8 +198,12 @@ func (g *RefreshGroup) Do(refreshToken string, fn func() (TokenPair, error)) (To
 
 	call.pair, call.err = fn()
 	close(call.done)
-	g.mu.Lock()
-	delete(g.inFlight, key)
-	g.mu.Unlock()
+	time.AfterFunc(g.resultTTL, func() {
+		g.mu.Lock()
+		if g.inFlight[key] == call {
+			delete(g.inFlight, key)
+		}
+		g.mu.Unlock()
+	})
 	return call.pair, call.err
 }

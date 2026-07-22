@@ -82,11 +82,9 @@ type fileView struct {
 }
 
 const (
-	shareUIAccessCookie  = "replica_share_access"
-	shareUIRefreshCookie = "replica_share_refresh"
-	shareUICSRFCookie    = "replica_share_csrf"
-	browseModeFlat       = "flat"
-	browseModeTree       = "tree"
+	shareUICSRFCookie = "replica_share_csrf"
+	browseModeFlat    = "flat"
+	browseModeTree    = "tree"
 	// Tree mode intentionally uses one existing file-list request and refuses larger shares.
 	treeBrowseFileLimit = 1000
 )
@@ -100,7 +98,7 @@ func Register(mux *http.ServeMux, runtime *storage.Runtime, authServices ...*ser
 	if len(authServices) > 0 {
 		auth = authServices[0]
 	}
-	handler := &Handler{runtime: runtime, auth: auth, pages: pages, cookies: uiauth.Cookies{AccessName: shareUIAccessCookie, RefreshName: shareUIRefreshCookie, CSRFName: shareUICSRFCookie, Path: "/share"}, refreshes: uiauth.NewRefreshGroup(256)}
+	handler := &Handler{runtime: runtime, auth: auth, pages: pages, cookies: uiauth.SharedCookies(shareUICSRFCookie, "/share"), refreshes: uiauth.SharedUserRefreshes()}
 	gate := handler.sharingGate
 	gateFunc := func(next http.HandlerFunc) http.HandlerFunc {
 		return gate(next).ServeHTTP

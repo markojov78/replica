@@ -10,6 +10,7 @@ import (
 	"replica/internal/config"
 	"replica/internal/model"
 	"replica/internal/security"
+	"replica/internal/ui/uiauth"
 )
 
 func TestDashboardBFFCookieLoginMeLogoutAndCSRF(t *testing.T) {
@@ -57,10 +58,10 @@ func TestDashboardBFFCookieLoginMeLogoutAndCSRF(t *testing.T) {
 	if login.Code != http.StatusNoContent || strings.Contains(login.Body.String(), "access_token") || strings.Contains(login.Body.String(), "refresh_token") {
 		t.Fatalf("login status/body = %d %q", login.Code, login.Body.String())
 	}
-	access := responseCookie(t, login.Result().Cookies(), "replica_admin_access")
-	refresh := responseCookie(t, login.Result().Cookies(), "replica_admin_refresh")
+	access := responseCookie(t, login.Result().Cookies(), uiauth.AccessCookieName)
+	refresh := responseCookie(t, login.Result().Cookies(), uiauth.RefreshCookieName)
 	csrf = responseCookie(t, login.Result().Cookies(), "replica_admin_csrf")
-	if !access.HttpOnly || !refresh.HttpOnly || access.Path != "/dashboard" || refresh.Path != "/dashboard" {
+	if !access.HttpOnly || !refresh.HttpOnly || access.Path != "/" || refresh.Path != "/" {
 		t.Fatalf("auth cookies = %+v %+v", access, refresh)
 	}
 
@@ -83,7 +84,7 @@ func TestDashboardBFFCookieLoginMeLogoutAndCSRF(t *testing.T) {
 	if logout.Code != http.StatusNoContent {
 		t.Fatalf("logout status = %d body=%s", logout.Code, logout.Body.String())
 	}
-	for _, name := range []string{"replica_admin_access", "replica_admin_refresh", "replica_admin_csrf"} {
+	for _, name := range []string{uiauth.AccessCookieName, uiauth.RefreshCookieName, "replica_admin_csrf"} {
 		if cookie := responseCookie(t, logout.Result().Cookies(), name); cookie.MaxAge >= 0 {
 			t.Fatalf("cleared cookie %s MaxAge = %d", name, cookie.MaxAge)
 		}

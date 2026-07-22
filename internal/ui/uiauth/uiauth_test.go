@@ -28,7 +28,7 @@ func TestCSRFValidation(t *testing.T) {
 }
 
 func TestRefreshGroupCoalescesAndCleansUp(t *testing.T) {
-	group := NewRefreshGroup(4)
+	group := newRefreshGroup(4, 10*time.Millisecond)
 	var calls atomic.Int32
 	start := make(chan struct{})
 	release := make(chan struct{})
@@ -60,26 +60,53 @@ func TestRefreshGroupCoalescesAndCleansUp(t *testing.T) {
 			t.Fatalf("result = %+v", result)
 		}
 	}
+	time.Sleep(20 * time.Millisecond)
 	group.mu.Lock()
-	defer group.mu.Unlock()
 	if len(group.inFlight) != 0 {
 		t.Fatalf("in-flight entries = %d, want 0", len(group.inFlight))
 	}
+	group.mu.Unlock()
 }
 
 func TestCookiesAreScopedAndHTTPOnly(t *testing.T) {
-	cookies := Cookies{AccessName: "access", RefreshName: "refresh", CSRFName: "csrf", Path: "/ui"}
+	cookies := SharedCookies("csrf", "/ui")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "https://example.com/ui/login", nil)
 	cookies.SetAuth(rec, req, TokenPair{AccessToken: "a", RefreshToken: "r", AccessExpiresAt: time.Now().Add(time.Hour), RefreshExpiresAt: time.Now().Add(2 * time.Hour)})
 	set := rec.Result().Cookies()
-	if len(set) != 2 {
-		t.Fatalf("cookies = %d, want 2", len(set))
-	}
+	found := 0
 	for _, cookie := range set {
-		if !cookie.HttpOnly || !cookie.Secure || cookie.SameSite != http.SameSiteLaxMode || cookie.Path != "/ui" {
+		if cookie.Name != AccessCookieName && cookie.Name != RefreshCookieName {
+			continue
+		}
+		found++
+		if !cookie.HttpOnly || !cookie.Secure || cookie.SameSite != http.SameSiteLaxMode || cookie.Path != "/" {
 			t.Fatalf("cookie = %+v", cookie)
 		}
+	}
+	if found != 2 {
+		t.Fatalf("shared auth cookies = %d, want 2", found)
+	}
+}
+
+func TestSetAuthClearsLegacyCookiePaths(t *testing.T) {
+	cookies := SharedCookies("csrf", "/ui")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "http://example.com/ui/login", nil)
+	cookies.SetAuth(rec, req, TokenPair{AccessToken: "a", RefreshToken: "r", AccessExpiresAt: time.Now().Add(time.Hour), RefreshExpiresAt: time.Now().Add(2 * time.Hour)})
+	want := map[string]string{
+		"replica_admin_access":  "/dashboard",
+		"replica_admin_refresh": "/dashboard",
+		"replica_share_access":  "/share",
+		"replica_share_refresh": "/share",
+	}
+	for _, cookie := range rec.Result().Cookies() {
+		if path, ok := want[cookie.Name]; ok && cookie.Path == path && cookie.MaxAge < 0 {
+			delete(want, cookie.Name)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("legacy cookies not cleared: %v", want)
 	}
 }
 

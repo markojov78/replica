@@ -19,6 +19,7 @@ import (
 	"replica/internal/repository"
 	"replica/internal/seed"
 	"replica/internal/service"
+	"replica/internal/ui/uiauth"
 )
 
 func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
@@ -916,7 +917,7 @@ func adminRequest(t *testing.T, handler http.Handler, method, path string, form 
 		if strings.HasPrefix(path, "/api/admin/") {
 			request.Header.Set("Authorization", "Bearer "+accessToken)
 		} else {
-			request.AddCookie(&http.Cookie{Name: "replica_admin_access", Value: accessToken, Path: "/dashboard"})
+			request.AddCookie(&http.Cookie{Name: uiauth.AccessCookieName, Value: accessToken, Path: "/"})
 			request.AddCookie(&http.Cookie{Name: "replica_admin_csrf", Value: "test-csrf", Path: "/dashboard"})
 			request.Header.Set("X-CSRF-Token", "test-csrf")
 		}
