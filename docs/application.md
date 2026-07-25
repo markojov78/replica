@@ -363,11 +363,7 @@ Only `pending` commands are delivered to storage nodes.
 ##### `refresh_state`
 Refreshes storage-node runtime state from the coordinator.
 
-Payload:
-
-```json
-{}
-```
+Payload: empty
 
 The storage node reloads assigned replicas, assigned shares and other coordinator-owned runtime state. It also stops
 watchers for replicas that are no longer active runtime work, including replicas whose status is `deleted`.
@@ -389,9 +385,7 @@ Starts or requests a scan of one assigned replica.
 
 Payload:
 ```json
-{
-  "replica_id": 4
-}
+{ "replica_id": 4 }
 ```
 
 Payload fields:

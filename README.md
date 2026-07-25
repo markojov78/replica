@@ -104,7 +104,7 @@ but for permanent deployment use one of the methods described in [Run section](#
 1. Open "Add node" interface in the admin panel:
 ![Add node UI](docs/add_node.jpg)
 2. Enter node info
-3. Copy node configuration and sac it to the `config.yaml` file
+3. Copy node configuration and save it to the `config.yaml` file
 4. Click "Create node"
 
 ### 6. Configure storage node
