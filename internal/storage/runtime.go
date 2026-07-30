@@ -1027,49 +1027,21 @@ func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Comman
 		}
 
 		token := r.replicaTransferToken(payload.DestinationReplicaID)
-		content, err := r.transferReplicaFileContentWithRetry(
+		err := r.transferAndSaveReplicaFileWithRetry(
 			ctx,
+			writer,
+			destination,
 			payload.SourceNodeAddress,
 			payload.SourceReplicaID,
-			pendingFile.FileID,
-			pendingFile.InventoryVersion,
+			pendingFile,
 			token,
 		)
 		if err != nil {
-			failure := fmt.Errorf("transfer replica_id=%d file_id=%d version=%d: %w", payload.DestinationReplicaID, pendingFile.FileID, pendingFile.InventoryVersion, err)
+			failure := fmt.Errorf("sync replica_id=%d file_id=%d version=%d: %w", payload.DestinationReplicaID, pendingFile.FileID, pendingFile.InventoryVersion, err)
 			if isReconcileAuthError(err) {
 				return failure
 			}
-			if isReconcileFileError(err) || isTransientTransferError(err) {
-				if markErr := r.markReplicaFileError(ctx, payload.DestinationReplicaID, pendingFile.FileID, failure); markErr != nil {
-					return markErr
-				}
-			}
-			failures = append(failures, failure.Error())
-			continue
-		}
-
-		saveErr := writer.Save(ctx, destination.URI, pendingFile.RelativeURI, content, pendingFile.Size)
-		closeErr := content.Close()
-		if saveErr != nil {
-			failure := fmt.Errorf("write replica_id=%d file_id=%d relative_uri=%s: %w", payload.DestinationReplicaID, pendingFile.FileID, pendingFile.RelativeURI, saveErr)
-			if isReconcileAuthError(saveErr) {
-				return failure
-			}
-			if isReconcileFileError(saveErr) {
-				if markErr := r.markReplicaFileError(ctx, payload.DestinationReplicaID, pendingFile.FileID, failure); markErr != nil {
-					return markErr
-				}
-			}
-			failures = append(failures, failure.Error())
-			continue
-		}
-		if closeErr != nil {
-			failure := fmt.Errorf("close transfer content replica_id=%d file_id=%d: %w", payload.DestinationReplicaID, pendingFile.FileID, closeErr)
-			if isReconcileAuthError(closeErr) {
-				return failure
-			}
-			if isReconcileFileError(closeErr) {
+			if isReconcileFileError(err) || isRetryableFileSyncError(err) {
 				if markErr := r.markReplicaFileError(ctx, payload.DestinationReplicaID, pendingFile.FileID, failure); markErr != nil {
 					return markErr
 				}
@@ -1099,26 +1071,67 @@ func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Comman
 	return nil
 }
 
-func (r *Runtime) transferReplicaFileContentWithRetry(
+type verifiedWriter interface {
+	SaveVerified(ctx context.Context, replicaURI string, relativeURI string, content io.Reader, expectedSize int64, expectedHash string) error
+}
+
+func (r *Runtime) transferAndSaveReplicaFileWithRetry(
 	ctx context.Context,
+	writer Writer,
+	destination apiclient.Replica,
 	sourceNodeAddress string,
 	sourceReplicaID uint,
-	fileID uint,
-	version uint,
+	pendingFile apiclient.ReplicaInventoryFile,
 	token string,
-) (io.ReadCloser, error) {
-	content, err := r.client.TransferReplicaFileContent(ctx, sourceNodeAddress, sourceReplicaID, fileID, version, token)
-	for retry := 0; err != nil && isTransientTransferError(err) && retry < r.cfg.App.FileSyncRetry; retry++ {
+) error {
+	operation := func() error {
+		content, err := r.client.TransferReplicaFileContent(
+			ctx,
+			sourceNodeAddress,
+			sourceReplicaID,
+			pendingFile.FileID,
+			pendingFile.InventoryVersion,
+			token,
+		)
+		if err != nil {
+			return err
+		}
+
+		var saveErr error
+		if integrityWriter, ok := writer.(verifiedWriter); ok {
+			saveErr = integrityWriter.SaveVerified(
+				ctx,
+				destination.URI,
+				pendingFile.RelativeURI,
+				content,
+				pendingFile.Size,
+				pendingFile.Hash,
+			)
+		} else {
+			saveErr = writer.Save(ctx, destination.URI, pendingFile.RelativeURI, content, pendingFile.Size)
+		}
+		closeErr := content.Close()
+		if saveErr != nil {
+			return fmt.Errorf("write relative_uri=%s: %w", pendingFile.RelativeURI, saveErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("close transfer content: %w", closeErr)
+		}
+		return nil
+	}
+
+	err := operation()
+	for retry := 0; err != nil && isRetryableFileSyncError(err) && retry < r.cfg.App.FileSyncRetry; retry++ {
 		delay := r.cfg.App.FileSyncRetryTime
 		for factor := 0; factor < retry; factor++ {
 			delay *= 2
 		}
 		if !sleepContext(ctx, delay) {
-			return nil, ctx.Err()
+			return ctx.Err()
 		}
-		content, err = r.client.TransferReplicaFileContent(ctx, sourceNodeAddress, sourceReplicaID, fileID, version, token)
+		err = operation()
 	}
-	return content, err
+	return err
 }
 
 func (r *Runtime) markReplicaFileError(ctx context.Context, replicaID, fileID uint, fileErr error) error {
@@ -1146,6 +1159,10 @@ func isTransientTransferError(err error) bool {
 	var apiErr *apiclient.APIError
 	return errors.As(err, &apiErr) &&
 		(apiErr.StatusCode == http.StatusNotFound || apiErr.StatusCode == http.StatusConflict)
+}
+
+func isRetryableFileSyncError(err error) bool {
+	return isTransientTransferError(err) || errors.Is(err, ErrFileIntegrityMismatch)
 }
 
 func (r *Runtime) markLocalReplicaFileSynchronized(replicaID, fileID, version uint) {

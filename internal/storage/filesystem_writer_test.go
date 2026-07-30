@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +50,61 @@ func TestFilesystemWriterSaveAndDelete(t *testing.T) {
 	}
 	if err := writer.Delete(context.Background(), root, "nested/file.txt"); err != nil {
 		t.Fatalf("Delete(missing) error = %v", err)
+	}
+}
+
+func TestFilesystemWriterSaveVerifiedRejectsIntegrityMismatchWithoutReplacingDestination(t *testing.T) {
+	expectedHash, err := hashReaderBLAKE3(context.Background(), strings.NewReader("expected"))
+	if err != nil {
+		t.Fatalf("hashReaderBLAKE3() error = %v", err)
+	}
+
+	tests := []struct {
+		name         string
+		expectedSize int64
+		expectedHash string
+	}{
+		{name: "size", expectedSize: int64(len("different") + 1), expectedHash: expectedHash},
+		{name: "hash", expectedSize: int64(len("different")), expectedHash: expectedHash},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			target := filepath.Join(root, "file.txt")
+			if err := os.WriteFile(target, []byte("original"), 0o644); err != nil {
+				t.Fatalf("WriteFile(target) error = %v", err)
+			}
+
+			writer := NewFilesystemWriter()
+			err := writer.SaveVerified(
+				context.Background(),
+				root,
+				"file.txt",
+				strings.NewReader("different"),
+				tt.expectedSize,
+				tt.expectedHash,
+			)
+			if !errors.Is(err, ErrFileIntegrityMismatch) {
+				t.Fatalf("SaveVerified() error = %v, want %v", err, ErrFileIntegrityMismatch)
+			}
+
+			content, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatalf("ReadFile(target) error = %v", err)
+			}
+			if string(content) != "original" {
+				t.Fatalf("target content = %q, want original", content)
+			}
+
+			entries, err := os.ReadDir(root)
+			if err != nil {
+				t.Fatalf("ReadDir(root) error = %v", err)
+			}
+			if len(entries) != 1 || entries[0].Name() != "file.txt" {
+				t.Fatalf("directory entries = %v, want only file.txt", entries)
+			}
+		})
 	}
 }
 

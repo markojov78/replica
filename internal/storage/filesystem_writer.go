@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -9,7 +10,11 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/zeebo/blake3"
 )
+
+var ErrFileIntegrityMismatch = errors.New("file integrity mismatch")
 
 type FilesystemWriter struct {
 	followSymlinks bool
@@ -19,7 +24,15 @@ func NewFilesystemWriter(followSymlinks ...bool) *FilesystemWriter {
 	return &FilesystemWriter{followSymlinks: len(followSymlinks) > 0 && followSymlinks[0]}
 }
 
-func (w *FilesystemWriter) Save(ctx context.Context, replicaURI string, relativeURI string, content io.Reader, _ int64) error {
+func (w *FilesystemWriter) Save(ctx context.Context, replicaURI string, relativeURI string, content io.Reader, size int64) error {
+	return w.save(ctx, replicaURI, relativeURI, content, size, "", false)
+}
+
+func (w *FilesystemWriter) SaveVerified(ctx context.Context, replicaURI string, relativeURI string, content io.Reader, expectedSize int64, expectedHash string) error {
+	return w.save(ctx, replicaURI, relativeURI, content, expectedSize, expectedHash, true)
+}
+
+func (w *FilesystemWriter) save(ctx context.Context, replicaURI string, relativeURI string, content io.Reader, expectedSize int64, expectedHash string, verify bool) error {
 	targetPath, err := resolveFilesystemWritePath(replicaURI, relativeURI)
 	if err != nil {
 		return err
@@ -60,12 +73,33 @@ func (w *FilesystemWriter) Save(ctx context.Context, replicaURI string, relative
 		}
 	}()
 
-	if _, err := copyWithContext(ctx, tempFile, content); err != nil {
+	var hasher *blake3.Hasher
+	destination := io.Writer(tempFile)
+	if verify {
+		hasher = blake3.New()
+		destination = io.MultiWriter(tempFile, hasher)
+	}
+	written, err := copyWithContext(ctx, destination, content)
+	if err != nil {
 		_ = tempFile.Close()
 		return err
 	}
 	if err := tempFile.Close(); err != nil {
 		return err
+	}
+
+	if verify {
+		actualHash := hex.EncodeToString(hasher.Sum(nil))
+		if written != expectedSize || actualHash != expectedHash {
+			return fmt.Errorf(
+				"%w: expected size=%d hash=%s, got size=%d hash=%s",
+				ErrFileIntegrityMismatch,
+				expectedSize,
+				expectedHash,
+				written,
+				actualHash,
+			)
+		}
 	}
 
 	if err := os.Rename(tempPath, targetPath); err != nil {

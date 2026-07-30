@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
-	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -1338,6 +1337,10 @@ func TestRuntimeScanReplicaSkipsDeletedReplica(t *testing.T) {
 
 func TestRuntimeReconcileReplicaTransfersPendingFiles(t *testing.T) {
 	destinationRoot := t.TempDir()
+	contentHash, err := hashReaderBLAKE3(context.Background(), strings.NewReader("content"))
+	if err != nil {
+		t.Fatalf("hashReaderBLAKE3() error = %v", err)
+	}
 	type replicaFileStatusUpdate struct {
 		Status  string
 		Version uint
@@ -1384,7 +1387,7 @@ func TestRuntimeReconcileReplicaTransfersPendingFiles(t *testing.T) {
 						"inventory_id":      2,
 						"relative_uri":      "nested/file.txt",
 						"size":              7,
-						"hash":              "hash",
+						"hash":              contentHash,
 						"inventory_status":  "active",
 						"inventory_version": 5,
 						"replica_status":    "pending",
@@ -1680,6 +1683,10 @@ func TestRuntimeReconcileReplicaDeletesUnknownDownstreamFiles(t *testing.T) {
 
 func TestRuntimeReconcileReplicaMarksTerminalFileErrorAndContinues(t *testing.T) {
 	destinationRoot := t.TempDir()
+	okHash, err := hashReaderBLAKE3(context.Background(), strings.NewReader("ok"))
+	if err != nil {
+		t.Fatalf("hashReaderBLAKE3() error = %v", err)
+	}
 	var statusUpdates []struct {
 		FileID  string
 		Status  string
@@ -1711,7 +1718,7 @@ func TestRuntimeReconcileReplicaMarksTerminalFileErrorAndContinues(t *testing.T)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"files": []map[string]any{
 					{"file_id": 10, "replica_id": 4, "inventory_id": 2, "relative_uri": "missing.txt", "inventory_status": "active", "inventory_version": 5, "replica_status": "pending", "replica_version": 0, "created": "2026-05-21T11:00:00Z", "modified": "2026-05-21T12:00:00Z"},
-					{"file_id": 11, "replica_id": 4, "inventory_id": 2, "relative_uri": "ok.txt", "inventory_status": "active", "inventory_version": 6, "replica_status": "pending", "replica_version": 0, "created": "2026-05-21T11:00:00Z", "modified": "2026-05-21T12:00:00Z"},
+					{"file_id": 11, "replica_id": 4, "inventory_id": 2, "relative_uri": "ok.txt", "size": 2, "hash": okHash, "inventory_status": "active", "inventory_version": 6, "replica_status": "pending", "replica_version": 0, "created": "2026-05-21T11:00:00Z", "modified": "2026-05-21T12:00:00Z"},
 				},
 			})
 		case "/transfer/replicas/3/files/10/content":
@@ -1788,7 +1795,7 @@ func TestRuntimeReconcileReplicaMarksTerminalFileErrorAndContinues(t *testing.T)
 	}
 }
 
-func TestRuntimeTransferReplicaFileContentRetriesNotFoundAndConflict(t *testing.T) {
+func TestRuntimeTransferAndSaveReplicaFileRetriesNotFoundAndConflict(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -1807,28 +1814,184 @@ func TestRuntimeTransferReplicaFileContentRetriesNotFoundAndConflict(t *testing.
 	runtime.cfg.App.FileSyncRetry = 2
 	runtime.cfg.App.FileSyncRetryTime = time.Millisecond
 
-	content, err := runtime.transferReplicaFileContentWithRetry(
+	expectedHash, err := hashReaderBLAKE3(context.Background(), strings.NewReader("content"))
+	if err != nil {
+		t.Fatalf("hashReaderBLAKE3() error = %v", err)
+	}
+	destinationRoot := t.TempDir()
+	err = runtime.transferAndSaveReplicaFileWithRetry(
 		context.Background(),
+		NewFilesystemWriter(),
+		apiclient.Replica{ID: 4, URI: destinationRoot},
 		server.URL,
 		3,
-		10,
-		5,
+		apiclient.ReplicaInventoryFile{
+			FileID:           10,
+			RelativeURI:      "file.txt",
+			Size:             int64(len("content")),
+			Hash:             expectedHash,
+			InventoryVersion: 5,
+		},
 		"transfer-token",
 	)
 	if err != nil {
-		t.Fatalf("transferReplicaFileContentWithRetry() error = %v", err)
+		t.Fatalf("transferAndSaveReplicaFileWithRetry() error = %v", err)
 	}
-	defer content.Close()
 
-	data, err := io.ReadAll(content)
+	data, err := os.ReadFile(filepath.Join(destinationRoot, "file.txt"))
 	if err != nil {
-		t.Fatalf("ReadAll(content) error = %v", err)
+		t.Fatalf("ReadFile() error = %v", err)
 	}
 	if string(data) != "content" {
 		t.Fatalf("content = %q, want content", string(data))
 	}
 	if requests != 3 {
 		t.Fatalf("requests = %d, want 3", requests)
+	}
+}
+
+func TestRuntimeTransferAndSaveReplicaFileRetriesIntegrityMismatch(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		if requests == 1 {
+			_, _ = w.Write([]byte("corrupt"))
+			return
+		}
+		_, _ = w.Write([]byte("expected"))
+	}))
+	defer server.Close()
+
+	runtime := newRuntimeForTest(t, server.URL)
+	runtime.cfg.App.FileSyncRetry = 1
+	runtime.cfg.App.FileSyncRetryTime = time.Millisecond
+
+	expectedHash, err := hashReaderBLAKE3(context.Background(), strings.NewReader("expected"))
+	if err != nil {
+		t.Fatalf("hashReaderBLAKE3() error = %v", err)
+	}
+	destinationRoot := t.TempDir()
+	target := filepath.Join(destinationRoot, "file.txt")
+	if err := os.WriteFile(target, []byte("original"), 0o644); err != nil {
+		t.Fatalf("WriteFile(target) error = %v", err)
+	}
+
+	err = runtime.transferAndSaveReplicaFileWithRetry(
+		context.Background(),
+		NewFilesystemWriter(),
+		apiclient.Replica{ID: 4, URI: destinationRoot},
+		server.URL,
+		3,
+		apiclient.ReplicaInventoryFile{
+			FileID:           10,
+			RelativeURI:      "file.txt",
+			Size:             int64(len("expected")),
+			Hash:             expectedHash,
+			InventoryVersion: 5,
+		},
+		"transfer-token",
+	)
+	if err != nil {
+		t.Fatalf("transferAndSaveReplicaFileWithRetry() error = %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2", requests)
+	}
+
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("ReadFile(target) error = %v", err)
+	}
+	if string(data) != "expected" {
+		t.Fatalf("target content = %q, want expected", data)
+	}
+}
+
+func TestRuntimeReconcileReplicaMarksIntegrityMismatchErrorAfterRetries(t *testing.T) {
+	destinationRoot := t.TempDir()
+	target := filepath.Join(destinationRoot, "file.txt")
+	if err := os.WriteFile(target, []byte("original"), 0o644); err != nil {
+		t.Fatalf("WriteFile(target) error = %v", err)
+	}
+	expectedHash, err := hashReaderBLAKE3(context.Background(), strings.NewReader("expected"))
+	if err != nil {
+		t.Fatalf("hashReaderBLAKE3() error = %v", err)
+	}
+
+	transferRequests := 0
+	status := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/node/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":                  "node-a",
+				"access_token":             "access-token",
+				"refresh_token":            "refresh-token",
+				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
+				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/node/shares", "/node/config", "/node/config/storage-profiles":
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		case "/node/replicas":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{
+				"id": 4, "inventory_id": 2, "node_id": "node-a", "uri": destinationRoot, "status": "active", "type": "filesystem",
+			}})
+		case "/node/replica/4/files":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"files": []map[string]any{{
+					"file_id": 10, "replica_id": 4, "inventory_id": 2, "relative_uri": "file.txt",
+					"size": int64(len("expected")), "hash": expectedHash, "inventory_status": "active",
+					"inventory_version": 5, "replica_status": "pending", "replica_version": 0,
+					"created": "2026-05-21T11:00:00Z", "modified": "2026-05-21T12:00:00Z",
+				}},
+			})
+		case "/transfer/replicas/3/files/10/content":
+			transferRequests++
+			_, _ = w.Write([]byte("corrupt"))
+		case "/node/replica/4/files/10":
+			var body struct {
+				Status string `json:"status"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("Decode(status update) error = %v", err)
+			}
+			status = body.Status
+			w.WriteHeader(http.StatusNoContent)
+		case "/node/commands/36":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 36, "node_id": "node-a", "type": "reconcile_replica", "status": "failed"})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	runtime := newRuntimeForTest(t, server.URL)
+	runtime.cfg.App.FileSyncRetry = 2
+	runtime.cfg.App.FileSyncRetryTime = time.Millisecond
+	t.Cleanup(func() { runtime.stopReplicaWatcher(4) })
+
+	if ok := runtime.handleCommand(context.Background(), apiclient.Command{
+		ID:      36,
+		NodeID:  "node-a",
+		Type:    "reconcile_replica",
+		Status:  "pending",
+		Payload: reconcilePayloadForTest(t, server.URL),
+	}); ok {
+		t.Fatal("handleCommand() = true, want false")
+	}
+	if transferRequests != 3 {
+		t.Fatalf("transfer requests = %d, want 3", transferRequests)
+	}
+	if status != "error" {
+		t.Fatalf("replica file status = %q, want error", status)
+	}
+
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("ReadFile(target) error = %v", err)
+	}
+	if string(data) != "original" {
+		t.Fatalf("target content = %q, want original", data)
 	}
 }
 
