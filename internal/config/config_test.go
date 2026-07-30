@@ -33,6 +33,8 @@ app:
   heartbeat_interval: "7m"
   api_request_timeout: "20s"
   file_transfer_timeout: "45m"
+  file_sync_retry: 4
+  file_sync_retry_time: "2s"
 auth:
   jwt_secret: "file-secret"
   node_secret: "node-file-secret"
@@ -69,6 +71,7 @@ storage:
 	t.Setenv("HTTP_ADDR", ":8088")
 	t.Setenv("DB_AUTO_MIGRATE", "true")
 	t.Setenv("APP_API_REQUEST_TIMEOUT", "25s")
+	t.Setenv("APP_FILE_SYNC_RETRY", "5")
 	t.Setenv("SHARING_VIDEO_INLINE_MAX_SIZE_MB", "30")
 	t.Setenv("SHARING_THUMBNAIL_STORAGE", "/env/replica/thumbs")
 	t.Setenv("SHARING_THUMBNAIL_STORAGE_LIMIT_MB", "750")
@@ -105,6 +108,12 @@ storage:
 	}
 	if cfg.App.FileTransferTimeout != 45*time.Minute {
 		t.Fatalf("App.FileTransferTimeout = %s, want %s", cfg.App.FileTransferTimeout, 45*time.Minute)
+	}
+	if cfg.App.FileSyncRetry != 5 {
+		t.Fatalf("App.FileSyncRetry = %d, want 5", cfg.App.FileSyncRetry)
+	}
+	if cfg.App.FileSyncRetryTime != 2*time.Second {
+		t.Fatalf("App.FileSyncRetryTime = %s, want %s", cfg.App.FileSyncRetryTime, 2*time.Second)
 	}
 	if cfg.Sharing.VideoInlineMaxSizeMB != 30 {
 		t.Fatalf("Sharing.VideoInlineMaxSizeMB = %d, want 30 from env override", cfg.Sharing.VideoInlineMaxSizeMB)
@@ -283,6 +292,12 @@ func TestLoadAllowsMinimalStorageOnlyMode(t *testing.T) {
 	}
 	if cfg.App.FileTransferTimeout != 2*time.Hour {
 		t.Fatalf("App.FileTransferTimeout = %s, want %s", cfg.App.FileTransferTimeout, 2*time.Hour)
+	}
+	if cfg.App.FileSyncRetry != 3 {
+		t.Fatalf("App.FileSyncRetry = %d, want 3", cfg.App.FileSyncRetry)
+	}
+	if cfg.App.FileSyncRetryTime != time.Second {
+		t.Fatalf("App.FileSyncRetryTime = %s, want %s", cfg.App.FileSyncRetryTime, time.Second)
 	}
 }
 

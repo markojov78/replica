@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"io"
 	"net/http"
@@ -55,6 +56,10 @@ func TestServeReplicaFileContentRejectsVersionMismatch(t *testing.T) {
 	}
 
 	runtime, token := newTransferTestRuntime(t, root)
+	coordinator := newTransferStateTestServer(t, 7)
+	defer coordinator.Close()
+	runtime.client = newTransferTestClient(t, coordinator.URL)
+
 	req := httptest.NewRequest(http.MethodGet, "/transfer/replicas/1/files/10/content?version=8", nil)
 	req.SetPathValue("replica_id", "1")
 	req.SetPathValue("file_id", "10")
@@ -65,6 +70,33 @@ func TestServeReplicaFileContentRejectsVersionMismatch(t *testing.T) {
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusConflict)
+	}
+}
+
+func TestServeReplicaFileContentRefreshesStaleLocalState(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("file content"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	runtime, token := newTransferTestRuntime(t, root)
+	coordinator := newTransferStateTestServer(t, 8)
+	defer coordinator.Close()
+	runtime.client = newTransferTestClient(t, coordinator.URL)
+
+	req := httptest.NewRequest(http.MethodGet, "/transfer/replicas/1/files/10/content?version=8", nil)
+	req.SetPathValue("replica_id", "1")
+	req.SetPathValue("file_id", "10")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	runtime.ServeReplicaFileContent(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
+	}
+	if rec.Body.String() != "file content" {
+		t.Fatalf("body = %q, want %q", rec.Body.String(), "file content")
 	}
 }
 
@@ -187,6 +219,55 @@ func newTransferTestRuntime(t *testing.T, root string) (*Runtime, string) {
 	}
 
 	return runtime, token
+}
+
+func newTransferStateTestServer(t *testing.T, version uint) *httptest.Server {
+	t.Helper()
+
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/node/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":                  "node-a",
+				"access_token":             "access-token",
+				"refresh_token":            "refresh-token",
+				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
+				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/node/replica/1/files":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"files": []map[string]any{{
+					"file_id":           10,
+					"replica_id":        1,
+					"relative_uri":      "file.txt",
+					"replica_status":    "synchronized",
+					"replica_version":   version,
+					"inventory_version": version,
+					"created":           "2026-05-21T11:00:00Z",
+					"modified":          "2026-05-21T12:00:00Z",
+				}},
+			})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.RequestURI())
+		}
+	}))
+}
+
+func newTransferTestClient(t *testing.T, coordinatorURL string) *apiclient.Client {
+	t.Helper()
+
+	client, err := apiclient.New(config.Config{
+		App: config.AppConfig{
+			NodeID:         "node-a",
+			CoordinatorURL: coordinatorURL,
+			NodeAddress:    "http://node-a",
+		},
+		Auth: config.AuthConfig{NodeSecret: "secret"},
+	})
+	if err != nil {
+		t.Fatalf("apiclient.New() error = %v", err)
+	}
+	return client
 }
 
 func newTransferTestKeyPair(t *testing.T) (string, any) {

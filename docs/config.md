@@ -109,6 +109,28 @@ Default value: `30m`
 
 Timeout for file transfer operations. Must be greater than zero when storage mode is enabled.
 
+## File synchronization retry count
+
+Config value: `app.file_sync_retry`\
+Environment variable: `APP_FILE_SYNC_RETRY`\
+Type: int\
+Mandatory: no
+Default value: `3`
+
+Maximum number of retries after an initial file transfer request returns `404 Not Found` or `409 Conflict`.
+Set to `0` to disable retries. Must be greater than or equal to zero when storage mode is enabled.
+
+## File synchronization retry time
+
+Config value: `app.file_sync_retry_time`\
+Environment variable: `APP_FILE_SYNC_RETRY_TIME`\
+Type: duration string\
+Mandatory: no
+Default value: `1s`
+
+Initial delay before retrying a file transfer request that returned `404 Not Found` or `409 Conflict`.
+Each subsequent retry doubles the previous delay. Must be greater than zero when storage mode is enabled.
+
 ## Thumbnail sizes
 
 Config value: `sharing.thumbnail_sizes`  

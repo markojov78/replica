@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -1750,6 +1751,7 @@ func TestRuntimeReconcileReplicaMarksTerminalFileErrorAndContinues(t *testing.T)
 	defer server.Close()
 
 	runtime := newRuntimeForTest(t, server.URL)
+	t.Cleanup(func() { runtime.stopReplicaWatcher(4) })
 	payloadData := reconcilePayloadForTest(t, server.URL)
 
 	ok := runtime.handleCommand(context.Background(), apiclient.Command{
@@ -1780,6 +1782,53 @@ func TestRuntimeReconcileReplicaMarksTerminalFileErrorAndContinues(t *testing.T)
 	}
 	if string(data) != "ok" {
 		t.Fatalf("ok.txt = %q, want ok", string(data))
+	}
+	if !runtime.replicaWatcherExists(4) {
+		t.Fatal("replica watcher was not restarted after reconciliation failure")
+	}
+}
+
+func TestRuntimeTransferReplicaFileContentRetriesNotFoundAndConflict(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		switch requests {
+		case 1:
+			http.Error(w, "not ready", http.StatusNotFound)
+		case 2:
+			http.Error(w, "stale", http.StatusConflict)
+		default:
+			_, _ = w.Write([]byte("content"))
+		}
+	}))
+	defer server.Close()
+
+	runtime := newRuntimeForTest(t, server.URL)
+	runtime.cfg.App.FileSyncRetry = 2
+	runtime.cfg.App.FileSyncRetryTime = time.Millisecond
+
+	content, err := runtime.transferReplicaFileContentWithRetry(
+		context.Background(),
+		server.URL,
+		3,
+		10,
+		5,
+		"transfer-token",
+	)
+	if err != nil {
+		t.Fatalf("transferReplicaFileContentWithRetry() error = %v", err)
+	}
+	defer content.Close()
+
+	data, err := io.ReadAll(content)
+	if err != nil {
+		t.Fatalf("ReadAll(content) error = %v", err)
+	}
+	if string(data) != "content" {
+		t.Fatalf("content = %q, want content", string(data))
+	}
+	if requests != 3 {
+		t.Fatalf("requests = %d, want 3", requests)
 	}
 }
 

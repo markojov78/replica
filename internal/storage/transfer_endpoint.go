@@ -91,14 +91,25 @@ func (r *Runtime) openReplicaFileContent(req *http.Request, token string, replic
 	}
 
 	replica, replicaFile, ok := r.findReplicaFile(replicaID, fileID)
+	if ok && replica.NodeID != r.client.NodeID() {
+		return nil, 0, errTransferReplicaNotFound
+	}
+	if claims.DestinationReplicaID == 0 && claims.TargetReplicaID == 0 {
+		return nil, 0, errTransferTokenForbidden
+	}
+
+	if !ok || replicaFile.ReplicaVersion != version || replicaFile.ReplicaStatus != "synchronized" {
+		if _, err := r.refreshReplicaFiles(req.Context(), replicaID); err != nil {
+			return nil, 0, err
+		}
+		replica, replicaFile, ok = r.findReplicaFile(replicaID, fileID)
+	}
+
 	if !ok {
 		return nil, 0, errTransferFileNotFound
 	}
 	if replica.NodeID != r.client.NodeID() {
 		return nil, 0, errTransferReplicaNotFound
-	}
-	if claims.DestinationReplicaID == 0 && claims.TargetReplicaID == 0 {
-		return nil, 0, errTransferTokenForbidden
 	}
 	if replicaFile.ReplicaVersion != version || replicaFile.ReplicaStatus != "synchronized" {
 		return nil, 0, errTransferVersionConflict

@@ -33,6 +33,8 @@ type AppConfig struct {
 	HeartbeatInterval   time.Duration
 	APIRequestTimeout   time.Duration
 	FileTransferTimeout time.Duration
+	FileSyncRetry       int
+	FileSyncRetryTime   time.Duration
 }
 
 type SharingConfig struct {
@@ -101,6 +103,8 @@ type rawAppConfig struct {
 	HeartbeatInterval   *string `json:"heartbeat_interval" yaml:"heartbeat_interval" toml:"heartbeat_interval"`
 	APIRequestTimeout   *string `json:"api_request_timeout" yaml:"api_request_timeout" toml:"api_request_timeout"`
 	FileTransferTimeout *string `json:"file_transfer_timeout" yaml:"file_transfer_timeout" toml:"file_transfer_timeout"`
+	FileSyncRetry       *int    `json:"file_sync_retry" yaml:"file_sync_retry" toml:"file_sync_retry"`
+	FileSyncRetryTime   *string `json:"file_sync_retry_time" yaml:"file_sync_retry_time" toml:"file_sync_retry_time"`
 }
 
 type rawSharingConfig struct {
@@ -182,6 +186,8 @@ func Load() (Config, error) {
 			HeartbeatInterval:   resolveDuration("APP_HEARTBEAT_INTERVAL", fileCfg.App.HeartbeatInterval, 10*time.Minute),
 			APIRequestTimeout:   resolveDuration("APP_API_REQUEST_TIMEOUT", fileCfg.App.APIRequestTimeout, 15*time.Second),
 			FileTransferTimeout: resolveDuration("APP_FILE_TRANSFER_TIMEOUT", fileCfg.App.FileTransferTimeout, 30*time.Minute),
+			FileSyncRetry:       resolveInt("APP_FILE_SYNC_RETRY", fileCfg.App.FileSyncRetry, 3),
+			FileSyncRetryTime:   resolveDuration("APP_FILE_SYNC_RETRY_TIME", fileCfg.App.FileSyncRetryTime, time.Second),
 		},
 		Sharing: SharingConfig{
 			Enabled:                    false,
@@ -578,6 +584,12 @@ func (c Config) Validate() error {
 	}
 	if c.App.Storage && c.App.FileTransferTimeout <= 0 {
 		return errors.New("app.file_transfer_timeout must be greater than 0 when storage is enabled")
+	}
+	if c.App.Storage && c.App.FileSyncRetry < 0 {
+		return errors.New("app.file_sync_retry must be greater than or equal to 0 when storage is enabled")
+	}
+	if c.App.Storage && c.App.FileSyncRetryTime <= 0 {
+		return errors.New("app.file_sync_retry_time must be greater than 0 when storage is enabled")
 	}
 
 	if !c.App.Coordinator && c.App.Storage {

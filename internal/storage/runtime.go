@@ -14,6 +14,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"maps"
 	"net/http"
@@ -929,7 +930,7 @@ type reconcileReplicaCommandPayload struct {
 	DeleteRelativeURIs   []string `json:"delete_relative_uris"`
 }
 
-func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Command) error {
+func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Command) (retErr error) {
 	var payload reconcileReplicaCommandPayload
 	if err := json.Unmarshal(command.Payload, &payload); err != nil {
 		return fmt.Errorf("invalid reconcile_replica payload: %w", err)
@@ -939,6 +940,20 @@ func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Comman
 	}
 
 	r.stopReplicaWatcher(payload.DestinationReplicaID) // stop watcher during reconcile
+	defer func() {
+		replica, ok := r.findReplica(payload.DestinationReplicaID)
+		if !ok || !replicaIsActive(replica) {
+			return
+		}
+		if err := r.ensureReplicaWatcher(ctx, replica); err != nil {
+			watcherErr := fmt.Errorf("error starting watcher for replica_id=%d, error=%w", payload.DestinationReplicaID, err)
+			if retErr != nil {
+				log.Printf("storage runtime watcher restart failed replica_id=%d error=%v", payload.DestinationReplicaID, err)
+				return
+			}
+			retErr = watcherErr
+		}
+	}()
 
 	r.setReplicaTransferToken(payload.DestinationReplicaID, payload.TransferToken)
 
@@ -1012,13 +1027,20 @@ func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Comman
 		}
 
 		token := r.replicaTransferToken(payload.DestinationReplicaID)
-		content, err := r.client.TransferReplicaFileContent(ctx, payload.SourceNodeAddress, payload.SourceReplicaID, pendingFile.FileID, pendingFile.InventoryVersion, token)
+		content, err := r.transferReplicaFileContentWithRetry(
+			ctx,
+			payload.SourceNodeAddress,
+			payload.SourceReplicaID,
+			pendingFile.FileID,
+			pendingFile.InventoryVersion,
+			token,
+		)
 		if err != nil {
 			failure := fmt.Errorf("transfer replica_id=%d file_id=%d version=%d: %w", payload.DestinationReplicaID, pendingFile.FileID, pendingFile.InventoryVersion, err)
 			if isReconcileAuthError(err) {
 				return failure
 			}
-			if isReconcileFileError(err) {
+			if isReconcileFileError(err) || isTransientTransferError(err) {
 				if markErr := r.markReplicaFileError(ctx, payload.DestinationReplicaID, pendingFile.FileID, failure); markErr != nil {
 					return markErr
 				}
@@ -1073,19 +1095,30 @@ func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Comman
 		return fmt.Errorf("reconcile_replica failed files=%d errors=%s", len(failures), strings.Join(failures, "; "))
 	}
 
-	// enable watcher
-	replica, ok := r.findReplica(payload.DestinationReplicaID)
-	if ok {
-		watcherErr := r.ensureReplicaWatcher(ctx, replica)
-		if watcherErr != nil {
-			return fmt.Errorf("error starting watcher for replica_id=%d, error=%s", payload.DestinationReplicaID, watcherErr)
-		}
-	} else {
-		return fmt.Errorf("replica_id=%d not found in local state", payload.DestinationReplicaID)
-	}
-
 	log.Printf("storage runtime reconcile_replica completed replica_id=%d files=%d source_replica_id=%d source_node_id=%s", payload.DestinationReplicaID, len(pendingFiles), payload.SourceReplicaID, payload.SourceNodeID)
 	return nil
+}
+
+func (r *Runtime) transferReplicaFileContentWithRetry(
+	ctx context.Context,
+	sourceNodeAddress string,
+	sourceReplicaID uint,
+	fileID uint,
+	version uint,
+	token string,
+) (io.ReadCloser, error) {
+	content, err := r.client.TransferReplicaFileContent(ctx, sourceNodeAddress, sourceReplicaID, fileID, version, token)
+	for retry := 0; err != nil && isTransientTransferError(err) && retry < r.cfg.App.FileSyncRetry; retry++ {
+		delay := r.cfg.App.FileSyncRetryTime
+		for factor := 0; factor < retry; factor++ {
+			delay *= 2
+		}
+		if !sleepContext(ctx, delay) {
+			return nil, ctx.Err()
+		}
+		content, err = r.client.TransferReplicaFileContent(ctx, sourceNodeAddress, sourceReplicaID, fileID, version, token)
+	}
+	return content, err
 }
 
 func (r *Runtime) markReplicaFileError(ctx context.Context, replicaID, fileID uint, fileErr error) error {
@@ -1107,6 +1140,12 @@ func isReconcileFileError(err error) bool {
 		return apiErr.StatusCode == http.StatusForbidden || apiErr.StatusCode == http.StatusNotFound
 	}
 	return errors.Is(err, os.ErrPermission) || errors.Is(err, os.ErrNotExist)
+}
+
+func isTransientTransferError(err error) bool {
+	var apiErr *apiclient.APIError
+	return errors.As(err, &apiErr) &&
+		(apiErr.StatusCode == http.StatusNotFound || apiErr.StatusCode == http.StatusConflict)
 }
 
 func (r *Runtime) markLocalReplicaFileSynchronized(replicaID, fileID, version uint) {

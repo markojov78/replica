@@ -309,6 +309,12 @@ When replica B requires a newer file version from replica A:
 6. Replica B verifies transferred file hash and size
 7. Replica B reports successful synchronization to coordinator
 
+Before serving a transfer, the source storage service refreshes the requested replica's coordinator-backed file
+metadata once when its local runtime state is missing the file or does not contain the requested synchronized version.
+The destination treats transfer `404 Not Found` and `409 Conflict` responses as transient and retries them using the
+configured bounded exponential backoff. After retries are exhausted, the destination replica file is marked `error`.
+The destination replica watcher is restored after reconciliation succeeds or fails.
+
 For filesystem replicas with `follow_symlinks` enabled, scans and change reports use a file symlink's target metadata
 and content. Replicated updates are written to the target while preserving the symlink. Replicated deletes remove the
 symlink itself without removing its target. Directory symlinks are ignored.
