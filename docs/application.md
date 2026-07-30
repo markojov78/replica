@@ -844,9 +844,9 @@ Concrete table usage:
 #### 1) Initial state
 ```
 inventory_files
-file_id  version  status  modified  size      hash
-------------------------------------------------------
-10       3        active  old_time  old_size  old_hash
+file_id  version  status  modified  size  hash
+----------------------------------------------
+10       3        active  time      size  hash
 
 replica_files
 file_id  replica_id  version  status
