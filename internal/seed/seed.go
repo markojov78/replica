@@ -26,7 +26,7 @@ func Run(db *gorm.DB, cfg config.SeedConfig) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		var admin model.User
 		adminCreated := false
-		err := tx.Where("name = ?", adminName).First(&admin).Error
+		err := tx.Where("username = ?", adminName).First(&admin).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
@@ -42,7 +42,7 @@ func Run(db *gorm.DB, cfg config.SeedConfig) error {
 			}
 
 			admin = model.User{
-				Name:     adminName,
+				Username: adminName,
 				Status:   model.UserStatusActive,
 				Password: hashedPassword,
 			}

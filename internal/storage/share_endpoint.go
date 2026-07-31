@@ -59,6 +59,7 @@ type shareListBody struct {
 type shareAuthMeBody struct {
 	UserID   uint   `json:"user_id"`
 	Username string `json:"username"`
+	Name     string `json:"name"`
 	Status   string `json:"status"`
 }
 
@@ -112,6 +113,7 @@ func (r *Runtime) ServeUserMe(w http.ResponseWriter, req *http.Request) {
 	writeStorageShareJSON(w, http.StatusOK, shareAuthMeBody{
 		UserID:   user.UserID,
 		Username: user.Username,
+		Name:     user.Name,
 		Status:   user.Status,
 	})
 }

@@ -21,7 +21,7 @@ func TestCombinedUIUsesOneSharedBrowserSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HashPassword() error = %v", err)
 	}
-	if err := database.Create(&model.User{Name: "shared-user", Password: password, Status: model.UserStatusActive}).Error; err != nil {
+	if err := database.Create(&model.User{Username: "shared-user", Password: password, Status: model.UserStatusActive}).Error; err != nil {
 		t.Fatalf("Create(user) error = %v", err)
 	}
 	auth := newRouterTestAuthService(database)

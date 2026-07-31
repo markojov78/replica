@@ -55,6 +55,7 @@ func registerPublicAuthRoutes(api huma.API, svc services) {
 			Body: meBody{
 				ID:       user.ID,
 				Username: user.Username,
+				Name:     user.Name,
 				Status:   user.Status,
 				Roles:    user.Roles,
 			},
@@ -118,6 +119,7 @@ func registerInternalAuthRoutes(api huma.API, svc services) {
 			Body: validateUserTokenBody{
 				UserID:               token.UserID,
 				Username:             token.Username,
+				Name:                 token.Name,
 				Status:               token.Status,
 				AccessTokenExpiresAt: token.AccessExpires,
 			},
@@ -203,6 +205,7 @@ type nodeTokenPairResponse struct {
 type meBody struct {
 	ID       uint                  `json:"id"`
 	Username string                `json:"username"`
+	Name     string                `json:"name"`
 	Status   string                `json:"status"`
 	Roles    []service.RoleDetails `json:"roles"`
 }
@@ -223,6 +226,7 @@ type nodeMeResponse struct {
 type validateUserTokenBody struct {
 	UserID               uint      `json:"user_id"`
 	Username             string    `json:"username"`
+	Name                 string    `json:"name"`
 	Status               string    `json:"status"`
 	AccessTokenExpiresAt time.Time `json:"access_token_expires_at"`
 }

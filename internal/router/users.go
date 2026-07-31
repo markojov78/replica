@@ -55,7 +55,7 @@ func registerUserRoutes(api huma.API, svc services) {
 			return nil, mapPermissionError(err)
 		}
 
-		user, err := svc.users.Create(input.Body.Name, input.Body.Password, input.Body.RoleIDs)
+		user, err := svc.users.Create(input.Body.Username, input.Body.Name, input.Body.Password, input.Body.RoleIDs)
 		if err != nil {
 			return nil, mapUserError(err, svc.users)
 		}
@@ -72,6 +72,7 @@ func registerUserRoutes(api huma.API, svc services) {
 		}
 
 		user, err := svc.users.Update(input.ID, service.UpdateUserInput{
+			Username:      input.Body.Username,
 			Name:          input.Body.Name,
 			Password:      input.Body.Password,
 			Status:        input.Body.Status,
@@ -106,7 +107,8 @@ type createUserInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
 	Body          struct {
-		Name     string `json:"name" minLength:"1"`
+		Username string `json:"username" minLength:"1"`
+		Name     string `json:"name"`
 		Password string `json:"password" minLength:"1"`
 		RoleIDs  []uint `json:"role_ids,omitempty"`
 	}
@@ -130,6 +132,7 @@ type updateUserInput struct {
 	Authorization string `header:"Authorization"`
 	ID            uint   `path:"id"`
 	Body          struct {
+		Username      *string `json:"username,omitempty"`
 		Name          *string `json:"name,omitempty"`
 		Password      *string `json:"password,omitempty"`
 		Status        *string `json:"status,omitempty"`

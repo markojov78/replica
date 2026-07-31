@@ -268,7 +268,7 @@
 		}
 		currentUser = await me.json();
     for (const element of document.querySelectorAll("[data-current-username]")) {
-			element.textContent = currentUser.username || "";
+			element.textContent = currentUser.name || currentUser.username || "";
     }
     bindDeletedFilters();
     bindChoiceFilters();

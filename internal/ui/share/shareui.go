@@ -36,6 +36,7 @@ type Handler struct {
 type authContext struct {
 	UserID   uint
 	Username string
+	Name     string
 	Status   string
 }
 
@@ -311,6 +312,7 @@ func (h *Handler) validateAccessToken(r *http.Request, accessToken string) (*api
 		return &apiclient.ValidatedUserToken{
 			UserID:               user.UserID,
 			Username:             user.Username,
+			Name:                 user.Name,
 			Status:               user.Status,
 			AccessTokenExpiresAt: user.AccessExpires,
 		}, nil
@@ -345,7 +347,7 @@ func (h *Handler) protected(next func(http.ResponseWriter, *http.Request, authCo
 			return
 		}
 		_, _ = h.cookies.EnsureCSRF(w, r)
-		next(w, r, authContext{UserID: user.UserID, Username: user.Username, Status: user.Status})
+		next(w, r, authContext{UserID: user.UserID, Username: user.Username, Name: user.Name, Status: user.Status})
 	}
 }
 
@@ -367,7 +369,7 @@ func (h *Handler) shareAuthStatus(err error) int {
 
 func (h *Handler) me(w http.ResponseWriter, _ *http.Request, auth authContext) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"user_id": auth.UserID, "username": auth.Username, "status": auth.Status})
+	_ = json.NewEncoder(w).Encode(map[string]any{"user_id": auth.UserID, "username": auth.Username, "name": auth.Name, "status": auth.Status})
 }
 
 func (h *Handler) shareAPIMe(w http.ResponseWriter, r *http.Request) {
@@ -379,7 +381,7 @@ func (h *Handler) shareAPIMe(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = h.cookies.EnsureCSRF(w, r)
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"user_id": user.UserID, "username": user.Username, "status": user.Status})
+	_ = json.NewEncoder(w).Encode(map[string]any{"user_id": user.UserID, "username": user.Username, "name": user.Name, "status": user.Status})
 }
 
 func (h *Handler) shareAPI(w http.ResponseWriter, r *http.Request) {

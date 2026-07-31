@@ -205,7 +205,7 @@
 {{range .Users}}
   <article class="inventory-row" data-filter-item="users" data-status="{{.Status}}">
     <div>
-      <span class="inventory-title">{{.Name}}</span>
+      <span class="inventory-title">{{if .Name}}{{.Name}}{{else}}{{.Username}}{{end}}</span>
       <p>User #{{.ID}} · {{len .Roles}} roles</p>
       <div class="chips">{{range .Roles}}<span>{{.Name}}</span>{{end}}</div>
     </div>
@@ -224,7 +224,8 @@
 <section class="card form-card">
   {{template "alert" .}}
   <form action="{{if .IsEdit}}/dashboard/users/{{.User.ID}}{{else}}/dashboard/users{{end}}" method="post" class="form-grid">
-    <label>Username<input name="name" value="{{.User.Name}}" required></label>
+    <label>Username<input name="username" value="{{.User.Username}}" required></label>
+    <label>Display name<input name="name" value="{{.User.Name}}"></label>
     <label>Password<input name="password" type="password" {{if not .IsEdit}}required{{end}}><small>{{if .IsEdit}}Leave blank to keep the current password.{{end}}</small></label>
     {{if .IsEdit}}
       <label>Status<select name="status"><option value="active" {{if eq .User.Status "active"}}selected{{end}}>active</option><option value="deleted" {{if eq .User.Status "deleted"}}selected{{end}}>deleted</option></select></label>
@@ -282,7 +283,7 @@
           {{$role := .Role}}
           {{range .PermissionResources}}
           <tr>
-            <td>{{.Name}}</td>
+            <td>{{if .Name}}{{.Name}}{{else}}{{.Username}}{{end}}</td>
             <td>{{if hasStringPermission "read" .Actions}}<label class="filter-toggle"><input type="checkbox" name="permissions" value="{{.Name}}:read" {{if hasPermission .Name "read" $role.Permissions}}checked{{end}}> Read</label>{{end}}</td>
             <td>{{if hasStringPermission "update" .Actions}}<label class="filter-toggle"><input type="checkbox" name="permissions" value="{{.Name}}:update" {{if hasPermission .Name "update" $role.Permissions}}checked{{end}}> Update</label>{{end}}</td>
             <td>{{if hasStringPermission "create" .Actions}}<label class="filter-toggle"><input type="checkbox" name="permissions" value="{{.Name}}:create" {{if hasPermission .Name "create" $role.Permissions}}checked{{end}}> Create</label>{{end}}</td>
@@ -404,7 +405,7 @@
           {{$share := .Share}}
           {{range .Users}}
           <tr>
-            <td>{{.Name}}</td>
+            <td>{{if .Name}}{{.Name}}{{else}}{{.Username}}{{end}}</td>
             <td><label class="filter-toggle"><input type="checkbox" name="user_permissions_{{.ID}}" value="read" {{if hasShareUserPermission .ID "read" $share.UserPermissions}}checked{{end}}> Read</label></td>
             <td><label class="filter-toggle"><input type="checkbox" name="user_permissions_{{.ID}}" value="update" {{if hasShareUserPermission .ID "update" $share.UserPermissions}}checked{{end}}> Update</label></td>
             <td><label class="filter-toggle"><input type="checkbox" name="user_permissions_{{.ID}}" value="delete" {{if hasShareUserPermission .ID "delete" $share.UserPermissions}}checked{{end}}> Delete</label></td>

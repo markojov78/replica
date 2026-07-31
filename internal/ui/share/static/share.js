@@ -84,7 +84,7 @@
 	}
 
 	function fillCurrentUser() {
-		const username = currentUser?.username || "";
+		const username = currentUser?.name || currentUser?.username || "";
 		const userID = currentUser?.user_id || "";
     for (const element of document.querySelectorAll("[data-share-current-username]")) {
       element.textContent = username || (userID ? `User #${userID}` : "");

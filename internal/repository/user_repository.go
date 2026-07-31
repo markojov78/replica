@@ -27,9 +27,9 @@ func (r *UserRepository) FindByID(id uint) (*model.User, error) {
 	return &user, nil
 }
 
-func (r *UserRepository) FindByName(name string) (*model.User, error) {
+func (r *UserRepository) FindByUsername(username string) (*model.User, error) {
 	var user model.User
-	err := r.preloadDetails(r.db).Where("name = ?", name).First(&user).Error
+	err := r.preloadDetails(r.db).Where("username = ?", username).First(&user).Error
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (r *UserRepository) Update(user *model.User) error {
 }
 
 func (r *UserRepository) Upsert(user *model.User) error {
-	return r.db.Where("name = ?", user.Name).Assign(user).FirstOrCreate(user).Error
+	return r.db.Where("username = ?", user.Username).Assign(user).FirstOrCreate(user).Error
 }
 
 func (r *UserRepository) SetRoles(userID uint, roleIDs []uint) error {

@@ -184,6 +184,7 @@ type EncryptedStorageProfile struct {
 type ValidatedUserToken struct {
 	UserID               uint      `json:"user_id"`
 	Username             string    `json:"username"`
+	Name                 string    `json:"name"`
 	Status               string    `json:"status"`
 	AccessTokenExpiresAt time.Time `json:"access_token_expires_at"`
 }

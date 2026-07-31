@@ -164,7 +164,8 @@ func (Share) TableName() string {
 
 type User struct {
 	ID       uint        `gorm:"primaryKey" json:"id"`
-	Name     string      `gorm:"size:255;uniqueIndex;not null" json:"name"`
+	Username string      `gorm:"size:255;uniqueIndex;not null" json:"username"`
+	Name     string      `gorm:"size:255" json:"name"`
 	Status   UserStatus  `gorm:"size:32;not null" json:"status"`
 	Password string      `gorm:"size:255;not null" json:"-"`
 	Tokens   []UserToken `json:"tokens,omitempty"`

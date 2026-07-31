@@ -16,10 +16,11 @@ var (
 )
 
 type UserDetails struct {
-	ID     uint          `json:"id"`
-	Name   string        `json:"name"`
-	Status string        `json:"status"`
-	Roles  []RoleDetails `json:"roles"`
+	ID       uint          `json:"id"`
+	Username string        `json:"username"`
+	Name     string        `json:"name"`
+	Status   string        `json:"status"`
+	Roles    []RoleDetails `json:"roles"`
 }
 
 type UserList struct {
@@ -30,6 +31,7 @@ type UserList struct {
 }
 
 type UpdateUserInput struct {
+	Username      *string
 	Name          *string
 	Password      *string
 	Status        *string
@@ -52,13 +54,14 @@ func NewUserService(users *repository.UserRepository, roles *repository.RoleRepo
 	return s
 }
 
-func (s *UserService) Create(name, password string, roleIDs []uint) (*UserDetails, error) {
+func (s *UserService) Create(username, name, password string, roleIDs []uint) (*UserDetails, error) {
 	hashedPassword, err := security.HashPassword(password)
 	if err != nil {
 		return nil, err
 	}
 
 	user := &model.User{
+		Username: username,
 		Name:     name,
 		Password: hashedPassword,
 		Status:   model.UserStatusActive,
@@ -116,6 +119,9 @@ func (s *UserService) Update(id uint, input UpdateUserInput) (*UserDetails, erro
 
 	revokeTokens := input.Password != nil
 
+	if input.Username != nil {
+		user.Username = *input.Username
+	}
 	if input.Name != nil {
 		user.Name = *input.Name
 	}
@@ -184,10 +190,11 @@ func toUserDetails(user *model.User) *UserDetails {
 	}
 
 	return &UserDetails{
-		ID:     user.ID,
-		Name:   user.Name,
-		Status: string(user.Status),
-		Roles:  roles,
+		ID:       user.ID,
+		Username: user.Username,
+		Name:     user.Name,
+		Status:   string(user.Status),
+		Roles:    roles,
 	}
 }
 

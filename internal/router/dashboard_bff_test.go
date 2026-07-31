@@ -19,7 +19,7 @@ func TestDashboardBFFCookieLoginMeLogoutAndCSRF(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HashPassword() error = %v", err)
 	}
-	if err := database.Create(&model.User{Name: "admin", Password: password, Status: model.UserStatusActive}).Error; err != nil {
+	if err := database.Create(&model.User{Username: "admin", Password: password, Status: model.UserStatusActive}).Error; err != nil {
 		t.Fatalf("Create(user) error = %v", err)
 	}
 	auth := newRouterTestAuthService(database)

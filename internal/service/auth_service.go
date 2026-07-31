@@ -45,6 +45,7 @@ type NodeTokenPair struct {
 type AuthenticatedUser struct {
 	ID       uint
 	Username string
+	Name     string
 	Status   string
 	Roles    []RoleDetails
 }
@@ -59,6 +60,7 @@ type AuthenticatedNode struct {
 type ValidatedUserToken struct {
 	UserID        uint
 	Username      string
+	Name          string
 	Status        string
 	AccessExpires time.Time
 }
@@ -115,7 +117,7 @@ func NewAuthService(
 }
 
 func (s *AuthService) Login(username, password string) (*TokenPair, error) {
-	user, err := s.users.FindByName(username)
+	user, err := s.users.FindByUsername(username)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrInvalidCredentials
@@ -259,7 +261,8 @@ func (s *AuthService) Me(accessToken string) (*AuthenticatedUser, error) {
 
 	return &AuthenticatedUser{
 		ID:       user.ID,
-		Username: user.Name,
+		Username: user.Username,
+		Name:     user.Name,
 		Status:   string(user.Status),
 		Roles:    mapRoles(user.Roles),
 	}, nil
@@ -295,7 +298,8 @@ func (s *AuthService) ValidateUserAccessToken(accessToken string) (*ValidatedUse
 
 	return &ValidatedUserToken{
 		UserID:        user.ID,
-		Username:      user.Name,
+		Username:      user.Username,
+		Name:          user.Name,
 		Status:        string(user.Status),
 		AccessExpires: claims.ExpiresAt.Time,
 	}, nil

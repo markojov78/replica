@@ -126,6 +126,7 @@ func TestStorageOnlyShareAuthMeUsesCoordinatorIntrospection(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"user_id":                 15,
 				"username":                "alice",
+				"name":                    "Alice",
 				"status":                  "active",
 				"access_token_expires_at": time.Now().UTC().Add(time.Hour),
 			})
@@ -149,8 +150,8 @@ func TestStorageOnlyShareAuthMeUsesCoordinatorIntrospection(t *testing.T) {
 	if validateCalls != 1 {
 		t.Fatalf("validateCalls = %d, want 1", validateCalls)
 	}
-	if recorder.Body.String() != "{\"user_id\":15,\"username\":\"alice\",\"status\":\"active\"}\n" {
-		t.Fatalf("body = %s, want user_id/username/status", recorder.Body.String())
+	if recorder.Body.String() != "{\"user_id\":15,\"username\":\"alice\",\"name\":\"Alice\",\"status\":\"active\"}\n" {
+		t.Fatalf("body = %s, want user_id/username/name/status", recorder.Body.String())
 	}
 }
 
@@ -160,7 +161,7 @@ func TestCoordinatorStorageShareAuthUsesLocalAuthService(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HashPassword() error = %v", err)
 	}
-	if err := database.Create(&model.User{Name: "alice", Status: model.UserStatusActive, Password: hashedPassword}).Error; err != nil {
+	if err := database.Create(&model.User{Username: "alice", Name: "Alice", Status: model.UserStatusActive, Password: hashedPassword}).Error; err != nil {
 		t.Fatalf("Create(user) error = %v", err)
 	}
 	authService := service.NewAuthService(
@@ -207,8 +208,9 @@ func TestCoordinatorStorageShareAuthUsesLocalAuthService(t *testing.T) {
 	meReq.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	meRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(meRecorder, meReq)
-	if meRecorder.Code != http.StatusOK || !strings.Contains(meRecorder.Body.String(), `"user_id":1`) || !strings.Contains(meRecorder.Body.String(), `"username":"alice"`) {
-		t.Fatalf("me status/body = %d/%s, want user_id and username", meRecorder.Code, meRecorder.Body.String())
+	if meRecorder.Code != http.StatusOK || !strings.Contains(meRecorder.Body.String(), `"user_id":1`) ||
+		!strings.Contains(meRecorder.Body.String(), `"username":"alice"`) || !strings.Contains(meRecorder.Body.String(), `"name":"Alice"`) {
+		t.Fatalf("me status/body = %d/%s, want user_id, username, and name", meRecorder.Code, meRecorder.Body.String())
 	}
 
 	refreshReq := httptest.NewRequest(http.MethodPost, "/api/share/auth/refresh", strings.NewReader(`{"refresh_token":"`+pair.RefreshToken+`"}`))

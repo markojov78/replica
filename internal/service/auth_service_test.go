@@ -44,7 +44,8 @@ func TestAuthServiceLoginStoresRefreshHashAndReturnsJWT(t *testing.T) {
 	}
 
 	user := &model.User{
-		Name:     "jsmith",
+		Username: "jsmith",
+		Name:     "John Smith",
 		Status:   model.UserStatusActive,
 		Password: hashedPassword,
 	}
@@ -64,6 +65,22 @@ func TestAuthServiceLoginStoresRefreshHashAndReturnsJWT(t *testing.T) {
 	}
 	if pair.RefreshToken == "" {
 		t.Fatal("RefreshToken is empty")
+	}
+
+	authenticated, err := authService.Me(pair.AccessToken)
+	if err != nil {
+		t.Fatalf("Me() error = %v", err)
+	}
+	if authenticated.Username != "jsmith" || authenticated.Name != "John Smith" {
+		t.Fatalf("Me() identity = %q/%q, want jsmith/John Smith", authenticated.Username, authenticated.Name)
+	}
+
+	validated, err := authService.ValidateUserAccessToken(pair.AccessToken)
+	if err != nil {
+		t.Fatalf("ValidateUserAccessToken() error = %v", err)
+	}
+	if validated.Username != "jsmith" || validated.Name != "John Smith" {
+		t.Fatalf("validated identity = %q/%q, want jsmith/John Smith", validated.Username, validated.Name)
 	}
 
 	claims, err := security.ParseUserAccessToken([]byte("test-secret"), pair.AccessToken)
@@ -104,7 +121,7 @@ func TestAuthServiceRefreshRotatesRefreshToken(t *testing.T) {
 	}
 
 	user := &model.User{
-		Name:     "jsmith",
+		Username: "jsmith",
 		Status:   model.UserStatusActive,
 		Password: hashedPassword,
 	}
@@ -173,7 +190,7 @@ func TestAuthServiceLogoutRevokesCurrentSession(t *testing.T) {
 	}
 
 	user := &model.User{
-		Name:     "jsmith",
+		Username: "jsmith",
 		Status:   model.UserStatusActive,
 		Password: hashedPassword,
 	}
@@ -205,7 +222,7 @@ func TestAuthServiceRefreshRejectsDeletedUser(t *testing.T) {
 		t.Fatalf("HashPassword() error = %v", err)
 	}
 	user := &model.User{
-		Name:     "jsmith",
+		Username: "jsmith",
 		Status:   model.UserStatusDeleted,
 		Password: hashedPassword,
 	}
@@ -750,7 +767,7 @@ func createAuthTestUser(t *testing.T, database *gorm.DB, name string, status mod
 		t.Fatalf("HashPassword() error = %v", err)
 	}
 	user := &model.User{
-		Name:     name,
+		Username: name,
 		Status:   status,
 		Password: hashedPassword,
 	}

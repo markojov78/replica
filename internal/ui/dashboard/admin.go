@@ -176,10 +176,11 @@ type roleList struct {
 }
 
 type user struct {
-	ID     uint   `json:"id"`
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Roles  []role `json:"roles"`
+	ID       uint   `json:"id"`
+	Username string `json:"username"`
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	Roles    []role `json:"roles"`
 }
 
 type userList struct {
@@ -1136,6 +1137,7 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request, sess authCo
 		return
 	}
 	input := map[string]any{
+		"username": strings.TrimSpace(r.FormValue("username")),
 		"name":     strings.TrimSpace(r.FormValue("name")),
 		"password": r.FormValue("password"),
 		"role_ids": formUintValues(r.Form["role_ids"]),
@@ -1145,7 +1147,7 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request, sess authCo
 			h.renderError(w, r, sess, err)
 			return
 		}
-		h.userFormError(w, r, sess, false, user{Name: r.FormValue("name")}, apiMessage(err))
+		h.userFormError(w, r, sess, false, user{Username: r.FormValue("username"), Name: r.FormValue("name")}, apiMessage(err))
 		return
 	}
 	http.Redirect(w, r, "/dashboard/users", http.StatusSeeOther)
@@ -1173,8 +1175,9 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request, sess authCo
 		return
 	}
 	id, _ := strconv.ParseUint(r.PathValue("id"), 10, 64)
-	item := user{ID: uint(id), Name: r.FormValue("name"), Status: r.FormValue("status")}
+	item := user{ID: uint(id), Username: r.FormValue("username"), Name: r.FormValue("name"), Status: r.FormValue("status")}
 	input := map[string]any{
+		"username": strings.TrimSpace(item.Username),
 		"name":     strings.TrimSpace(item.Name),
 		"status":   item.Status,
 		"role_ids": formUintValues(r.Form["role_ids"]),

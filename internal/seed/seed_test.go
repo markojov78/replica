@@ -83,7 +83,7 @@ func TestRunPreservesExistingAdminRecordsAndLeavesThemUnlinked(t *testing.T) {
 	}
 
 	admin := model.User{
-		Name:     "admin",
+		Username: "admin",
 		Status:   model.UserStatusDeleted,
 		Password: "existing-password-hash",
 	}
@@ -161,7 +161,7 @@ func TestRunLinksExistingAdminWhenRoleIsCreated(t *testing.T) {
 	}
 
 	admin := model.User{
-		Name:     "admin",
+		Username: "admin",
 		Status:   model.UserStatusActive,
 		Password: "existing-password-hash",
 	}

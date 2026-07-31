@@ -148,7 +148,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}
 	accessToken := pair.AccessToken
 	var adminUser model.User
-	if err := database.First(&adminUser, "name = ?", "admin").Error; err != nil {
+	if err := database.First(&adminUser, "username = ?", "admin").Error; err != nil {
 		t.Fatalf("First(admin user) error = %v", err)
 	}
 
@@ -170,7 +170,8 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}
 
 	response = adminRequest(t, handler, http.MethodPost, "/dashboard/users", url.Values{
-		"name":     {"operator"},
+		"username": {"operator"},
+		"name":     {"Operator"},
 		"password": {"operator-secret"},
 		"role_ids": {"1"},
 	}, accessToken)
@@ -187,7 +188,8 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	}
 
 	response = adminRequest(t, handler, http.MethodPost, "/dashboard/users/2", url.Values{
-		"name":     {"operator-updated"},
+		"username": {"operator-updated"},
+		"name":     {"Operator Updated"},
 		"password": {""},
 		"status":   {"deleted"},
 		"role_ids": {"1"},
@@ -198,7 +200,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/users", nil, accessToken)
 	if response.Code != http.StatusOK ||
-		!strings.Contains(response.Body.String(), "operator-updated") ||
+		!strings.Contains(response.Body.String(), "Operator Updated") ||
 		!strings.Contains(response.Body.String(), `data-filter-item="users" data-status="deleted"`) {
 		t.Fatalf("updated users response = %d body=%q", response.Code, response.Body.String())
 	}

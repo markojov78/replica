@@ -11,7 +11,7 @@ import (
 func TestUserDetailsResponsesOmitPassword(t *testing.T) {
 	details := toUserDetails(&model.User{
 		ID:       1,
-		Name:     "jsmith",
+		Username: "jsmith",
 		Password: "hashed-password",
 		Status:   model.UserStatusActive,
 	})

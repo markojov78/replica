@@ -79,7 +79,7 @@ func TestRequireAuthenticatedNodeRejectsUserJWT(t *testing.T) {
 	}
 
 	user := &model.User{
-		Name:     "jsmith",
+		Username: "jsmith",
 		Status:   model.UserStatusActive,
 		Password: hashedPassword,
 	}
@@ -698,7 +698,7 @@ func TestInternalSharesReturnsOnlyAuthenticatedNodeShares(t *testing.T) {
 		t.Fatalf("Create(replicaB) error = %v", err)
 	}
 
-	user := &model.User{Name: "share-user", Status: model.UserStatusActive}
+	user := &model.User{Username: "share-user", Status: model.UserStatusActive}
 	if err := database.Create(user).Error; err != nil {
 		t.Fatalf("Create(user) error = %v", err)
 	}
@@ -1085,7 +1085,7 @@ func TestPublicReplicasListIsPaginated(t *testing.T) {
 		t.Fatalf("HashPassword() error = %v", err)
 	}
 	user := &model.User{
-		Name:     "jsmith",
+		Username: "jsmith",
 		Status:   model.UserStatusActive,
 		Password: hashedPassword,
 	}
@@ -1274,7 +1274,7 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 		t.Fatalf("HashPassword() error = %v", err)
 	}
 	if err := database.Create(&model.User{
-		Name:     "jsmith",
+		Username: "jsmith",
 		Status:   model.UserStatusActive,
 		Password: hashedPassword,
 	}).Error; err != nil {
@@ -1466,7 +1466,7 @@ func TestPublicReplicaCreatePopulatesPendingFilesAndReconcileCommand(t *testing.
 		t.Fatalf("HashPassword() error = %v", err)
 	}
 	user := &model.User{
-		Name:     "jsmith",
+		Username: "jsmith",
 		Status:   model.UserStatusActive,
 		Password: hashedPassword,
 	}
@@ -2173,7 +2173,7 @@ func createValidateUserTokenCredentials(t *testing.T, database *gorm.DB, userSta
 		t.Fatalf("HashPassword(user) error = %v", err)
 	}
 	user := &model.User{
-		Name:     "token-user",
+		Username: "token-user",
 		Status:   userStatus,
 		Password: hashedPassword,
 	}

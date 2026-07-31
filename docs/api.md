@@ -76,7 +76,7 @@ Example request:
 
 ```json
 {
-  "username": "jsmith",
+  "username": "marko",
   "password": "secret"
 }
 ```
@@ -181,7 +181,8 @@ Example response:
 ```json
 {
   "id": 1,
-  "username": "jsmith",
+  "username": "marko",
+  "name": "Marko",
   "status": "active",
   "roles": [
     {
@@ -216,13 +217,13 @@ Query parameters:
 - `count` optional, default `20`
 
 Example response:
-
 ```json
 {
   "items": [
     {
       "id": 1,
-      "name": "jsmith",
+      "username": "marko",
+      "name": "Marko",
       "status": "active",
       "roles": [
         {
@@ -250,45 +251,93 @@ Example response:
 #### GET /users/{id}
 Returns a single user.
 
+Example response:
+```json
+{
+  "id": 1,
+  "username": "marko",
+  "name": "Marko",
+  "status": "active",
+  "roles": [
+    {
+      "id": 1,
+      "name": "admin",
+      "description": "Administrator",
+      "status": "active",
+      "permissions": [
+        {
+          "id": 1,
+          "resource": "users",
+          "actions": "read"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `404` user not found
+
 #### POST /users
 Creates a user.
 
 Request body:
-- `name` required
+- `username` required
+- `name` optional
 - `password` required
 - `role_ids` optional
 
 Example request:
-
 ```json
 {
-  "name": "jsmith",
+  "username": "marko",
+  "name": "Marko",
   "password": "secret",
   "role_ids": [1, 2]
 }
 ```
 
+Response contains updated user object.
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `404` roles not found
+- `400` invalid user status
+- `409` user with the same username already exists
+
 #### PATCH /users/{id}
 Updates a user.
 
 Request body fields are optional:
+- `username`
 - `name`
 - `password`
 - `status`
-- `role_ids`
-- `add_role_ids`
-- `remove_role_ids`
-
-If `role_ids` is provided, it replaces the user's roles.
+- `role_ids` is provided, it replaces the user's roles.
+- `add_role_ids` add roles
+- `remove_role_ids` remove exiting roles
 
 Example request:
-
 ```json
 {
-  "status": "deleted",
+  "name": "Updated Name",
   "add_role_ids": [3]
 }
 ```
+
+Response contains updated user object.
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `404` user not found
+- `404` roles not found
+- `400` invalid user status
+- `409` user with the same username already exists
 
 #### DELETE /users/{id}
 Soft-deletes a user by setting its status to `deleted`.
@@ -297,9 +346,6 @@ Possible errors:
 - `401` missing authenticated user
 - `403` missing required permission
 - `404` user not found
-- `400` invalid user status
-- `400` invalid roles
-- `409` user already exists
 
 ### /roles endpoint
 
@@ -1559,7 +1605,8 @@ Example response:
 ```json
 {
   "user_id": 15,
-  "username": "jsmith",
+  "username": "marko",
+  "name": "Marko",
   "status": "active"
 }
 ```
@@ -2295,7 +2342,8 @@ Example response:
 ```json
 {
   "user_id": 15,
-  "username": "jsmith",
+  "username": "marko",
+  "name": "Marko",
   "status": "active",
   "access_token_expires_at": "2026-04-07T12:30:00Z"
 }

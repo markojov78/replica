@@ -816,7 +816,7 @@ func createShareRouteUser(t *testing.T, database *gorm.DB, permissions []model.P
 		t.Fatalf("HashPassword() error = %v", err)
 	}
 	user := &model.User{
-		Name:     "jsmith",
+		Username: "jsmith",
 		Status:   model.UserStatusActive,
 		Password: hashedPassword,
 	}
@@ -857,7 +857,7 @@ func createShareRoutePlainUser(t *testing.T, database *gorm.DB, name string) *mo
 		t.Fatalf("HashPassword() error = %v", err)
 	}
 	user := &model.User{
-		Name:     name,
+		Username: name,
 		Status:   model.UserStatusActive,
 		Password: hashedPassword,
 	}

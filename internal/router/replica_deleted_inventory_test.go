@@ -23,7 +23,7 @@ func TestPublicReplicaMutationsRejectDeletedInventory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HashPassword() error = %v", err)
 	}
-	user := &model.User{Name: "jsmith", Status: model.UserStatusActive, Password: hashedPassword}
+	user := &model.User{Username: "jsmith", Status: model.UserStatusActive, Password: hashedPassword}
 	if err := database.Create(user).Error; err != nil {
 		t.Fatalf("Create(user) error = %v", err)
 	}

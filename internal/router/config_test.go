@@ -489,7 +489,7 @@ func createConfigUserToken(t *testing.T, database *gorm.DB, permissions []model.
 			t.Fatalf("Create(permission) error = %v", err)
 		}
 	}
-	user := model.User{Name: "settings-user", Status: model.UserStatusActive, Password: hashedPassword}
+	user := model.User{Username: "settings-user", Status: model.UserStatusActive, Password: hashedPassword}
 	if err := database.Create(&user).Error; err != nil {
 		t.Fatalf("Create(user) error = %v", err)
 	}
