@@ -2492,6 +2492,8 @@ Possible errors:
 - `401` missing authenticated node
 - `403` disabled node
 - `403` revoked node
+- `500` failed to schedule replica synchronization; error detail identifies the destination replica, node, inventory,
+  and configured upstream replica
 
 #### GET /nodes/ws
 Establishes the node websocket command channel.

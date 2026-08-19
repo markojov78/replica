@@ -3,6 +3,7 @@ package repository
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"sort"
 	"strings"
@@ -178,7 +179,10 @@ func (r *ReplicaRepository) EnsureReconcileCommandsForNode(nodeID string, payloa
 			}
 			command, err := r.createReconcileCommand(tx, destination, payloadBuilder, nil)
 			if err != nil {
-				return err
+				if destination.UpstreamReplicaID == nil {
+					return fmt.Errorf("no synchronization source destination_replica_id=%d node_id=%s inventory_id=%d upstream_replica_id=null: %w", destination.ID, destination.NodeID, destination.InventoryID, err)
+				}
+				return fmt.Errorf("no synchronization source destination_replica_id=%d node_id=%s inventory_id=%d upstream_replica_id=%d: %w", destination.ID, destination.NodeID, destination.InventoryID, *destination.UpstreamReplicaID, err)
 			}
 			created = append(created, command)
 		}

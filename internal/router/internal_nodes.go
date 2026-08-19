@@ -32,7 +32,8 @@ func registerInternalNodeRoutes(api huma.API, svc services) {
 			// Heartbeat ensures each pending replica has a pending reconcile command.
 			commands, err := svc.replicas.EnsureReconcileCommandsForNode(node.ID)
 			if err != nil {
-				return nil, mapInventoryError(err, svc.inventories)
+				log.Printf("failed to schedule replica synchronization node_id=%s error=%v", node.ID, err)
+				return nil, huma.Error500InternalServerError("failed to schedule replica synchronization: " + err.Error())
 			}
 			report.Commands = append(report.Commands, commands...)
 		}
