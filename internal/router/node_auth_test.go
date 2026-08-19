@@ -1948,8 +1948,8 @@ func TestInternalReplicaFilePatchSynchronizeRejectsMismatchedVersion(t *testing.
 
 	handler.ServeHTTP(recorder, req)
 
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusBadRequest, recorder.Body.String())
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusConflict, recorder.Body.String())
 	}
 }
 

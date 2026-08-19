@@ -315,7 +315,11 @@ For filesystem replicas, transferred content is written to a temporary file whil
 calculated. The temporary file replaces the destination atomically only when both values match authoritative inventory
 metadata; otherwise it is removed and the existing destination is preserved. The destination treats transfer
 `404 Not Found`, `409 Conflict`, and filesystem integrity mismatches as transient and retries them using the configured
-bounded exponential backoff. After retries are exhausted, the destination replica file is marked `error`.
+bounded exponential backoff. Before retrying, it refreshes the complete pending file metadata from the coordinator so
+a newer inventory version, hash, size, path or deletion state replaces the stale reconciliation snapshot. A stale
+version reported while marking the file synchronized is handled the same way. Exhausted transfer `404` and `409`
+responses leave the replica file `pending` so a later command can retry with fresh source selection and a new transfer
+token. Exhausted integrity or permanent filesystem failures mark the replica file `error`.
 The destination replica watcher is restored after reconciliation succeeds or fails.
 
 For filesystem replicas with `follow_symlinks` enabled, scans and change reports use a file symlink's target metadata

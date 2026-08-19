@@ -32,7 +32,10 @@ type ReplicaFileUpdate struct {
 	ModifiedTime time.Time
 }
 
-var ErrInvalidReplicaFileUpdate = errors.New("invalid replica file update")
+var (
+	ErrInvalidReplicaFileUpdate = errors.New("invalid replica file update")
+	ErrReplicaFileVersionStale  = errors.New("replica file version is stale")
+)
 
 type ReplicaInventoryFile struct {
 	FileID           uint
@@ -567,7 +570,7 @@ func (r *ReplicaRepository) UpdateFileStatus(replicaID, fileID uint, status mode
 				return err
 			}
 			if inventoryFile.Version != *version {
-				return ErrInvalidReplicaFileUpdate
+				return ErrReplicaFileVersionStale
 			}
 			replicaFile.Version = *version
 		}

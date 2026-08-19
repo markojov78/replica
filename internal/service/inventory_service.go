@@ -37,6 +37,7 @@ var (
 	ErrInvalidReplicaStorageProfile = errors.New("storage_profile requires storage replica")
 	ErrInvalidReplicaURI            = errors.New("invalid replica uri")
 	ErrInvalidReplicaFileUpdate     = errors.New("invalid replica file update")
+	ErrReplicaFileVersionStale      = errors.New("replica file version is stale")
 	ErrInvalidReplicaFileAction     = errors.New("invalid replica file action")
 	ErrInvalidReplicaUpstream       = errors.New("invalid replica upstream")
 	ErrReplicaNotFound              = errors.New("replica not found")

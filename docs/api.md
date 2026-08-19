@@ -2904,6 +2904,7 @@ Possible errors:
 - `400` invalid JSON payload
 - `400` invalid replica file status
 - `400` invalid replica file update
+- `409` synchronized version no longer matches the current inventory version
 - `401` missing authenticated node
 - `403` disabled or revoked node
 - `403` replica does not belong to authenticated node
@@ -3038,8 +3039,15 @@ Endpoints use transfer token issued by the coordinator and signed by coordinator
 Node can decrypt transfer token using coordinator public kay received on [node login](#post-authlogin-2).
 
 ### /replicas/{replica_id}/files/{file_id}/content endpoint
-#### GET /replicas/{replica_id}/files/{file_id}/content?version=123
+#### GET /replicas/{replica_id}/files/{file_id}/content endpoint
 Streams replica file content from a source storage node to a target storage node.
+
+Example request:
+```http request
+GET /replicas/{replica_id}/files/{file_id}/content?version=123
+Authorization: Bearer node-access-token-value
+X-API-Version: 1
+```
 
 Behavior:
 - requires `Authorization: Bearer <transfer-token>`

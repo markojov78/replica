@@ -1681,7 +1681,7 @@ func TestRuntimeReconcileReplicaDeletesUnknownDownstreamFiles(t *testing.T) {
 	}
 }
 
-func TestRuntimeReconcileReplicaMarksTerminalFileErrorAndContinues(t *testing.T) {
+func TestRuntimeReconcileReplicaLeavesTransientMissingFilePendingAndContinues(t *testing.T) {
 	destinationRoot := t.TempDir()
 	okHash, err := hashReaderBLAKE3(context.Background(), strings.NewReader("ok"))
 	if err != nil {
@@ -1774,14 +1774,11 @@ func TestRuntimeReconcileReplicaMarksTerminalFileErrorAndContinues(t *testing.T)
 	if !commandFailed {
 		t.Fatal("command was not marked failed")
 	}
-	if len(statusUpdates) != 2 {
-		t.Fatalf("statusUpdates = %+v, want 2 updates", statusUpdates)
+	if len(statusUpdates) != 1 {
+		t.Fatalf("statusUpdates = %+v, want 1 update", statusUpdates)
 	}
-	if statusUpdates[0].FileID != "10" || statusUpdates[0].Status != "error" {
-		t.Fatalf("first status update = %+v, want file 10 error", statusUpdates[0])
-	}
-	if statusUpdates[1].FileID != "11" || statusUpdates[1].Status != "synchronized" || statusUpdates[1].Version != 6 {
-		t.Fatalf("second status update = %+v, want file 11 synchronized version 6", statusUpdates[1])
+	if statusUpdates[0].FileID != "11" || statusUpdates[0].Status != "synchronized" || statusUpdates[0].Version != 6 {
+		t.Fatalf("status update = %+v, want file 11 synchronized version 6", statusUpdates[0])
 	}
 	data, err := os.ReadFile(filepath.Join(destinationRoot, "ok.txt"))
 	if err != nil {
@@ -1792,6 +1789,232 @@ func TestRuntimeReconcileReplicaMarksTerminalFileErrorAndContinues(t *testing.T)
 	}
 	if !runtime.replicaWatcherExists(4) {
 		t.Fatal("replica watcher was not restarted after reconciliation failure")
+	}
+}
+
+func TestReconcilePendingReplicaFileRefreshesNewerVersionAfterConflict(t *testing.T) {
+	newContent := "new content"
+	newHash, err := hashReaderBLAKE3(context.Background(), strings.NewReader(newContent))
+	if err != nil {
+		t.Fatalf("hashReaderBLAKE3() error = %v", err)
+	}
+	var requestedVersions []string
+	var synchronizedVersion uint
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/node/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id": "node-a", "access_token": "access-token", "refresh_token": "refresh-token",
+				"access_token_expires_at": time.Now().UTC().Add(time.Hour), "refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/node/replica/4/files":
+			_ = json.NewEncoder(w).Encode(map[string]any{"files": []map[string]any{{
+				"file_id": 10, "replica_id": 4, "relative_uri": "file.txt", "size": len(newContent), "hash": newHash,
+				"inventory_status": "active", "inventory_version": 2, "replica_status": "pending", "replica_version": 0,
+			}}})
+		case "/transfer/replicas/3/files/10/content":
+			version := r.URL.Query().Get("version")
+			requestedVersions = append(requestedVersions, version)
+			if version == "1" {
+				http.Error(w, "local replica file version is not synchronized", http.StatusConflict)
+				return
+			}
+			_, _ = w.Write([]byte(newContent))
+		case "/node/replica/4/files/10":
+			var body struct {
+				Status  string `json:"status"`
+				Version uint   `json:"version"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("Decode(status) error = %v", err)
+			}
+			if body.Status != "synchronized" {
+				t.Fatalf("status = %q, want synchronized", body.Status)
+			}
+			synchronizedVersion = body.Version
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected path %q", r.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	runtime := newRuntimeForTest(t, server.URL)
+	runtime.cfg.App.FileSyncRetry = 1
+	runtime.cfg.App.FileSyncRetryTime = time.Millisecond
+	destinationRoot := t.TempDir()
+	err = runtime.reconcilePendingReplicaFileWithRetry(
+		context.Background(), NewFilesystemWriter(), apiclient.Replica{ID: 4, URI: destinationRoot}, server.URL, 3,
+		apiclient.ReplicaInventoryFile{FileID: 10, RelativeURI: "file.txt", Size: 3, Hash: "old", InventoryStatus: "active", InventoryVersion: 1},
+		"transfer-token",
+	)
+	if err != nil {
+		t.Fatalf("reconcilePendingReplicaFileWithRetry() error = %v", err)
+	}
+	if !reflect.DeepEqual(requestedVersions, []string{"1", "2"}) {
+		t.Fatalf("requestedVersions = %v, want [1 2]", requestedVersions)
+	}
+	if synchronizedVersion != 2 {
+		t.Fatalf("synchronizedVersion = %d, want 2", synchronizedVersion)
+	}
+	data, err := os.ReadFile(filepath.Join(destinationRoot, "file.txt"))
+	if err != nil || string(data) != newContent {
+		t.Fatalf("file content = %q error=%v, want %q", data, err, newContent)
+	}
+}
+
+func TestReconcilePendingReplicaFileRefreshesAfterStatusConflict(t *testing.T) {
+	oldHash, _ := hashReaderBLAKE3(context.Background(), strings.NewReader("old"))
+	newHash, _ := hashReaderBLAKE3(context.Background(), strings.NewReader("new"))
+	var versions []string
+	statusUpdates := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/node/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id": "node-a", "access_token": "access-token", "refresh_token": "refresh-token",
+				"access_token_expires_at": time.Now().UTC().Add(time.Hour), "refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/transfer/replicas/3/files/10/content":
+			version := r.URL.Query().Get("version")
+			versions = append(versions, version)
+			if version == "1" {
+				_, _ = w.Write([]byte("old"))
+			} else {
+				_, _ = w.Write([]byte("new"))
+			}
+		case "/node/replica/4/files/10":
+			statusUpdates++
+			if statusUpdates == 1 {
+				http.Error(w, "replica file version is stale", http.StatusConflict)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		case "/node/replica/4/files":
+			_ = json.NewEncoder(w).Encode(map[string]any{"files": []map[string]any{{
+				"file_id": 10, "replica_id": 4, "relative_uri": "file.txt", "size": 3, "hash": newHash,
+				"inventory_status": "active", "inventory_version": 2, "replica_status": "pending", "replica_version": 0,
+			}}})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	runtime := newRuntimeForTest(t, server.URL)
+	runtime.cfg.App.FileSyncRetry = 1
+	runtime.cfg.App.FileSyncRetryTime = time.Millisecond
+	root := t.TempDir()
+	err := runtime.reconcilePendingReplicaFileWithRetry(
+		context.Background(), NewFilesystemWriter(), apiclient.Replica{ID: 4, URI: root}, server.URL, 3,
+		apiclient.ReplicaInventoryFile{FileID: 10, RelativeURI: "file.txt", Size: 3, Hash: oldHash, InventoryStatus: "active", InventoryVersion: 1}, "token",
+	)
+	if err != nil {
+		t.Fatalf("reconcilePendingReplicaFileWithRetry() error = %v", err)
+	}
+	if !reflect.DeepEqual(versions, []string{"1", "2"}) || statusUpdates != 2 {
+		t.Fatalf("versions=%v statusUpdates=%d, want [1 2] and 2", versions, statusUpdates)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "file.txt"))
+	if err != nil || string(data) != "new" {
+		t.Fatalf("file=%q error=%v, want new", data, err)
+	}
+}
+
+func TestReconcilePendingReplicaFileSwitchesToDeletionAfterConflict(t *testing.T) {
+	destinationRoot := t.TempDir()
+	target := filepath.Join(destinationRoot, "file.txt")
+	if err := os.WriteFile(target, []byte("old"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	var synchronizedVersion uint
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/node/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id": "node-a", "access_token": "access-token", "refresh_token": "refresh-token",
+				"access_token_expires_at": time.Now().UTC().Add(time.Hour), "refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/transfer/replicas/3/files/10/content":
+			http.Error(w, "stale", http.StatusConflict)
+		case "/node/replica/4/files":
+			_ = json.NewEncoder(w).Encode(map[string]any{"files": []map[string]any{{
+				"file_id": 10, "replica_id": 4, "relative_uri": "file.txt", "inventory_status": "deleted",
+				"inventory_version": 2, "replica_status": "pending", "replica_version": 0,
+			}}})
+		case "/node/replica/4/files/10":
+			var body struct {
+				Version uint `json:"version"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			synchronizedVersion = body.Version
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected path %q", r.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	runtime := newRuntimeForTest(t, server.URL)
+	runtime.cfg.App.FileSyncRetry = 1
+	runtime.cfg.App.FileSyncRetryTime = time.Millisecond
+	err := runtime.reconcilePendingReplicaFileWithRetry(
+		context.Background(), NewFilesystemWriter(), apiclient.Replica{ID: 4, URI: destinationRoot}, server.URL, 3,
+		apiclient.ReplicaInventoryFile{FileID: 10, RelativeURI: "file.txt", InventoryStatus: "active", InventoryVersion: 1}, "transfer-token",
+	)
+	if err != nil {
+		t.Fatalf("reconcilePendingReplicaFileWithRetry() error = %v", err)
+	}
+	if synchronizedVersion != 2 {
+		t.Fatalf("synchronizedVersion = %d, want 2", synchronizedVersion)
+	}
+	if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Stat(target) error = %v, want not exist", err)
+	}
+}
+
+func TestReconcilePendingReplicaFileLeavesExhaustedConflictPending(t *testing.T) {
+	transferRequests := 0
+	statusUpdates := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/node/auth/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id": "node-a", "access_token": "access-token", "refresh_token": "refresh-token",
+				"access_token_expires_at": time.Now().UTC().Add(time.Hour), "refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case "/transfer/replicas/3/files/10/content":
+			transferRequests++
+			http.Error(w, "stale", http.StatusConflict)
+		case "/node/replica/4/files":
+			_ = json.NewEncoder(w).Encode(map[string]any{"files": []map[string]any{{
+				"file_id": 10, "replica_id": 4, "relative_uri": "file.txt", "inventory_status": "active",
+				"inventory_version": 2, "replica_status": "pending", "replica_version": 0,
+			}}})
+		case "/node/replica/4/files/10":
+			statusUpdates++
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected path %q", r.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	runtime := newRuntimeForTest(t, server.URL)
+	runtime.cfg.App.FileSyncRetry = 1
+	runtime.cfg.App.FileSyncRetryTime = time.Millisecond
+	err := runtime.reconcilePendingReplicaFileWithRetry(
+		context.Background(), NewFilesystemWriter(), apiclient.Replica{ID: 4, URI: t.TempDir()}, server.URL, 3,
+		apiclient.ReplicaInventoryFile{FileID: 10, RelativeURI: "file.txt", InventoryStatus: "active", InventoryVersion: 1}, "transfer-token",
+	)
+	if !errors.Is(err, errReconcileTransient) {
+		t.Fatalf("error = %v, want transient reconciliation failure", err)
+	}
+	if transferRequests != 2 {
+		t.Fatalf("transferRequests = %d, want 2", transferRequests)
+	}
+	if statusUpdates != 0 {
+		t.Fatalf("statusUpdates = %d, want 0", statusUpdates)
 	}
 }
 

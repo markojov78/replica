@@ -671,6 +671,9 @@ func (s *ReplicaService) UpdateFileStatus(replicaID, fileID uint, nodeID, status
 		if errors.Is(err, repository.ErrInvalidReplicaFileUpdate) {
 			return ErrInvalidReplicaFileUpdate
 		}
+		if errors.Is(err, repository.ErrReplicaFileVersionStale) {
+			return ErrReplicaFileVersionStale
+		}
 		return err
 	}
 
