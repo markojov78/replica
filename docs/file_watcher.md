@@ -150,11 +150,9 @@ Timestamps:
 This fallback is isolated behind helper functions so platform-specific improvements can be added later without changing the scanner interface.
 
 ### Filesystem watcher
-
 `FilesystemWatcher` uses `github.com/fsnotify/fsnotify`. Its `rootURI` must identify a directory.
 
 Behavior:
-
 - creates recursive watches for all existing directories under the root
 - when target relative URIs are provided, filters events to those files
 - when target relative URIs are nil or empty, reports files throughout the directory tree
@@ -164,17 +162,21 @@ Behavior:
 - follows file symlinks for metadata and content when the filesystem replica has `follow_symlinks` enabled
 - removes directory watches when remove events occur
 - ignores events for temporary write paths whose basename starts with`TemporaryWritePrefix` defined in `internal/storage/temporary_files.go`
-
+- when constructed through `GetWatcher`, the filesystem watcher is wrapped in a per-file debouncer. A change is emitted
+  only after that relative path has received no new filesystem event for `FilesystemWatcherSettleDelay` (currently two
+  seconds). Every new event for the same path resets its deadline, while unrelated paths settle independently. When the
+  deadline expires, the wrapper inspects and hashes the current file instead of using state captured by the original
+  event. If the file no longer exists, it emits a deletion. This coalesces gradual in-place writes into one change hint.
+  The S3 polling watcher is not wrapped because it observes completed object snapshots rather than filesystem write
+  events.
 
 Event mapping:
-
 - `create` on a file becomes `created` with `State`
 - `write`, `chmod`, and most existing-path updates become `modified` with `State`
 - `remove` or `rename` when the path no longer exists becomes `deleted`
 - untrusted or ambiguous situations become `rescan_required`
 
 Important limitations:
-
 - filesystem notifications are not treated as authoritative state
 - rename correlation is not currently reconstructed into full old-path/new-path pairs
 - watcher errors are surfaced on the error channel and also trigger a `rescan_required` hint
@@ -182,7 +184,6 @@ Important limitations:
 This conservative design is intentional. The watcher helps detect likely changes quickly, while the scanner remains the authoritative way to rebuild complete file state.
 
 ## S3
-
 The S3 implementation lives in:
 
 - `internal/storage/s3_scanner.go`

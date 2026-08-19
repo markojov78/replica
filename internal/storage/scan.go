@@ -189,7 +189,12 @@ func GetWatcher(ctx context.Context, uri string, profile *config.StorageProfileC
 		return NewS3Watcher(scanner, interval), nil
 
 	case "file", "":
-		return NewFilesystemWatcher(followSymlinks...), nil
+		followSymlinks := followSymlinkEnabled(followSymlinks)
+		return NewDebouncingWatcher(
+			NewFilesystemWatcher(followSymlinks),
+			FilesystemWatcherSettleDelay,
+			resolveDebouncedFilesystemChange(followSymlinks),
+		), nil
 
 	default:
 		return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)

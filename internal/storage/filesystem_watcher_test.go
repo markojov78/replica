@@ -89,6 +89,55 @@ func TestFilesystemWatcherRejectsSingleFileRoot(t *testing.T) {
 	}
 }
 
+func TestGetWatcherWrapsFilesystemWatcherWithDebouncer(t *testing.T) {
+	watcher, err := GetWatcher(context.Background(), t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("GetWatcher() error = %v", err)
+	}
+	debouncer, ok := watcher.(*DebouncingWatcher)
+	if !ok {
+		t.Fatalf("GetWatcher() = %T, want *DebouncingWatcher", watcher)
+	}
+	if _, ok := debouncer.watcher.(*FilesystemWatcher); !ok {
+		t.Fatalf("wrapped watcher = %T, want *FilesystemWatcher", debouncer.watcher)
+	}
+	if debouncer.delay != FilesystemWatcherSettleDelay {
+		t.Fatalf("delay = %s, want %s", debouncer.delay, FilesystemWatcherSettleDelay)
+	}
+}
+
+func TestResolveDebouncedFilesystemChangeUsesCurrentState(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "photo.jpg")
+	if err := os.WriteFile(path, []byte("partial"), 0o644); err != nil {
+		t.Fatalf("WriteFile(partial) error = %v", err)
+	}
+	staleState := FileState{RelativeURI: "photo.jpg", Size: 7, Hash: "stale"}
+	change := FileChange{RelativeURI: "photo.jpg", ChangeType: FileChangeTypeCreated, State: &staleState}
+	if err := os.WriteFile(path, []byte("complete content"), 0o644); err != nil {
+		t.Fatalf("WriteFile(complete) error = %v", err)
+	}
+
+	resolved, ok, err := resolveDebouncedFilesystemChange(false)(context.Background(), root, change)
+	if err != nil {
+		t.Fatalf("resolveDebouncedFilesystemChange() error = %v", err)
+	}
+	if !ok || resolved.State == nil || resolved.State.Size != int64(len("complete content")) || resolved.State.Hash == "stale" {
+		t.Fatalf("resolved change = %+v, want current complete state", resolved)
+	}
+
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+	resolved, ok, err = resolveDebouncedFilesystemChange(false)(context.Background(), root, change)
+	if err != nil {
+		t.Fatalf("resolve deleted change error = %v", err)
+	}
+	if !ok || resolved.ChangeType != FileChangeTypeDeleted || resolved.State != nil {
+		t.Fatalf("resolved deleted change = %+v, want deletion", resolved)
+	}
+}
+
 func TestFilesystemWatcherExplicitTargetsIgnoreOtherFiles(t *testing.T) {
 	rootDir := t.TempDir()
 	firstTargetPath := filepath.Join(rootDir, "first.txt")

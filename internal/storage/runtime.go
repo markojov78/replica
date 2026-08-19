@@ -34,7 +34,6 @@ import (
 
 const bootstrapRetryInterval = 5 * time.Second
 const commandWebSocketPath = "/node/nodes/ws"
-const watcherReportSettleDelay = 250 * time.Millisecond
 
 type Runtime struct {
 	client            *apiclient.Client
@@ -658,10 +657,6 @@ func (r *Runtime) reportWatcherChange(ctx context.Context, replica apiclient.Rep
 		}
 		log.Printf("storage runtime watcher reported files replica_id=%d count=%d", replica.ID, 1)
 		return nil
-	}
-
-	if !sleepContext(ctx, watcherReportSettleDelay) {
-		return ctx.Err()
 	}
 
 	var state FileState

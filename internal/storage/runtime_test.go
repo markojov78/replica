@@ -840,7 +840,7 @@ func TestRuntimeScanReplicaRefreshesLocalStateBeforeScan(t *testing.T) {
 	if err := os.WriteFile(filePath, []byte("changed content"), 0o644); err != nil {
 		t.Fatalf("WriteFile(changed) error = %v", err)
 	}
-	reportDeadline := time.Now().Add(2 * time.Second)
+	reportDeadline := time.Now().Add(FilesystemWatcherSettleDelay + 2*time.Second)
 	for time.Now().Before(reportDeadline) {
 		mu.Lock()
 		gotReportCalls := reportCalls
@@ -2360,7 +2360,7 @@ func TestRuntimeStartsReplicaWatcherAndLogsChanges(t *testing.T) {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), FilesystemWatcherSettleDelay+3*time.Second)
 	defer cancel()
 
 	runtime.Start(ctx)
@@ -2377,7 +2377,7 @@ func TestRuntimeStartsReplicaWatcherAndLogsChanges(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	changeDeadline := time.Now().Add(1200 * time.Millisecond)
+	changeDeadline := time.Now().Add(FilesystemWatcherSettleDelay + 1200*time.Millisecond)
 	for time.Now().Before(changeDeadline) {
 		logs := logOutput.String()
 		if strings.Contains(logs, "storage runtime replica change replica_id=3") &&

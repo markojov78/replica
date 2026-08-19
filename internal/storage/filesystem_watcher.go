@@ -4,9 +4,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
+
+// FilesystemWatcherSettleDelay is the uninterrupted quiet period required
+// before a filesystem change is emitted to the runtime.
+const FilesystemWatcherSettleDelay = 2 * time.Second
 
 type FilesystemWatcher struct {
 	newWatcher     func() (*fsnotify.Watcher, error)
@@ -248,6 +253,31 @@ func filesystemChangesForEvent(ctx context.Context, watcher *fsnotify.Watcher, r
 
 func followSymlinkEnabled(values []bool) bool {
 	return len(values) > 0 && values[0]
+}
+
+func resolveDebouncedFilesystemChange(followSymlinks bool) FileChangeResolver {
+	return func(ctx context.Context, rootURI string, change FileChange) (FileChange, bool, error) {
+		root, err := resolveFilesystemTarget(rootURI, change.RelativeURI)
+		if err != nil {
+			return FileChange{}, false, err
+		}
+		state, err := fileStateFromPath(ctx, root.relativeDir, root.targetPath, followSymlinks, nil)
+		if err == nil && state != nil {
+			stateCopy := *state
+			return FileChange{
+				RelativeURI: change.RelativeURI,
+				ChangeType:  FileChangeTypeModified,
+				State:       &stateCopy,
+			}, true, nil
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return FileChange{}, false, err
+		}
+		return FileChange{
+			RelativeURI: change.RelativeURI,
+			ChangeType:  FileChangeTypeDeleted,
+		}, true, nil
+	}
 }
 
 func sendChange(ctx context.Context, changeCh chan<- FileChange, change FileChange) {
