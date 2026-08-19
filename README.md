@@ -38,6 +38,14 @@ To build the service, use the build script:
 # Build every target
 ./build.sh all
 ```
+
+The compiled service binary can report its embedded build information without loading configuration or starting the
+service:
+
+```bash
+replica --version
+replica -v
+```
 Output will be structured as:
 ```
 bin/

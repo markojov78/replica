@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
 
 	"replica/internal/buildinfo"
 	"replica/internal/config"
@@ -15,6 +18,10 @@ import (
 )
 
 func main() {
+	if printVersion(os.Args[1:], os.Stdout) {
+		return
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("load config: %v", err)
@@ -124,4 +131,14 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("run api: %v", err)
 	}
+}
+
+func printVersion(args []string, output io.Writer) bool {
+	if len(args) != 1 || (args[0] != "--version" && args[0] != "-v") {
+		return false
+	}
+
+	info := buildinfo.Get()
+	fmt.Fprintf(output, "Replica\nVersion: %s\nCommit: %s\nBuild date: %s\n", info.Version, info.Commit, info.BuildDate)
+	return true
 }
