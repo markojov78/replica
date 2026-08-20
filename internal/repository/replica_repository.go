@@ -593,6 +593,36 @@ func (r *ReplicaRepository) UpdateFileStatus(replicaID, fileID uint, status mode
 	})
 }
 
+func (r *ReplicaRepository) UpdateFileStatusValidatingSource(replicaID, fileID uint, status model.ReplicaFileStatus) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var replicaFile model.ReplicaFile
+		if err := tx.Where("replica_id = ? AND file_id = ?", replicaID, fileID).First(&replicaFile).Error; err != nil {
+			return err
+		}
+
+		validateSource := status == model.ReplicaFileStatusPending && replicaFile.Status == model.ReplicaFileStatusSynchronized
+		replicaFile.Status = status
+		if err := tx.Save(&replicaFile).Error; err != nil {
+			return err
+		}
+		if !validateSource {
+			return nil
+		}
+
+		var replica model.Replica
+		if err := tx.First(&replica, replicaID).Error; err != nil {
+			return err
+		}
+		if _, err := r.selectReconcileSource(tx, replica); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrInvalidReplicaFileUpdate
+			}
+			return err
+		}
+		return nil
+	})
+}
+
 func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaFileUpdate, payloadBuilders ...ReconcilePayloadBuilder) ([]model.Command, error) {
 	var commands []model.Command
 	err := r.db.Transaction(func(tx *gorm.DB) error {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -125,6 +126,42 @@ func TestEnsureReconcileCommandsForNodeSkipsDestinationWithoutSource(t *testing.
 	}
 	if pending.Status != model.ReplicaFileStatusPending {
 		t.Fatalf("status = %q, want %q", pending.Status, model.ReplicaFileStatusPending)
+	}
+}
+
+func TestUpdateReplicaFilePendingValidatesReconcileSource(t *testing.T) {
+	database, svc, source, destination := newReconcileCommandTest(t)
+	var destinationFile model.ReplicaFile
+	if err := database.First(&destinationFile, "replica_id = ?", destination.ID).Error; err != nil {
+		t.Fatalf("First(destination file) error = %v", err)
+	}
+	if err := database.Model(&destinationFile).Updates(map[string]any{
+		"status":  model.ReplicaFileStatusSynchronized,
+		"version": 1,
+	}).Error; err != nil {
+		t.Fatalf("synchronize destination error = %v", err)
+	}
+
+	if _, err := svc.UpdateFile(destination.ID, destinationFile.FileID, "pending"); err != nil {
+		t.Fatalf("UpdateFile(pending with source) error = %v", err)
+	}
+	if err := database.Model(&destinationFile).Update("status", model.ReplicaFileStatusSynchronized).Error; err != nil {
+		t.Fatalf("reset destination status error = %v", err)
+	}
+	if err := database.Model(&model.ReplicaFile{}).
+		Where("replica_id = ? AND file_id = ?", source.ID, destinationFile.FileID).
+		Update("status", model.ReplicaFileStatusPending).Error; err != nil {
+		t.Fatalf("make source unavailable error = %v", err)
+	}
+
+	if _, err := svc.UpdateFile(destination.ID, destinationFile.FileID, "pending"); !errors.Is(err, ErrInvalidReplicaFileUpdate) {
+		t.Fatalf("UpdateFile(pending without source) error = %v, want %v", err, ErrInvalidReplicaFileUpdate)
+	}
+	if err := database.First(&destinationFile, "replica_id = ?", destination.ID).Error; err != nil {
+		t.Fatalf("First(destination file after rejection) error = %v", err)
+	}
+	if destinationFile.Status != model.ReplicaFileStatusSynchronized {
+		t.Fatalf("destination status = %q, want %q", destinationFile.Status, model.ReplicaFileStatusSynchronized)
 	}
 }
 

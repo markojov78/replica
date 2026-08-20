@@ -204,9 +204,12 @@ func (s *ReplicaService) UpdateFile(replicaID, fileID uint, statusValue string) 
 		return nil, ErrInvalidReplicaFileStatus
 	}
 
-	if err := s.repo.UpdateFileStatus(replicaID, fileID, status, nil); err != nil {
+	if err := s.repo.UpdateFileStatusValidatingSource(replicaID, fileID, status); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrReplicaFileNotFound
+		}
+		if errors.Is(err, repository.ErrInvalidReplicaFileUpdate) {
+			return nil, ErrInvalidReplicaFileUpdate
 		}
 		return nil, err
 	}
