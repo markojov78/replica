@@ -3,7 +3,6 @@ package repository
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"sort"
 	"strings"
@@ -180,12 +179,22 @@ func (r *ReplicaRepository) EnsureReconcileCommandsForNode(nodeID string, payloa
 			if _, exists := pendingDestinations[destination.ID]; exists {
 				continue
 			}
-			command, err := r.createReconcileCommand(tx, destination, payloadBuilder, nil)
+			source, err := r.selectReconcileSource(tx, destination)
 			if err != nil {
-				if destination.UpstreamReplicaID == nil {
-					return fmt.Errorf("no synchronization source destination_replica_id=%d node_id=%s inventory_id=%d upstream_replica_id=null: %w", destination.ID, destination.NodeID, destination.InventoryID, err)
+				if !errors.Is(err, gorm.ErrRecordNotFound) {
+					return err
 				}
-				return fmt.Errorf("no synchronization source destination_replica_id=%d node_id=%s inventory_id=%d upstream_replica_id=%d: %w", destination.ID, destination.NodeID, destination.InventoryID, *destination.UpstreamReplicaID, err)
+
+				upstream := any(nil)
+				if destination.UpstreamReplicaID != nil {
+					upstream = *destination.UpstreamReplicaID
+				}
+				log.Printf("error creating reconcile_replica command: no synchronization source destination_replica_id=%d node_id=%s inventory_id=%d upstream_replica_id=%v", destination.ID, destination.NodeID, destination.InventoryID, upstream)
+				continue
+			}
+			command, err := r.createReconcileCommandWithSource(tx, destination, source, payloadBuilder, nil)
+			if err != nil {
+				return err
 			}
 			created = append(created, command)
 		}
@@ -199,6 +208,10 @@ func (r *ReplicaRepository) createReconcileCommand(tx *gorm.DB, destination mode
 	if err != nil {
 		return model.Command{}, err
 	}
+	return r.createReconcileCommandWithSource(tx, destination, source, payloadBuilder, deleteRelativeURIs)
+}
+
+func (r *ReplicaRepository) createReconcileCommandWithSource(tx *gorm.DB, destination model.Replica, source ReconcileSource, payloadBuilder ReconcilePayloadBuilder, deleteRelativeURIs []string) (model.Command, error) {
 	payload, err := payloadBuilder(destination, source, deleteRelativeURIs)
 	if err != nil {
 		return model.Command{}, err

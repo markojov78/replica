@@ -602,9 +602,7 @@ These are the authoritative logical files currently known for the inventory.
 Each starts at version `1`.
 
 ##### 6) Coordinator inserts `file_journal`
-
 For each discovered file:
-
 ```
 file_journal
 id   file_id  inventory_id  replica_id  version  action   timestamp
@@ -618,9 +616,7 @@ Version in `file_journal` is the old version on which action has been performed.
 Version `0` means the file did not exist before the creation event.
 
 ##### 7) Coordinator inserts `replica_files`
-
 For each discovered file on replica A:
-
 ```
 replica_files
 file_id  replica_id  version  status
@@ -634,7 +630,6 @@ This says:
 Replica A already has the current version of these files.
 
 ##### 8) Final state after inventory creation
-
 ```
 inventories
 id  name    type    status
@@ -662,7 +657,6 @@ file_id  replica_id  version  status
 #### Example: creating a file-set inventory
 
 ##### 1) User requests inventory creation
-
 ```
 inventory name: Album highlights
 default replica node: A
@@ -670,7 +664,6 @@ file uris: /data/photos/album/cover.jpg, /data/photos/album/subfolder/feature.jp
 ```
 
 ##### 2) Coordinator inserts `inventories`
-
 ```
 inventories
 id  name              type  status
@@ -679,7 +672,6 @@ id  name              type  status
 ```
 
 ##### 3) Coordinator creates default replica
-
 ```
 replicas
 id  inventory_id  node_id  uri                        type        status  upstream_replica_id
@@ -688,7 +680,6 @@ B   2             node-1   file:///data/photos/album  filesystem  active  null
 ```
 
 ##### 4) Coordinator creates placeholder files
-
 ```
 inventory_files
 file_id  inventory_id  relative_uri           version  status
@@ -698,7 +689,6 @@ file_id  inventory_id  relative_uri           version  status
 ```
 
 ##### 5) Coordinator creates placeholder replica state
-
 ```
 replica_files
 file_id  replica_id  version  status
@@ -708,9 +698,7 @@ file_id  replica_id  version  status
 ```
 
 ##### 6) Storage service scans expected files
-
 The storage service checks only:
-
 ```
 cover.jpg
 subfolder/feature.jpg
@@ -719,7 +707,6 @@ subfolder/feature.jpg
 and reports its metadata.
 
 ##### 7) Coordinator updates file metadata and creates initial version
-
 ```
 inventory_files
 file_id  inventory_id  relative_uri           version  status  created  modified  size  hash
@@ -745,21 +732,16 @@ file_id  replica_id  version  status
 ```
 
 ##### 8) Final state after inventory creation
-
 The resulting state is identical to a folder inventory containing those selected files, except unrelated files under
 the common replica prefix are excluded. The selected file entries existed as version `0` placeholders before the
 first scan completed.
 
 #### Important note
-
-During inventory creation, the default replica is not `pending`.
-
-It is the source from which the initial inventory state is built.
-
-The default replica starts as `synchronized`.
-
-Additional replicas created later start as `pending` because they must receive the already-known inventory content from an existing synchronized replica.
-
+During inventory creation, the default replica is not `pending`.  
+It is the source from which the initial inventory state is built.  
+The default replica starts as `synchronized`.  
+Additional replicas created later start as `pending` because they must receive the already-known inventory content 
+from an existing synchronized replica.  
 
 ### Creating a new replica
 This explains what happens when a new replica is created for an existing inventory.  
@@ -783,6 +765,7 @@ file_id  replica_id  version  status
 10       A           3        synchronized
 11       A           3        synchronized
 ```
+
 #### 2) Coordinator create new replica
 ```
 replicas
@@ -790,6 +773,7 @@ id  inventory_id  node_id  uri                 type     status  upstream_replica
 -----------------------------------------------------------------------------------
 B   1             node-2   s3://bucket/photos  storage  active  null
 ```
+
 #### 3) Coordinator populates `replica_files` for the new replica
 ```
 replica_files
@@ -864,7 +848,7 @@ Then reports this to coordinator.
 inventory_files
 file_id  version  status  modified  size      hash
 ------------------------------------------------------
-10        4       active  new_time  new_size  new_hash
+10       4        active  new_time  new_size  new_hash
 ```
 This says:  
 The authoritative current version of this file is version 4.  
@@ -918,5 +902,5 @@ file_id  replica_id  version  status
 inventory_files
 file_id  version  status  modified  size      hash
 ------------------------------------------------------
-10        4       active  new_time  new_size  new_hash
+10       4        active  new_time  new_size  new_hash
 ```

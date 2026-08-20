@@ -74,6 +74,60 @@ func TestEnsureReconcileCommandsForNode(t *testing.T) {
 	}
 }
 
+func TestEnsureReconcileCommandsForNodeSkipsDestinationWithoutSource(t *testing.T) {
+	database, svc, source, destinationWithoutSource := newReconcileCommandTest(t)
+	if err := database.Model(&model.ReplicaFile{}).
+		Where("replica_id = ?", source.ID).
+		Update("status", model.ReplicaFileStatusPending).Error; err != nil {
+		t.Fatalf("make source unavailable error = %v", err)
+	}
+
+	inventory := model.Inventory{Name: "second inventory", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(&inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	file := model.InventoryFile{InventoryID: inventory.ID, RelativeURI: "second.txt", Status: model.InventoryFileStatusActive, Version: 1}
+	if err := database.Create(&file).Error; err != nil {
+		t.Fatalf("Create(file) error = %v", err)
+	}
+	validSource := model.Replica{InventoryID: inventory.ID, NodeID: "node-a", URI: "/second-source", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeFilesystem}
+	validDestination := model.Replica{InventoryID: inventory.ID, NodeID: destinationWithoutSource.NodeID, URI: "/second-destination", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeFilesystem}
+	if err := database.Create(&validSource).Error; err != nil {
+		t.Fatalf("Create(source) error = %v", err)
+	}
+	if err := database.Create(&validDestination).Error; err != nil {
+		t.Fatalf("Create(destination) error = %v", err)
+	}
+	if err := database.Create(&[]model.ReplicaFile{
+		{FileID: file.ID, ReplicaID: validSource.ID, Version: 1, Status: model.ReplicaFileStatusSynchronized},
+		{FileID: file.ID, ReplicaID: validDestination.ID, Version: 0, Status: model.ReplicaFileStatusPending},
+	}).Error; err != nil {
+		t.Fatalf("Create(replica files) error = %v", err)
+	}
+
+	commands, err := svc.EnsureReconcileCommandsForNode(destinationWithoutSource.NodeID)
+	if err != nil {
+		t.Fatalf("EnsureReconcileCommandsForNode() error = %v", err)
+	}
+	if len(commands) != 1 {
+		t.Fatalf("len(commands) = %d, want 1", len(commands))
+	}
+	var payload ReconcileReplicaCommandPayload
+	if err := json.Unmarshal(commands[0].Payload, &payload); err != nil {
+		t.Fatalf("Unmarshal(command payload) error = %v", err)
+	}
+	if payload.DestinationReplicaID != validDestination.ID {
+		t.Fatalf("destination_replica_id = %d, want %d", payload.DestinationReplicaID, validDestination.ID)
+	}
+	var pending model.ReplicaFile
+	if err := database.First(&pending, "replica_id = ?", destinationWithoutSource.ID).Error; err != nil {
+		t.Fatalf("First(replica file) error = %v", err)
+	}
+	if pending.Status != model.ReplicaFileStatusPending {
+		t.Fatalf("status = %q, want %q", pending.Status, model.ReplicaFileStatusPending)
+	}
+}
+
 func TestReplicaServiceUpdateClearsUpstreamReplica(t *testing.T) {
 	database, svc, source, destination := newReconcileCommandTest(t)
 	sourceID := source.ID
