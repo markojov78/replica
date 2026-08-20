@@ -805,26 +805,14 @@ A replica is up to date.
 B replica needs update.  
 
 #### 4) Coordinator creates `reconcile_replica` command
-The coordinator finds pending `replica_files` for replica B and selects a source replica.
-
-For downstream replicas (`upstream_replica_id != null`), the upstream replica is the only valid source.
-
-For base replicas (`upstream_replica_id == null`), candidates must belong to the same inventory, be base replicas, be active, not be replica B, and have synchronized `replica_files` with versions above the pending destination versions. Same-node candidates are preferred first, then candidates on the most recently seen node.
-
-The command payload tells the destination storage node which source to use and includes a short-lived replica-scoped transfer token:
-
-```json
-{
-  "source_node_address": "https://192.168.1.15:8080",
-  "source_node_id": "node_laptop",
-  "source_replica_id": 3,
-  "destination_replica_id": 4,
-  "transfer_token": "<signed-jwt>",
-  "delete_relative_uris": []
-}
-```
-
-`delete_relative_uris` is optional and contains unknown local paths that must be removed from a downstream replica.
+The coordinator finds destination replica by searching `replica_files.status = pending` and determines source replica:  
+For downstream replicas (`upstream_replica_id != null`), the upstream replica is the only valid source.  
+For base replicas (`upstream_replica_id == null`), candidates must belong to the same inventory, be base replicas, 
+be active, not be replica B, and have synchronized `replica_files` with versions above the pending destination versions. 
+Same-node candidates are preferred first, then candidates on the most recently seen node.  
+The coordinator sends `reconcile_replica` command with payload that tells the destination storage node which source to 
+use and includes a short-lived replica-scoped transfer token.  
+[reconcile_replica command description](#reconcile_replica)
 
 #### 5) File data is transferred
 Storage service copies actual data:  
@@ -881,9 +869,9 @@ file_id  version  status  modified  size      hash
 This says:  
 The authoritative current version of this file is version 4.  
 
-#### 4) Coordinator inserts `inventory_journal`
+#### 4) Coordinator inserts `file_journal`
 ```
-inventory_journal
+file_journal
 id   file_id  inventory_id  replica_id  version  action   timestamp
 -------------------------------------------------------------------
 101  10       1             A           3        updated  new_time 
@@ -901,23 +889,24 @@ This says:
 A has the current version.  
 B still has an old version and needs update.  
 
-#### 6) Replication worker finds pending target
-It queries:  
-`replica_files where status = pending`  
-Then compares:  
-`replica_files.version < inventory_files.version`  
-So it knows:  
-`copy file_id=10 version=4 to replica B`  
-Source can be replica A, or any synchronized replica with version 4.  
+#### 6) Coordinator creates `reconcile_replica` command
+The coordinator finds destination replica by searching `replica_files.status = pending` and determines source replica:  
+For downstream replicas (`upstream_replica_id != null`), the upstream replica is the only valid source.  
+For base replicas (`upstream_replica_id == null`), candidates must belong to the same inventory, be base replicas, 
+be active, not be replica B, and have synchronized `replica_files` with versions above the pending destination versions. 
+Same-node candidates are preferred first, then candidates on the most recently seen node.  
+The coordinator sends `reconcile_replica` command with payload that tells the destination storage node which source to
+use and includes a short-lived replica-scoped transfer token.  
+[reconcile_replica command description](#reconcile_replica)
 
 #### 7) File data is transferred
-Storage service copies actual data:  
-replica A path -> replica B path  
+The destination storage service retrieves data directly from the selected source storage service and writes it to replica B.
   
-Then verifies:  
+Filesystem destinations verify:
 `hash == inventory_files.hash && size == inventory_files.size`  
 
 #### 8) Coordinator marks replica B synchronized
+Replica B reports version 4. The coordinator verifies it is still current and marks replica B synchronized.
 Final state after successful transfer:  
 ```
 replica_files
