@@ -559,6 +559,7 @@
     let total = 0;
     let loading = false;
     let retryOffset = 0;
+    let clearImageZoom = () => {};
     const pages = new Map();
     const knownIDs = new Set();
 
@@ -654,6 +655,134 @@
       modal.querySelector("[data-preview-next]").disabled = loading || !nextAvailable;
     }
 
+    function bindImageZoom(content, image) {
+      const stage = document.createElement("div");
+      stage.className = "preview-image-stage";
+      const toolbar = document.createElement("div");
+      toolbar.className = "preview-zoom-controls";
+      toolbar.setAttribute("role", "group");
+      toolbar.setAttribute("aria-label", "Photo zoom");
+      const buttons = new Map();
+      for (const [action, label, title] of [
+        ["out", "−", "Zoom out"], ["in", "+", "Zoom in"],
+      ]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.className = "preview-close";
+        button.setAttribute("aria-label", title);
+        button.disabled = true;
+        button.addEventListener("click", () => {
+          setZoom(scale * (action === "in" ? 1.25 : 0.8));
+        });
+        buttons.set(action, button);
+        toolbar.append(button);
+      }
+      image.draggable = false;
+      image.hidden = true;
+      stage.append(image);
+      content.classList.add("preview-image-content");
+      content.append(stage);
+      dialog().insertBefore(toolbar, dialog().querySelector("[data-preview-close]"));
+      let fit = 1;
+      let scale = 1;
+      let x = 0;
+      let y = 0;
+      let ready = false;
+      let disposed = false;
+      let drag;
+      let suppressClick = false;
+      const modified = (event) => event.ctrlKey || event.metaKey || event.altKey || event.shiftKey;
+
+      function paint() {
+        const limitX = Math.max(0, (image.naturalWidth * scale - stage.clientWidth) / 2);
+        const limitY = Math.max(0, (image.naturalHeight * scale - stage.clientHeight) / 2);
+        x = Math.max(-limitX, Math.min(limitX, x));
+        y = Math.max(-limitY, Math.min(limitY, y));
+        image.style.width = `${image.naturalWidth * scale}px`;
+        image.style.height = `${image.naturalHeight * scale}px`;
+        image.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+        stage.classList.toggle("can-pan", limitX > 0 || limitY > 0);
+        buttons.get("out").disabled = scale <= fit;
+        buttons.get("in").disabled = scale >= 4;
+      }
+
+      function setZoom(value, clientX, clientY) {
+        if (!ready) return;
+        const rect = stage.getBoundingClientRect();
+        const anchorX = clientX === undefined ? 0 : clientX - rect.left - rect.width / 2;
+        const anchorY = clientY === undefined ? 0 : clientY - rect.top - rect.height / 2;
+        const next = Math.max(fit, Math.min(4, value));
+        x = anchorX - (anchorX - x) * next / scale;
+        y = anchorY - (anchorY - y) * next / scale;
+        scale = next;
+        paint();
+      }
+
+      function resize() {
+        if (disposed || !image.naturalWidth || !stage.clientWidth || !stage.clientHeight) return;
+        const wasFit = !ready || Math.abs(scale - fit) < 0.000001;
+        fit = Math.min(1, stage.clientWidth / image.naturalWidth, stage.clientHeight / image.naturalHeight);
+        ready = true;
+        image.hidden = false;
+        setZoom(wasFit ? fit : scale);
+      }
+
+      stage.addEventListener("wheel", (event) => {
+        if (!ready || modified(event)) return;
+        event.preventDefault();
+        const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stage.clientHeight : 1;
+        setZoom(scale * Math.exp(-Math.max(-100, Math.min(100, event.deltaY * unit)) * 0.002), event.clientX, event.clientY);
+      }, {passive: false});
+      image.addEventListener("click", (event) => {
+        if (suppressClick) {
+          suppressClick = false;
+          return;
+        }
+        if (!modified(event)) setZoom(Math.abs(scale - fit) < 0.000001 ? 1 : fit, event.clientX, event.clientY);
+      });
+      stage.addEventListener("pointerdown", (event) => {
+        if (!ready || modified(event) || event.button !== 0 || !event.isPrimary) return;
+        suppressClick = false;
+        if (!stage.classList.contains("can-pan")) return;
+        drag = {id: event.pointerId, startX: event.clientX, startY: event.clientY, x, y, moved: false};
+      });
+      stage.addEventListener("pointermove", (event) => {
+        if (!drag || drag.id !== event.pointerId) return;
+        const dx = event.clientX - drag.startX;
+        const dy = event.clientY - drag.startY;
+        if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+        drag.moved = true;
+        suppressClick = true;
+        stage.setPointerCapture(event.pointerId);
+        stage.classList.add("is-dragging");
+        x = drag.x + dx;
+        y = drag.y + dy;
+        paint();
+      });
+      function endDrag(event) {
+        if (!drag || drag.id !== event.pointerId) return;
+        drag = undefined;
+        stage.classList.remove("is-dragging");
+        if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
+      }
+      stage.addEventListener("pointerup", endDrag);
+      stage.addEventListener("pointercancel", endDrag);
+      stage.addEventListener("lostpointercapture", endDrag);
+      image.addEventListener("load", resize);
+      const observer = new ResizeObserver(resize);
+      observer.observe(stage);
+      resize();
+      return () => {
+        disposed = true;
+        observer.disconnect();
+        image.removeEventListener("load", resize);
+        if (drag) endDrag({pointerId: drag.id});
+        content.classList.remove("preview-image-content");
+        toolbar.remove();
+      };
+    }
+
     function render(item) {
       const modal = dialog();
       if (!modal || !item) {
@@ -664,6 +793,8 @@
       const content = modal.querySelector("[data-preview-content]");
       const kind = item.previewKind;
       const url = item.contentURL;
+      clearImageZoom();
+      clearImageZoom = () => {};
       content.replaceChildren();
       let media;
       if (kind === "image") {
@@ -695,7 +826,11 @@
         original.textContent = "Download / open original";
         media.append(name, details, original);
       }
-      content.append(media);
+      if (kind === "image") {
+        clearImageZoom = bindImageZoom(content, media);
+      } else {
+        content.append(media);
+      }
       modal.querySelector("[data-preview-filename]").textContent = item.fileName || "File preview";
       setStatus("");
       updateControls();
@@ -736,6 +871,8 @@
         history.replaceState(history.state, "", previewURL(""));
       }
       modal.hidden = true;
+      clearImageZoom();
+      clearImageZoom = () => {};
       modal.querySelector("[data-preview-content]")?.replaceChildren();
       document.body.classList.remove("preview-open");
       current = undefined;
@@ -839,6 +976,9 @@
       if (!modal || modal.hidden) {
         return;
       }
+      if (event.ctrlKey || event.metaKey || event.altKey || (event.shiftKey && event.key !== "Tab")) {
+        return;
+      }
       if (event.key === "Escape") {
         event.preventDefault();
         close();
@@ -849,7 +989,7 @@
         event.preventDefault();
         move(1);
       } else if (event.key === "Tab") {
-        const focusable = [...modal.querySelectorAll('button:not([disabled]),a[href],video[controls],audio[controls],iframe')];
+        const focusable = [...modal.querySelectorAll('button:not([disabled]),a[href],video[controls],audio[controls],iframe')].filter((element) => element.getClientRects().length);
         if (!focusable.length) {
           event.preventDefault();
           return;

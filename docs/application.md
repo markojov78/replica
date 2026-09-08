@@ -113,6 +113,14 @@ interface for data upload / replace / delete if share permissions allow it.
 The sharing service uses the coordinator to resolve which replica to use and can even use local read-only replica for 
 fast read and remote updateable replica for update.
 
+The sharing UI photo viewer opens images fitted to the available space without enlarging small images. A single
+click toggles between Fit and 100% around the clicked point. At 100%, one image pixel occupies one CSS pixel.
+The mouse wheel over the photo area zooms around the pointer, from Fit up to 400%; dragging pans enlarged images
+within their bounds. Keyboard-accessible − and + buttons sit beside the close button in the top-right corner,
+using the same circular style. Zoom controls overlay the viewer without reserving space below the photo.
+Each new photo starts at Fit. Browser modifier shortcuts and modified wheel gestures retain their browser behavior;
+trackpad pinch and touchscreen pinch remain browser zoom gestures. Photo zoom does not affect other media previews.
+
 ## Database
 
 ![Database](database.jpg)
