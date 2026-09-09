@@ -754,6 +754,8 @@ func (r *Runtime) serveShareFileThumbnail(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
+	defer result.Release()
+
 	thumbnailFile, err := os.Open(result.Path)
 	if err != nil {
 		writeStorageShareError(w, http.StatusInternalServerError, errShareLocalStorageFailed.Error())

@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -55,10 +56,26 @@ type ThumbnailRequest struct {
 	Source      ThumbnailSource
 }
 
+// ThumbnailResult owns a cache reference. Call Release after all use of Path,
+// including closing any file opened from it, even when opening or serving fails.
 type ThumbnailResult struct {
 	Path        string
 	ContentType string
+	release     func()
 }
+
+func (r ThumbnailResult) Release() {
+	if r.release != nil {
+		r.release()
+	}
+}
+
+var thumbnailCaches = struct {
+	sync.Mutex
+	byDirectory map[string]*fileCache
+}{byDirectory: make(map[string]*fileCache)}
+
+var thumbnailCacheFilename = regexp.MustCompile(`^(?:[1-9][0-9]*_[1-9][0-9]*_[1-9][0-9]*\.(?:jpg|svg)|unknown_[1-9][0-9]*\.svg)$`)
 
 type ThumbnailService struct {
 	cfg          config.Config
@@ -66,8 +83,7 @@ type ThumbnailService struct {
 	validateErr  error
 	videoTimeout time.Duration
 
-	mu    sync.Mutex
-	locks map[string]*sync.Mutex
+	cache *fileCache
 }
 
 func NewThumbnailService(cfg config.Config) *ThumbnailService {
@@ -75,10 +91,43 @@ func NewThumbnailService(cfg config.Config) *ThumbnailService {
 		cfg:          cfg,
 		storageDir:   strings.TrimSpace(cfg.Sharing.ThumbnailStorage),
 		videoTimeout: defaultThumbnailVideoTimeout,
-		locks:        make(map[string]*sync.Mutex),
 	}
-	service.validateErr = service.validateStorage()
+	service.validateErr = service.initializeCache()
 	return service
+}
+
+// Keep one coordinator per canonical directory for the process lifetime, so
+// service recreation cannot lose serving references or generation locks.
+func (s *ThumbnailService) initializeCache() error {
+	limit, err := s.cfg.Sharing.ThumbnailStorageLimitBytes()
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrThumbnailStorage, err)
+	}
+	if err := s.validateStorage(); err != nil {
+		return err
+	}
+	dir, err := filepath.Abs(s.storageDir)
+	if err == nil {
+		dir, err = filepath.EvalSymlinks(dir)
+	}
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrThumbnailStorage, err)
+	}
+	s.storageDir = dir
+	thumbnailCaches.Lock()
+	defer thumbnailCaches.Unlock()
+	cache := thumbnailCaches.byDirectory[dir]
+	if cache == nil {
+		cache, err = newFileCache(dir, limit, thumbnailCacheFilename.MatchString)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrThumbnailStorage, err)
+		}
+		thumbnailCaches.byDirectory[dir] = cache
+	} else {
+		cache.setLimit(limit)
+	}
+	s.cache = cache
+	return nil
 }
 
 func (s *ThumbnailService) Validate() error {
@@ -102,13 +151,10 @@ func (s *ThumbnailService) GetOrCreateThumbnail(ctx context.Context, req Thumbna
 	kind, label := thumbnailFileKind(req.RelativeURI, thumbnailSourceName(req.Source))
 	switch kind {
 	case thumbnailKindImage:
-		if result, ok := s.cachedJPG(req); ok {
-			return result, nil
-		}
 		return s.getOrCreateJPG(ctx, req, s.generateImageThumbnail)
 	case thumbnailKindVideo:
-		if result, ok := s.cachedJPG(req); ok {
-			return result, nil
+		if lease, ok, err := s.cache.acquire(thumbnailFilename(req, ".jpg")); ok || err != nil {
+			return thumbnailResult(lease, ThumbnailContentTypeJPEG, err)
 		}
 		if req.Source == nil || !req.Source.IsLocalFile() {
 			return s.getOrCreateGenericSVG(req, label)
@@ -124,12 +170,11 @@ func (s *ThumbnailService) GetOrCreateThumbnail(ctx context.Context, req Thumbna
 	}
 }
 
-func (s *ThumbnailService) cachedJPG(req ThumbnailRequest) (ThumbnailResult, bool) {
-	path := s.ThumbnailPath(req, ".jpg")
-	if !fileExists(path) {
-		return ThumbnailResult{}, false
+func thumbnailResult(lease fileCacheLease, contentType string, err error) (ThumbnailResult, error) {
+	if err != nil {
+		return ThumbnailResult{}, fmt.Errorf("%w: %w", ErrThumbnailStorage, err)
 	}
-	return ThumbnailResult{Path: path, ContentType: ThumbnailContentTypeJPEG}, true
+	return ThumbnailResult{Path: lease.path, ContentType: contentType, release: lease.release}, nil
 }
 
 func (s *ThumbnailService) ValidateSize(size int) error {
@@ -194,72 +239,40 @@ func validateLocalThumbnailSource(source ThumbnailSource) error {
 }
 
 func (s *ThumbnailService) getOrCreateJPG(ctx context.Context, req ThumbnailRequest, generate func(context.Context, ThumbnailRequest, string) error) (ThumbnailResult, error) {
-	path := s.ThumbnailPath(req, ".jpg")
-	if fileExists(path) {
-		return ThumbnailResult{Path: path, ContentType: ThumbnailContentTypeJPEG}, nil
-	}
-
-	unlock := s.lockPath(path)
-	defer unlock()
-	if fileExists(path) {
-		return ThumbnailResult{Path: path, ContentType: ThumbnailContentTypeJPEG}, nil
-	}
-	if err := generate(ctx, req, path); err != nil {
-		return ThumbnailResult{}, err
-	}
-	return ThumbnailResult{Path: path, ContentType: ThumbnailContentTypeJPEG}, nil
+	lease, err := s.cache.getOrCreate(thumbnailFilename(req, ".jpg"), func(path string) error {
+		return generate(ctx, req, path)
+	})
+	return thumbnailResult(lease, ThumbnailContentTypeJPEG, err)
 }
 
 func (s *ThumbnailService) getOrCreateVideoThumbnail(ctx context.Context, req ThumbnailRequest, label string) (ThumbnailResult, error) {
-	path := s.ThumbnailPath(req, ".jpg")
-	if fileExists(path) {
-		return ThumbnailResult{Path: path, ContentType: ThumbnailContentTypeJPEG}, nil
-	}
-
-	unlock := s.lockPath(path)
-	defer unlock()
-	if fileExists(path) {
-		return ThumbnailResult{Path: path, ContentType: ThumbnailContentTypeJPEG}, nil
-	}
-	if err := s.generateVideoThumbnail(ctx, req, path); err != nil {
-		log.Printf("thumbnail video generation failed file_id=%d version=%d source=%s: %v", req.FileID, req.FileVersion, thumbnailSourceName(req.Source), err)
+	generationFailed := false
+	lease, err := s.cache.getOrCreate(thumbnailFilename(req, ".jpg"), func(path string) error {
+		err := s.generateVideoThumbnail(ctx, req, path)
+		if err != nil {
+			generationFailed = true
+			log.Printf("thumbnail video generation failed file_id=%d version=%d source=%s: %v", req.FileID, req.FileVersion, thumbnailSourceName(req.Source), err)
+		}
+		return err
+	})
+	if generationFailed {
 		return s.getOrCreateGenericSVG(req, label)
 	}
-	return ThumbnailResult{Path: path, ContentType: ThumbnailContentTypeJPEG}, nil
+	return thumbnailResult(lease, ThumbnailContentTypeJPEG, err)
 }
 
 func (s *ThumbnailService) getOrCreateGenericSVG(req ThumbnailRequest, label string) (ThumbnailResult, error) {
-	path := s.ThumbnailPath(req, ".svg")
-	if fileExists(path) {
-		return ThumbnailResult{Path: path, ContentType: ThumbnailContentTypeSVG}, nil
-	}
-
-	unlock := s.lockPath(path)
-	defer unlock()
-	if fileExists(path) {
-		return ThumbnailResult{Path: path, ContentType: ThumbnailContentTypeSVG}, nil
-	}
-	if err := s.writeGenericSVGAtomic(path, req.Size, label); err != nil {
-		return ThumbnailResult{}, err
-	}
-	return ThumbnailResult{Path: path, ContentType: ThumbnailContentTypeSVG}, nil
+	lease, err := s.cache.getOrCreate(thumbnailFilename(req, ".svg"), func(path string) error {
+		return s.writeGenericSVGAtomic(path, req.Size, label)
+	})
+	return thumbnailResult(lease, ThumbnailContentTypeSVG, err)
 }
 
 func (s *ThumbnailService) getOrCreateUnknownSVG(size int) (ThumbnailResult, error) {
-	path := s.UnknownThumbnailPath(size)
-	if fileExists(path) {
-		return ThumbnailResult{Path: path, ContentType: ThumbnailContentTypeSVG}, nil
-	}
-
-	unlock := s.lockPath(path)
-	defer unlock()
-	if fileExists(path) {
-		return ThumbnailResult{Path: path, ContentType: ThumbnailContentTypeSVG}, nil
-	}
-	if err := s.writeGenericSVGAtomic(path, size, "FILE"); err != nil {
-		return ThumbnailResult{}, err
-	}
-	return ThumbnailResult{Path: path, ContentType: ThumbnailContentTypeSVG}, nil
+	lease, err := s.cache.getOrCreate(unknownThumbnailFilename(size), func(path string) error {
+		return s.writeGenericSVGAtomic(path, size, "FILE")
+	})
+	return thumbnailResult(lease, ThumbnailContentTypeSVG, err)
 }
 
 func (s *ThumbnailService) generateImageThumbnail(ctx context.Context, req ThumbnailRequest, finalPath string) error {
@@ -441,9 +454,6 @@ func (s *ThumbnailService) generateVideoThumbnail(ctx context.Context, req Thumb
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
 	}
 	if err := os.Rename(tmpName, finalPath); err != nil {
-		if fileExists(finalPath) {
-			return nil
-		}
 		return fmt.Errorf("%w: %v", ErrThumbnailStorage, err)
 	}
 	return nil
@@ -454,21 +464,6 @@ func (s *ThumbnailService) writeGenericSVGAtomic(path string, size int, label st
 		_, err := tmp.Write(genericThumbnailSVG(size, label))
 		return err
 	})
-}
-
-func (s *ThumbnailService) lockPath(path string) func() {
-	s.mu.Lock()
-	lock := s.locks[path]
-	if lock == nil {
-		lock = &sync.Mutex{}
-		s.locks[path] = lock
-	}
-	s.mu.Unlock()
-
-	lock.Lock()
-	return func() {
-		lock.Unlock()
-	}
 }
 
 // actual thumbnail generating function
@@ -536,9 +531,6 @@ func writeAtomic(dir string, finalPath string, write func(*os.File) error) error
 		closed = true
 	}
 	if err := os.Rename(tmpName, finalPath); err != nil {
-		if fileExists(finalPath) {
-			return nil
-		}
 		return fmt.Errorf("%w: %v", ErrThumbnailStorage, err)
 	}
 	return nil
@@ -613,11 +605,6 @@ func genericThumbnailSVG(size int, label string) []byte {
 	fmt.Fprintf(&buf, `<text x="50%%" y="54%%" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="%d" font-weight="700" fill="#344054">%s</text>`, fontSize, escapedLabel)
 	fmt.Fprintf(&buf, `</svg>`)
 	return buf.Bytes()
-}
-
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
 }
 
 func ParseThumbnailSize(value string, defaultSize int, allowed []int) (int, error) {

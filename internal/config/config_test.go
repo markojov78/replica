@@ -398,3 +398,21 @@ func TestApplyDatabaseSettingsIgnoresInvalidValues(t *testing.T) {
 		}
 	}
 }
+
+func TestThumbnailStorageLimitBytes(t *testing.T) {
+	for _, mb := range []int{1, 250, 750} {
+		got, err := (SharingConfig{ThumbnailStorageLimitMB: mb}).ThumbnailStorageLimitBytes()
+		if err != nil || got != int64(mb)*1_000_000 {
+			t.Fatalf("limit %d MB = %d bytes, %v", mb, got, err)
+		}
+	}
+	for _, mb := range []int{0, -1, int(^uint(0) >> 1)} {
+		if mb > 0 && uint64(mb) <= uint64(9223372036854) {
+			continue // A 32-bit int cannot overflow an int64 byte count.
+		}
+		cfg := Config{Sharing: SharingConfig{ThumbnailStorageLimitMB: mb}}
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "sharing.thumbnail_storage_limit_mb") {
+			t.Fatalf("Validate limit %d = %v", mb, err)
+		}
+	}
+}

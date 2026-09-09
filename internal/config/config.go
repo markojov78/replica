@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -569,7 +570,18 @@ func parsePositiveInt(value string) (int, error) {
 	return parsed, nil
 }
 
+// ThumbnailStorageLimitBytes uses decimal megabytes and rejects overflow.
+func (c SharingConfig) ThumbnailStorageLimitBytes() (int64, error) {
+	if c.ThumbnailStorageLimitMB <= 0 || uint64(c.ThumbnailStorageLimitMB) > uint64(math.MaxInt64/1_000_000) {
+		return 0, errors.New("sharing.thumbnail_storage_limit_mb must be positive and fit in an int64 byte count")
+	}
+	return int64(c.ThumbnailStorageLimitMB) * 1_000_000, nil
+}
+
 func (c Config) Validate() error {
+	if _, err := c.Sharing.ThumbnailStorageLimitBytes(); err != nil {
+		return err
+	}
 	if c.App.NodeID == "" {
 		return errors.New("app.node_id is required")
 	}

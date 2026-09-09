@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -83,6 +84,7 @@ func TestUnknownSVGGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrCreateThumbnail(unknown) error = %v", err)
 	}
+	defer result.Release()
 	if result.ContentType != ThumbnailContentTypeSVG {
 		t.Fatalf("ContentType = %q, want %q", result.ContentType, ThumbnailContentTypeSVG)
 	}
@@ -111,6 +113,7 @@ func TestThumbnailCacheHitReturnsExistingThumbnail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrCreateThumbnail(cache hit) error = %v", err)
 	}
+	defer result.Release()
 	if result.Path != path || result.ContentType != ThumbnailContentTypeJPEG {
 		t.Fatalf("result = %+v, want path=%q content-type=%q", result, path, ThumbnailContentTypeJPEG)
 	}
@@ -135,6 +138,7 @@ func TestImageThumbnailGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrCreateThumbnail(image) error = %v", err)
 	}
+	defer result.Release()
 	if result.ContentType != ThumbnailContentTypeJPEG {
 		t.Fatalf("ContentType = %q, want %q", result.ContentType, ThumbnailContentTypeJPEG)
 	}
@@ -303,6 +307,7 @@ func TestImageThumbnailAppliesEXIFOrientation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetOrCreateThumbnail() error = %v", err)
 			}
+			defer result.Release()
 			thumbnail := decodeJPEGFile(t, result.Path)
 			if got := thumbnail.Bounds().Size(); got.X != test.wantWidth || got.Y != test.wantHeight {
 				t.Fatalf("thumbnail size = %dx%d, want %dx%d", got.X, got.Y, test.wantWidth, test.wantHeight)
@@ -328,6 +333,7 @@ func TestImageThumbnailResizesAfterEXIFOrientation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrCreateThumbnail() error = %v", err)
 	}
+	defer result.Release()
 	thumbnail := decodeJPEGFile(t, result.Path)
 	if got := thumbnail.Bounds().Size(); got.X != 85 || got.Y != 128 {
 		t.Fatalf("thumbnail size = %dx%d, want 85x128 after orientation", got.X, got.Y)
@@ -351,6 +357,7 @@ func TestS3ImageThumbnailGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrCreateThumbnail(s3 image) error = %v", err)
 	}
+	defer result.Release()
 	if result.ContentType != ThumbnailContentTypeJPEG {
 		t.Fatalf("ContentType = %q, want %q", result.ContentType, ThumbnailContentTypeJPEG)
 	}
@@ -387,6 +394,7 @@ func TestS3VideoReturnsGenericSVG(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrCreateThumbnail(s3 video) error = %v", err)
 	}
+	defer result.Release()
 	if result.ContentType != ThumbnailContentTypeSVG {
 		t.Fatalf("ContentType = %q, want %q", result.ContentType, ThumbnailContentTypeSVG)
 	}
@@ -423,6 +431,7 @@ func TestVideoFallbackWhenFFmpegInvalid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrCreateThumbnail(video fallback) error = %v", err)
 	}
+	defer result.Release()
 	if result.ContentType != ThumbnailContentTypeSVG {
 		t.Fatalf("ContentType = %q, want %q", result.ContentType, ThumbnailContentTypeSVG)
 	}
@@ -470,6 +479,7 @@ printf 'jpeg bytes' > "$last"
 	if err != nil {
 		t.Fatalf("GetOrCreateThumbnail(video) error = %v", err)
 	}
+	defer result.Release()
 	if result.ContentType != ThumbnailContentTypeJPEG {
 		t.Fatalf("ContentType = %q, want %q", result.ContentType, ThumbnailContentTypeJPEG)
 	}
@@ -500,6 +510,7 @@ func TestUnsupportedKnownFileReturnsGenericSVG(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrCreateThumbnail(pdf) error = %v", err)
 	}
+	defer result.Release()
 	if result.ContentType != ThumbnailContentTypeSVG {
 		t.Fatalf("ContentType = %q, want %q", result.ContentType, ThumbnailContentTypeSVG)
 	}
@@ -675,6 +686,7 @@ func generateImageThumbnailFromBytes(t *testing.T, service *ThumbnailService, fi
 	if err != nil {
 		t.Fatalf("GetOrCreateThumbnail(%s) error = %v", name, err)
 	}
+	defer result.Release()
 	if result.ContentType != ThumbnailContentTypeJPEG {
 		t.Fatalf("ContentType = %q, want %q", result.ContentType, ThumbnailContentTypeJPEG)
 	}
@@ -809,4 +821,129 @@ func (c *fakeS3GetObjectClient) GetObject(ctx context.Context, params *s3.GetObj
 	return &s3.GetObjectOutput{
 		Body: io.NopCloser(bytes.NewReader(c.body)),
 	}, nil
+}
+
+func TestThumbnailCacheStartupCountsOldVersionsAndSVG(t *testing.T) {
+	dir := t.TempDir()
+	old := cacheTestFile(t, dir, "125_1_64.jpg", 600_000, 1)
+	current := cacheTestFile(t, dir, "125_2_256.jpg", 300_000, 2)
+	unknown := cacheTestFile(t, dir, "unknown_128.svg", 300_000, 3)
+	unrelated := cacheTestFile(t, dir, "photo.jpg", 2_000_000, 1)
+	tmp := cacheTestFile(t, dir, ".thumbnail-active.jpg", 2_000_000, 1)
+	s := NewThumbnailService(config.Config{Sharing: config.SharingConfig{
+		ThumbnailStorage: dir, ThumbnailStorageLimitMB: 1, ThumbnailSizes: []int{256},
+	}})
+	if err := s.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	assertCachePath(t, old, false)
+	for _, path := range []string{current, unknown, unrelated, tmp} {
+		assertCachePath(t, path, true)
+	}
+	if s.cache.bytes != 600_000 {
+		t.Fatalf("accounted bytes = %d", s.cache.bytes)
+	}
+}
+
+func TestThumbnailServiceRecreationSharesGenerationAndServingProtection(t *testing.T) {
+	original := newThumbnailServiceForTest(t)
+	started, proceed := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	generate := func(_ context.Context, _ ThumbnailRequest, path string) error {
+		if calls.Add(1) == 1 {
+			close(started)
+		}
+		<-proceed
+		return os.WriteFile(path, make([]byte, 1_000_001), 0o600)
+	}
+	req := ThumbnailRequest{FileID: 1, FileVersion: 1, Size: 256}
+	type outcome struct {
+		result ThumbnailResult
+		err    error
+	}
+	results := make(chan outcome, 2)
+	go func() {
+		result, err := original.getOrCreateJPG(context.Background(), req, generate)
+		results <- outcome{result, err}
+	}()
+	<-started
+	recreated := NewThumbnailService(original.cfg)
+	if err := recreated.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if recreated.cache != original.cache {
+		t.Fatal("service recreation lost cache coordinator")
+	}
+	go func() {
+		result, err := recreated.getOrCreateJPG(context.Background(), req, generate)
+		results <- outcome{result, err}
+	}()
+	close(proceed)
+	first, second := <-results, <-results
+	if first.err != nil || second.err != nil {
+		t.Fatalf("generation errors: %v, %v", first.err, second.err)
+	}
+	defer first.result.Release()
+	defer second.result.Release()
+	if calls.Load() != 1 {
+		t.Fatalf("generation calls = %d", calls.Load())
+	}
+	cfg := original.cfg
+	cfg.Sharing.ThumbnailStorageLimitMB = 1
+	lowered := NewThumbnailService(cfg)
+	if err := lowered.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	// Both generations have returned, but neither reader has opened the result.
+	f, err := os.Open(first.result.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	first.result.Release()
+	assertCachePath(t, second.result.Path, true)
+	second.result.Release()
+	assertCachePath(t, second.result.Path, false)
+}
+
+func TestThumbnailServiceOversizedSVGAndInvalidCacheEntries(t *testing.T) {
+	s := newThumbnailServiceForTest(t)
+	s.cache.setLimit(1)
+	req := ThumbnailRequest{FileID: 1, FileVersion: 1, Size: 256, RelativeURI: "document.pdf"}
+	result, err := s.GetOrCreateThumbnail(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer result.Release()
+	if !strings.HasPrefix(filepath.Base(result.Path), ".file-cache-") {
+		t.Fatalf("oversized result not temporary: %s", result.Path)
+	}
+	data, err := os.ReadFile(result.Path)
+	if err != nil || !bytes.Contains(data, []byte("<svg")) {
+		t.Fatalf("oversized SVG response: %q, %v", data, err)
+	}
+	result.Release()
+	assertCachePath(t, result.Path, false)
+	for _, kind := range []string{"directory", "symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			s := newThumbnailServiceForTest(t)
+			path := s.ThumbnailPath(req, ".svg")
+			if kind == "directory" {
+				err = os.Mkdir(path, 0o700)
+			} else {
+				err = os.Symlink("missing-target", path)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := s.GetOrCreateThumbnail(context.Background(), req)
+			defer result.Release()
+			if !errors.Is(err, ErrThumbnailStorage) {
+				t.Fatalf("collision error = %v", err)
+			}
+			assertCachePath(t, path, true)
+		})
+	}
 }

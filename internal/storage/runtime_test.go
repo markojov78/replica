@@ -2800,10 +2800,28 @@ func TestReplicaFileReportsReportDeletedMissingFile(t *testing.T) {
 	}
 }
 
-func captureLogs(t *testing.T) *bytes.Buffer {
+// The logger serializes writes, but tests read captured output concurrently.
+type capturedLogs struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (c *capturedLogs) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buffer.Write(p)
+}
+
+func (c *capturedLogs) String() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buffer.String()
+}
+
+func captureLogs(t *testing.T) *capturedLogs {
 	t.Helper()
 
-	var buffer bytes.Buffer
+	var buffer capturedLogs
 	previousWriter := log.Writer()
 	previousFlags := log.Flags()
 	log.SetOutput(&buffer)

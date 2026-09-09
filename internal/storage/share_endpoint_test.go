@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +21,7 @@ import (
 
 	"replica/internal/apiclient"
 	"replica/internal/config"
+	"replica/internal/service"
 )
 
 func TestServeAuthenticatedSharesFiltersReadableSharesAndCachesToken(t *testing.T) {
@@ -1341,4 +1344,57 @@ func validationServer(t *testing.T, userID uint, validateStatus int) string {
 	}))
 	t.Cleanup(server.Close)
 	return server.URL
+}
+
+// Apply cache pressure while the HTTP handler is still streaming, optionally
+// simulating a client disconnect. The file must survive until the handler exits.
+type thumbnailPressureWriter struct {
+	*httptest.ResponseRecorder
+	beforeWrite func()
+	fail        bool
+}
+
+func (w *thumbnailPressureWriter) Write(p []byte) (int, error) {
+	w.beforeWrite()
+	if w.fail {
+		return 0, io.ErrClosedPipe
+	}
+	return w.ResponseRecorder.Write(p)
+}
+
+func TestThumbnailHandlerReleasesProtectionAfterStreaming(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprintf("write_failure=%t", fail), func(t *testing.T) {
+			runtime := newShareEndpointRuntime(t, "http://coordinator")
+			replica := apiclient.Replica{ID: 3, NodeID: "node-a", URI: t.TempDir(), Status: "active"}
+			runtime.setLocalState([]apiclient.Replica{replica}, nil, map[uint][]apiclient.ReplicaInventoryFile{
+				3: {{FileID: 10, ReplicaID: 3, InventoryID: 1, RelativeURI: "document.pdf",
+					InventoryStatus: "active", InventoryVersion: 4, ReplicaStatus: "synchronized", ReplicaVersion: 4}},
+			})
+			path := filepath.Join(runtime.cfg.Sharing.ThumbnailStorage, "10_4_128.svg")
+			if err := os.WriteFile(path, make([]byte, 1_000_001), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			writes := 0
+			writer := &thumbnailPressureWriter{ResponseRecorder: httptest.NewRecorder(), fail: fail}
+			writer.beforeWrite = func() {
+				writes++
+				cfg := runtime.cfg
+				cfg.Sharing.ThumbnailStorageLimitMB = 1
+				if err := service.NewThumbnailService(cfg).Validate(); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := os.Stat(path); err != nil {
+					t.Fatalf("evicted during response: %v", err)
+				}
+			}
+			runtime.serveShareFileThumbnail(writer, httptest.NewRequest(http.MethodGet, "/thumbnail", nil), replica, 10)
+			if writes == 0 || writer.Code != http.StatusOK {
+				t.Fatalf("thumbnail not streamed: writes=%d status=%d", writes, writer.Code)
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("handler did not release cache reference: %v", err)
+			}
+		})
+	}
 }

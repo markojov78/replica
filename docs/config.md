@@ -200,7 +200,7 @@ Type: string
 Mandatory: no
 Default value: `/tmp/replica_thumbnails`
 
-Directory used to store generated thumbnails.
+Directory used to store generated thumbnails. Each cache directory must be used by only one server process.
 
 ## Thumbnail storage limit
 
@@ -210,7 +210,25 @@ Type: int
 Mandatory: no
 Default value: `250`
 
-Thumbnail storage size limit, in MB.
+Maximum retained thumbnail cache size, using decimal MB (1 MB = 1,000,000 bytes). Must be
+positive and fit in a signed 64-bit byte count. The default is 250 MB.
+
+The cache counts completed, cache-owned JPEG and SVG files, including old file versions and
+sizes no longer configured. Files are evicted by oldest modification time (generation age),
+with filename as the tie breaker. Cache hits do not refresh this age; there is no time expiry.
+Accounting is rebuilt from disk when the cache initializes. Cleanup runs on initialization,
+after generation, and when active readers release files; service recreation shares the same
+in-process cache coordinator.
+
+Files being generated or served are protected. An individual result larger than the budget is
+served from temporary backing and removed after its last reader finishes. Active files and
+generation temporaries can temporarily exceed the budget, so this is not a peak disk quota.
+Deletion failures are logged, remain accounted, and do not prevent serving a usable result;
+cleanup tries other eligible files and retries deferred work on later cleanup runs.
+
+Unrelated files, directories, symlinks, and active generation temporaries are not eviction
+candidates. A directory, symlink, or other non-regular entry at a requested thumbnail filename
+is a local cache error and is neither followed nor replaced.
 
 ## JWT secret
 
