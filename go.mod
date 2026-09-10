@@ -1,6 +1,6 @@
 module replica
 
-go 1.25.0
+go 1.27.0
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.7
@@ -9,6 +9,7 @@ require (
 	github.com/danielgtaylor/huma/v2 v2.37.3
 	github.com/disintegration/imaging v1.6.2
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/gen2brain/jpegn v0.6.1
 	github.com/glebarez/sqlite v1.11.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/golang-jwt/jwt/v5 v5.3.0

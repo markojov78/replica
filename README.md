@@ -22,7 +22,7 @@ Setup of the replica service consists of thr following steps:
 
 ### 1. Build
 Requirements:  
-go 1.25.0 or newer.
+go 1.27.0 or newer.
 
 To build the service, use the build script:
 ```bash

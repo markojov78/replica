@@ -291,3 +291,25 @@ func newStorageOnlyShareAuthHandler(t *testing.T, coordinatorURL string) http.Ha
 	}
 	return New(cfg, buildinfo.Info{Version: "test"}, nil, nil, nil, nil, nil, nil, nil, runtime)
 }
+
+func TestAuthenticatedPreviewRouteIsRegisteredAndGated(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		cfg := config.Config{App: config.AppConfig{Storage: true, NodeID: "node-a", NodeAddress: "http://node-a", CoordinatorURL: "http://coordinator.invalid", HeartbeatInterval: time.Minute}, Auth: config.AuthConfig{NodeSecret: "secret"}, Sharing: config.SharingConfig{Enabled: enabled}}
+		runtime, err := storage.NewRuntime(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		handler := New(cfg, buildinfo.Info{Version: "test"}, nil, nil, nil, nil, nil, nil, nil, runtime)
+		req := httptest.NewRequest(http.MethodGet, "/api/share/shares/4/files/41/preview", nil)
+		req.Header.Set("X-API-Version", "1")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		want := http.StatusNotFound
+		if enabled {
+			want = http.StatusUnauthorized
+		}
+		if rec.Code != want {
+			t.Fatalf("enabled=%t status=%d, want %d; body=%s", enabled, rec.Code, want, rec.Body.String())
+		}
+	}
+}

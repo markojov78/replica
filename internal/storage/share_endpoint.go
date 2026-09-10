@@ -163,6 +163,21 @@ func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Requ
 		r.createShareFile(w, req, func(relativeURI string, file io.Reader, size int64) error {
 			return r.CreateUserShareFile(req.Context(), userID, shareID, relativeURI, file, size)
 		})
+	case req.Method == http.MethodGet && req.PathValue("id") != "" && req.PathValue("file_id") != "" && strings.HasSuffix(req.URL.Path, "/preview"):
+		shareID, ok := parseSharePathUint(w, req, "id")
+		if !ok {
+			return
+		}
+		fileID, ok := parseSharePathUint(w, req, "file_id")
+		if !ok {
+			return
+		}
+		share, replica, _, err := r.GetUserShare(userID, shareID)
+		if err != nil {
+			writeStorageShareError(w, storageShareStatus(err), err.Error())
+			return
+		}
+		r.serveShareFilePreview(w, req, share, replica, fileID)
 	case req.Method == http.MethodGet && req.PathValue("id") != "" && req.PathValue("file_id") != "" && strings.HasSuffix(req.URL.Path, "/thumbnail"):
 		shareID, ok := parseSharePathUint(w, req, "id")
 		if !ok {

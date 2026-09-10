@@ -60,8 +60,9 @@ type Runtime struct {
 
 	commandCh chan apiclient.Command
 
-	cfg       config.Config
-	thumbnail *service.ThumbnailService
+	cfg             config.Config
+	thumbnail       *service.ThumbnailService
+	progressiveJPEG *service.ProgressiveJPEGService
 }
 
 type runningReplicaWatcher struct {
@@ -107,6 +108,7 @@ func NewRuntime(cfg config.Config) (*Runtime, error) {
 		commandCh:                  make(chan apiclient.Command, 128),
 		cfg:                        cfg,
 		thumbnail:                  service.NewThumbnailService(cfg),
+		progressiveJPEG:            service.NewProgressiveJPEGService(cfg),
 	}, nil
 }
 
@@ -327,6 +329,7 @@ func (r *Runtime) setLocalConfig(items []apiclient.ConfigItem, storageProfiles m
 	r.storageProfiles = mergeStorageProfiles(r.cfg.Storage.Profiles, storageProfiles)
 	r.cfg = configFromNodeItems(r.cfg, items)
 	r.thumbnail = service.NewThumbnailService(r.cfg) // re-create thumbnail service after config change
+	r.progressiveJPEG = service.NewProgressiveJPEGService(r.cfg)
 }
 
 func (r *Runtime) thumbnailSnapshot() (*service.ThumbnailService, config.Config) {
