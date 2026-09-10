@@ -2262,7 +2262,8 @@ Accept-Ranges: bytes
 ```
 
 Errors:
-- `400` invalid `download` value / malformed Range header
+- `400` malformed Range header
+- `400` invalid `download` value
 - `403` matching public share exists but anonymous read is not allowed
 - `404 `share or file not found / unavailable / inactive / expired on this storage node
 - `409 `file not synchronized

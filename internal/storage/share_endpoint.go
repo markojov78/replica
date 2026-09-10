@@ -278,6 +278,17 @@ func (r *Runtime) ServePublicShares(w http.ResponseWriter, req *http.Request) {
 		r.createShareFile(w, req, func(relativeURI string, file io.Reader, size int64) error {
 			return r.CreatePublicShareFile(req.Context(), linkHash, relativeURI, file, size)
 		})
+	case req.Method == http.MethodGet && req.PathValue("file_id") != "" && strings.HasSuffix(req.URL.Path, "/preview"):
+		fileID, ok := parseSharePathUint(w, req, "file_id")
+		if !ok {
+			return
+		}
+		share, replica, _, err := r.GetPublicShare(linkHash)
+		if err != nil {
+			writeStorageShareError(w, storageShareStatus(err), err.Error())
+			return
+		}
+		r.serveShareFilePreview(w, req, share, replica, fileID)
 	case req.Method == http.MethodGet && req.PathValue("file_id") != "" && strings.HasSuffix(req.URL.Path, "/thumbnail"):
 		fileID, ok := parseSharePathUint(w, req, "file_id")
 		if !ok {
@@ -299,7 +310,22 @@ func (r *Runtime) ServePublicShares(w http.ResponseWriter, req *http.Request) {
 			writeStorageShareError(w, storageShareStatus(err), err.Error())
 			return
 		}
-		r.serveShareFileContent(w, req, share, replica, fileID)
+		query, err := url.ParseQuery(req.URL.RawQuery)
+		if err != nil {
+			writeStorageShareError(w, http.StatusBadRequest, "invalid download value")
+			return
+		}
+		disposition := "inline"
+		if values, present := query["download"]; present {
+			if len(values) != 1 || (values[0] != "true" && values[0] != "false") {
+				writeStorageShareError(w, http.StatusBadRequest, "invalid download value")
+				return
+			}
+			if values[0] == "true" {
+				disposition = "attachment"
+			}
+		}
+		r.serveShareFileContentWithDisposition(w, req, share, replica, fileID, disposition)
 	case req.Method == http.MethodPut && req.PathValue("file_id") != "":
 		fileID, ok := parseSharePathUint(w, req, "file_id")
 		if !ok {

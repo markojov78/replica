@@ -28,6 +28,7 @@ func registerStorageShareRoutes(mux *http.ServeMux, svc services) {
 	mux.HandleFunc("POST /s/{link_hash}/files", gate(svc.storage.ServePublicShares))
 	mux.HandleFunc("DELETE /s/{link_hash}/files/{file_id}", gate(svc.storage.ServePublicShares))
 	mux.HandleFunc("GET /s/{link_hash}/files/{file_id}/content", gate(svc.storage.ServePublicShares))
+	mux.HandleFunc("GET /s/{link_hash}/files/{file_id}/preview", gate(svc.storage.ServePublicShares))
 	mux.HandleFunc("GET /s/{link_hash}/files/{file_id}/thumbnail", gate(svc.storage.ServePublicShares))
 	mux.HandleFunc("PUT /s/{link_hash}/files/{file_id}/content", gate(svc.storage.ServePublicShares))
 }

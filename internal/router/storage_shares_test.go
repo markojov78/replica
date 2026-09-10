@@ -313,3 +313,23 @@ func TestAuthenticatedPreviewRouteIsRegisteredAndGated(t *testing.T) {
 		}
 	}
 }
+
+func TestPublicPreviewRouteRegistered(t *testing.T) {
+	cfg := config.Config{App: config.AppConfig{Storage: true, NodeID: "node-a", NodeAddress: "http://node-a", CoordinatorURL: "http://coordinator.invalid", HeartbeatInterval: time.Minute}, Auth: config.AuthConfig{NodeSecret: "secret"}, Sharing: config.SharingConfig{Enabled: true}}
+	runtime, err := storage.NewRuntime(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	registerStorageShareRoutes(mux, services{storage: runtime})
+	req := httptest.NewRequest(http.MethodGet, "/s/public-link/files/41/preview", nil)
+	_, pattern := mux.Handler(req)
+	if pattern != "GET /s/{link_hash}/files/{file_id}/preview" {
+		t.Fatalf("route pattern = %q", pattern)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Header().Get("Content-Type"), "application/json") {
+		t.Fatalf("missing public share response = %d %s", rec.Code, rec.Body.String())
+	}
+}

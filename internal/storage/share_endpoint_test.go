@@ -721,8 +721,8 @@ func TestServePublicShareFileContentRangeAndErrors(t *testing.T) {
 	if rec.Code != http.StatusPartialContent || rec.Body.String() != "2345" {
 		t.Fatalf("range status/body = %d/%q, want 206/2345", rec.Code, rec.Body.String())
 	}
-	if rec.Header().Get("Content-Disposition") != `inline; filename="video.mp4"` {
-		t.Fatalf("public endpoint changed disposition: %q", rec.Header().Get("Content-Disposition"))
+	if rec.Header().Get("Content-Disposition") != `attachment; filename="video.mp4"` {
+		t.Fatalf("download disposition: %q", rec.Header().Get("Content-Disposition"))
 	}
 	if rec.Header().Get("Content-Range") != "bytes 2-5/10" {
 		t.Fatalf("Content-Range = %q, want bytes 2-5/10", rec.Header().Get("Content-Range"))
