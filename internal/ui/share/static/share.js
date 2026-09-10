@@ -255,7 +255,7 @@
       if (!link || link.origin !== window.location.origin || !link.pathname.startsWith("/share")) {
         return;
       }
-      if (link.pathname.endsWith("/content")) {
+      if (link.pathname.endsWith("/content") || link.pathname.endsWith("/preview")) {
         return;
       }
       event.preventDefault();
