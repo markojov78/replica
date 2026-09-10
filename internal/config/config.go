@@ -48,6 +48,9 @@ type SharingConfig struct {
 	VideoPlaybackEnabled       bool
 	ThumbnailStorage           string
 	ThumbnailStorageLimitMB    int
+	ProgressiveLoading         bool
+	ImageStorage               string
+	ImageStorageLimitMB        int
 }
 
 type AuthConfig struct {
@@ -117,6 +120,9 @@ type rawSharingConfig struct {
 	VideoPlaybackEnabled       *bool   `json:"video_playback_enabled" yaml:"video_playback_enabled" toml:"video_playback_enabled"`
 	ThumbnailStorage           *string `json:"thumbnail_storage" yaml:"thumbnail_storage" toml:"thumbnail_storage"`
 	ThumbnailStorageLimitMB    *int    `json:"thumbnail_storage_limit_mb" yaml:"thumbnail_storage_limit_mb" toml:"thumbnail_storage_limit_mb"`
+	ProgressiveLoading         *bool   `json:"progressive_loading" yaml:"progressive_loading" toml:"progressive_loading"`
+	ImageStorage               *string `json:"image_cache_storage" yaml:"image_cache_storage" toml:"image_cache_storage"`
+	ImageStorageLimitMB        *int    `json:"image_cache_storage_limit_mb" yaml:"image_cache_storage_limit_mb" toml:"image_cache_storage_limit_mb"`
 }
 
 type rawAuthConfig struct {
@@ -200,6 +206,9 @@ func Load() (Config, error) {
 			VideoPlaybackEnabled:       resolveBool("SHARING_VIDEO_PLAYBACK_ENABLED", fileCfg.Sharing.VideoPlaybackEnabled, true),
 			ThumbnailStorage:           resolveString("SHARING_THUMBNAIL_STORAGE", fileCfg.Sharing.ThumbnailStorage, "/tmp/replica_thumbnails"),
 			ThumbnailStorageLimitMB:    resolveInt("SHARING_THUMBNAIL_STORAGE_LIMIT_MB", fileCfg.Sharing.ThumbnailStorageLimitMB, 250),
+			ProgressiveLoading:         resolveBool("SHARING_PROGRESSIVE_LOADING", fileCfg.Sharing.ProgressiveLoading, false),
+			ImageStorage:               resolveString("SHARING_IMAGE_CACHE_STORAGE", fileCfg.Sharing.ImageStorage, "/tmp/replica_images"),
+			ImageStorageLimitMB:        resolveInt("SHARING_IMAGE_CACHE_STORAGE_LIMIT_MB", fileCfg.Sharing.ImageStorageLimitMB, 1024),
 		},
 		Auth: AuthConfig{
 			JWTSecret:                  resolveString("AUTH_JWT_SECRET", fileCfg.Auth.JWTSecret, ""),

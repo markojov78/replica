@@ -210,10 +210,56 @@ Type: int
 Mandatory: no
 Default value: `250`
 
-Maximum retained thumbnail cache size, using decimal MB (1 MB = 1,000,000 bytes). Must be
-positive and fit in a signed 64-bit byte count. The default is 250 MB.
+Maximum retained thumbnail cache size in MB.
 
 The cache counts completed, cache-owned JPEG and SVG files, including old file versions and
+sizes no longer configured. Files are evicted by oldest modification time (generation age),
+with filename as the tie breaker. Cache hits do not refresh this age; there is no time expiry.
+Accounting is rebuilt from disk when the cache initializes. Cleanup runs on initialization,
+after generation, and when active readers release files; service recreation shares the same
+in-process cache coordinator.
+
+Files being generated or served are protected. An individual result larger than the budget is
+served from temporary backing and removed after its last reader finishes. Active files and
+generation temporaries can temporarily exceed the budget, so this is not a peak disk quota.
+Deletion failures are logged, remain accounted, and do not prevent serving a usable result;
+cleanup tries other eligible files and retries deferred work on later cleanup runs.
+
+Unrelated files, directories, symlinks, and active generation temporaries are not eviction
+candidates. A directory, symlink, or other non-regular entry at a requested thumbnail filename
+is a local cache error and is neither followed nor replaced.
+
+## Progressive image loading
+
+Config value: `sharing.progressive_loading`\
+Environment variable: `SHARING_PROGRESSIVE_LOADING`\
+Type: bool\
+Mandatory: no
+Default value: `false`
+
+Store dynamically re-encoded progressive JPEG images.
+
+## Image cache storage directory
+
+Config value: `sharing.image_cache_storage`\
+Environment variable: `SHARING_IMAGE_CACHE_STORAGE`\
+Type: string\
+Mandatory: no
+Default value: `/tmp/replica_images`
+
+Directory used to store generated progressive jpegs. Each cache directory must be used by only one server process.
+
+## Image cache storage limit
+
+Config value: `sharing.image_cache_storage_limit_mb`\
+Environment variable: `SHARING_IMAGE_CACHE_STORAGE_LIMIT_MB`\
+Type: int\
+Mandatory: no
+Default value: `1024`
+
+Maximum retained image cache size in MB.
+
+The cache counts completed, cache-owned files, including old file versions and
 sizes no longer configured. Files are evicted by oldest modification time (generation age),
 with filename as the tie breaker. Cache hits do not refresh this age; there is no time expiry.
 Accounting is rebuilt from disk when the cache initializes. Cleanup runs on initialization,

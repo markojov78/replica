@@ -416,3 +416,61 @@ func TestThumbnailStorageLimitBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadImageCacheConfiguration(t *testing.T) {
+	clearStorageProfileEnv(t)
+	t.Setenv("APP_NODE_ID", "node-a")
+	t.Setenv("APP_COORDINATOR", "false")
+	t.Setenv("APP_STORAGE", "true")
+	t.Setenv("APP_COORDINATOR_URL", "http://coordinator:8080")
+	t.Setenv("APP_NODE_ADDRESS", "http://node-a:8081")
+	t.Setenv("AUTH_NODE_SECRET", "node-secret")
+	for _, key := range []string{"SHARING_PROGRESSIVE_LOADING", "SHARING_IMAGE_CACHE_STORAGE", "SHARING_IMAGE_CACHE_STORAGE_LIMIT_MB"} {
+		t.Setenv(key, "")
+	}
+	for _, test := range []struct {
+		name, body  string
+		progressive bool
+		storage     string
+		limit       int
+	}{
+		{"defaults.json", `{}`, false, "/tmp/replica_images", 1024},
+		{"config.yaml", "sharing:\n  progressive_loading: true\n  image_cache_storage: /file/images\n  image_cache_storage_limit_mb: 2048\n", true, "/file/images", 2048},
+		{"config.json", `{"sharing":{"progressive_loading":true,"image_cache_storage":"/file/images","image_cache_storage_limit_mb":2048}}`, true, "/file/images", 2048},
+		{"config.toml", "[sharing]\nprogressive_loading = true\nimage_cache_storage = \"/file/images\"\nimage_cache_storage_limit_mb = 2048\n", true, "/file/images", 2048},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), test.name)
+			if err := os.WriteFile(path, []byte(test.body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CONFIG_FILE", path)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Sharing.ProgressiveLoading != test.progressive || cfg.Sharing.ImageStorage != test.storage || cfg.Sharing.ImageStorageLimitMB != test.limit {
+				t.Fatalf("image configuration = %t, %q, %d; want %t, %q, %d", cfg.Sharing.ProgressiveLoading, cfg.Sharing.ImageStorage, cfg.Sharing.ImageStorageLimitMB, test.progressive, test.storage, test.limit)
+			}
+			// Explicit false must override true from the file as well.
+			t.Setenv("SHARING_PROGRESSIVE_LOADING", "false")
+			t.Setenv("SHARING_IMAGE_CACHE_STORAGE", filepath.Join(t.TempDir(), "not-created"))
+			t.Setenv("SHARING_IMAGE_CACHE_STORAGE_LIMIT_MB", "4096")
+			cfg, err = Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Sharing.ProgressiveLoading || cfg.Sharing.ImageStorage != os.Getenv("SHARING_IMAGE_CACHE_STORAGE") || cfg.Sharing.ImageStorageLimitMB != 4096 {
+				t.Fatalf("environment overrides not loaded: %+v", cfg.Sharing)
+			}
+			if _, err := os.Stat(cfg.Sharing.ImageStorage); !os.IsNotExist(err) {
+				t.Fatalf("configuration loading created image cache: %v", err)
+			}
+			t.Setenv("SHARING_PROGRESSIVE_LOADING", "true")
+			cfg, err = Load()
+			if err != nil || !cfg.Sharing.ProgressiveLoading {
+				t.Fatalf("progressive loading true override: %t, %v", cfg.Sharing.ProgressiveLoading, err)
+			}
+		})
+	}
+}

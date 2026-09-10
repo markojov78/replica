@@ -11,6 +11,7 @@ app:
   file_sync_retry_time: "1s"
 
 sharing:
+  progressive_loading: false
   thumbnail_sizes: [256, 384, 512, 768, 1024]
   thumbnail_default_size: 256
   thumbnails_generate_for_video: true
@@ -19,6 +20,8 @@ sharing:
   video_playback_enabled: true
   thumbnail_storage: "/tmp/replica_thumbnails"
   thumbnail_storage_limit_mb: 500
+  image_cache_storage: "/tmp/replica_images"
+  image_cache_storage_limit_mb: 1024
 
 auth:
   jwt_secret: "change-me"
