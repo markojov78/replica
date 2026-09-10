@@ -192,7 +192,22 @@ func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Requ
 			writeStorageShareError(w, storageShareStatus(err), err.Error())
 			return
 		}
-		r.serveShareFileContent(w, req, share, replica, fileID)
+		query, err := url.ParseQuery(req.URL.RawQuery)
+		if err != nil {
+			writeStorageShareError(w, http.StatusBadRequest, "invalid download value")
+			return
+		}
+		disposition := "inline"
+		if values, present := query["download"]; present {
+			if len(values) != 1 || (values[0] != "true" && values[0] != "false") {
+				writeStorageShareError(w, http.StatusBadRequest, "invalid download value")
+				return
+			}
+			if values[0] == "true" {
+				disposition = "attachment"
+			}
+		}
+		r.serveShareFileContentWithDisposition(w, req, share, replica, fileID, disposition)
 	case req.Method == http.MethodPut && req.PathValue("id") != "" && req.PathValue("file_id") != "":
 		shareID, ok := parseSharePathUint(w, req, "id")
 		if !ok {
@@ -613,6 +628,10 @@ func (r *Runtime) shareFileForMutation(share apiclient.Share, replicaID, fileID 
 }
 
 func (r *Runtime) serveShareFileContent(w http.ResponseWriter, req *http.Request, share apiclient.Share, replica apiclient.Replica, fileID uint) {
+	r.serveShareFileContentWithDisposition(w, req, share, replica, fileID, "inline")
+}
+
+func (r *Runtime) serveShareFileContentWithDisposition(w http.ResponseWriter, req *http.Request, share apiclient.Share, replica apiclient.Replica, fileID uint, disposition string) {
 	if err := validateShareRangeHeader(req.Header.Get("Range")); err != nil {
 		writeStorageShareError(w, http.StatusBadRequest, err.Error())
 		return
@@ -626,7 +645,7 @@ func (r *Runtime) serveShareFileContent(w http.ResponseWriter, req *http.Request
 	defer content.Close()
 
 	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
-	w.Header().Set("Content-Disposition", shareContentDisposition(file.RelativeURI))
+	w.Header().Set("Content-Disposition", shareContentDisposition(file.RelativeURI, disposition))
 	w.Header().Set("ETag", fmt.Sprintf(`"file-%d-v%d"`, file.FileID, file.InventoryVersion))
 
 	if seeker, ok := content.(io.ReadSeeker); ok {
@@ -668,9 +687,9 @@ func contentTypeByName(name string) string {
 	return "application/octet-stream"
 }
 
-func shareContentDisposition(relativeURI string) string {
+func shareContentDisposition(relativeURI, disposition string) string {
 	filename := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(path.Base(relativeURI))
-	return fmt.Sprintf(`inline; filename="%s"`, filename)
+	return fmt.Sprintf(`%s; filename="%s"`, disposition, filename)
 }
 
 func validateShareRangeHeader(header string) error {

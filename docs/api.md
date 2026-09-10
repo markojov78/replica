@@ -1823,7 +1823,13 @@ Errors:
 
 ### /shares/{id}/files/{file_id}/content endpoint
 #### GET /shares/{id}/files/{file_id}/content
-Streams file content from the local replica storage.
+Streams the unchanged original file content from the local replica storage.
+
+Query parameters:
+- `download` optional boolean, default `false`
+  - when `false`, `Content-Disposition` is `inline`
+  - when `true`, `Content-Disposition` is `attachment`
+  - the returned file bytes are unchanged in both cases
 
 Example:  
 ```http request
@@ -1832,8 +1838,16 @@ Authorization: Bearer access-token-value
 X-API-Version: 1
 ```
 
+Download example:
+```http request
+GET /api/share/shares/4/files/41/content?download=true
+Authorization: Bearer access-token-value
+X-API-Version: 1
+```
+
 Behavior:  
 - Requires read permission.
+- Always returns the unchanged original file content stored in the share replica.
 - Content is streamed from the storage node that owns the share replica.
 - Content is not proxied through the coordinator.
 - Content is not fetched from other storage nodes in v1.
@@ -1846,7 +1860,9 @@ Behavior:
 - If the file is known but not synchronized locally, direct content access returns 409.
 - Content-Type is detected from the file name and/or file content.
 - Content-Disposition contains the original file name.
-- ETag identifies the served file version.
+- When `download` is omitted or false, Content-Disposition is `inline`.
+- When `download=true`, Content-Disposition is `attachment`.
+- ETag identifies the served original file version.
 - Range requests are supported when the underlying storage backend supports byte ranges.
 
 Response:
@@ -1857,6 +1873,17 @@ Content-Length: 997667
 ETag: "file-41-v24"
 Cache-Control: private, max-age=0, must-revalidate
 Content-Disposition: inline; filename="photo.jpg"
+Accept-Ranges: bytes
+```
+
+Download response:
+```
+200 OK
+Content-Type: image/jpeg
+Content-Length: 997667
+ETag: "file-41-v24"
+Cache-Control: private, max-age=0, must-revalidate
+Content-Disposition: attachment; filename="photo.jpg"
 Accept-Ranges: bytes
 ```
 
@@ -1874,6 +1901,7 @@ Accept-Ranges: bytes
 
 Errors:  
 - `400` malformed Range header
+- `400` invalid `download` value
 - `401` missing, invalid or expired user access token
 - `403` missing required share permission
 - `404` share or file not found / unavailable / inactive / expired on this storage node
@@ -1920,6 +1948,58 @@ Errors:
 - `400` malformed If-Match
 - `503` coordinator unavailable for uncached token validation
 - `500` local storage write/delete failed
+
+### /shares/{id}/files/{file_id}/preview endpoint
+#### GET /shares/{id}/files/{file_id}/preview
+Streams the best browser-viewable representation of the file selected by the storage node.
+
+Example:
+```http request
+GET /api/share/shares/4/files/41/preview
+Authorization: Bearer access-token-value
+X-API-Version: 1
+```
+
+Behavior:
+- Requires read permission.
+- The storage node decides which representation is appropriate for preview based on file type and effective sharing configuration.
+- The preview may be the unchanged original file when the original format is already suitable for browser viewing.
+- The preview may be a generated derivative, for example a progressive JPEG generated from an original JPEG.
+- Preview handling is centralized in the storage node so clients do not need file-type-specific preview selection logic.
+- Preview content is streamed from the storage node that owns the share replica.
+- Preview content is not proxied through the coordinator.
+- Preview content is not fetched from other storage nodes in v1.
+- The request identifies files by numeric file_id; raw filesystem paths are not accepted.
+- Share must be active, not expired, and available on this storage node.
+- Replica must be active.
+- File must belong to this share inventory.
+- File must be active.
+- Local replica file must be synchronized.
+- If the file is known but not synchronized locally, preview access returns 409.
+- Content-Type describes the representation returned by the preview endpoint.
+- Content-Disposition is `inline` and contains the original file name when applicable.
+- ETag identifies the source file version and preview representation.
+- Range requests may be supported when the selected preview representation can be served using byte ranges.
+
+Example response for a generated JPEG preview:
+```
+200 OK
+Content-Type: image/jpeg
+ETag: "file-41-v24-preview"
+Cache-Control: private, max-age=0, must-revalidate
+Content-Disposition: inline; filename="photo.jpg"
+```
+
+Errors:
+- `400` malformed Range header
+- `401` missing, invalid or expired user access token
+- `403` missing required share permission
+- `404` share or file not found / unavailable / inactive / expired on this storage node
+- `409` file not synchronized
+- `415` preview unsupported for this file type
+- `416` requested range not satisfiable
+- `503` coordinator unavailable for uncached token validation
+- `500` preview generation or local storage read failed
 
 ### /shares/{id}/files/{file_id}/thumbnail endpoint
 #### GET /shares/{id}/files/{file_id}/thumbnail
@@ -2106,7 +2186,13 @@ Errors:
 
 #### /s/{link_hash}/files/{file_id}/content endpoint
 ##### GET /s/{link_hash}/files/{file_id}/content
-Streams file content from the local replica storage for public anonymous read access.
+Streams the unchanged original file content from the local replica storage for public anonymous read access.
+
+Query parameters:
+- `download` optional boolean, default `false`
+  - when `false`, `Content-Disposition` is `inline`
+  - when `true`, `Content-Disposition` is `attachment`
+  - the returned file bytes are unchanged in both cases
 
 Example:
 ```http request
@@ -2114,8 +2200,15 @@ GET /s/JDFpfRV6Sis2rNuwYvaLa07F-CJE4rqbEGMwbY4RBb8/files/207/content
 X-API-Version: 1
 ```
 
+Download example:
+```http request
+GET /s/JDFpfRV6Sis2rNuwYvaLa07F-CJE4rqbEGMwbY4RBb8/files/207/content?download=true
+X-API-Version: 1
+```
+
 Behavior:
 - Requires anonymous read permission.
+- Always returns the unchanged original file content stored in the share replica.
 - Content is streamed from the storage node that owns the share replica.
 - Content is not proxied through the coordinator.
 - Content is not fetched from other storage nodes in v1.
@@ -2129,7 +2222,9 @@ Behavior:
 - If the file is known but not synchronized locally, direct content access returns 409.
 - Content-Type is detected from the file name and/or file content.
 - Content-Disposition contains the original file name.
-- ETag identifies the served file version.
+- When `download` is omitted or false, Content-Disposition is `inline`.
+- When `download=true`, Content-Disposition is `attachment`.
+- ETag identifies the served original file version.
 - Range requests are supported when the underlying storage backend supports byte ranges.
 
 Response:  
@@ -2142,6 +2237,18 @@ Cache-Control: private, max-age=0, must-revalidate
 Content-Disposition: inline; filename="photo.jpg"
 Accept-Ranges: bytes
 ```
+
+Download response:
+```
+200 OK
+Content-Type: image/jpeg
+Content-Length: 997667
+ETag: "file-207-v4"
+Cache-Control: private, max-age=0, must-revalidate
+Content-Disposition: attachment; filename="photo.jpg"
+Accept-Ranges: bytes
+```
+
 Partial response when `Range` request is used:  
 ```
 206 Partial Content
@@ -2155,7 +2262,7 @@ Accept-Ranges: bytes
 ```
 
 Errors:
-- `400` malformed Range header
+- `400` invalid `download` value / malformed Range header
 - `403` matching public share exists but anonymous read is not allowed
 - `404 `share or file not found / unavailable / inactive / expired on this storage node
 - `409 `file not synchronized
@@ -2197,6 +2304,56 @@ Errors:
 - `428` missing If-Match
 - `400` malformed If-Match
 - `500` local storage write/delete failed
+
+#### /s/{link_hash}/files/{file_id}/preview endpoint
+##### GET /s/{link_hash}/files/{file_id}/preview
+Streams the best browser-viewable representation of the file selected by the storage node for public anonymous read access.
+
+Example:
+```http request
+GET /s/JDFpfRV6Sis2rNuwYvaLa07F-CJE4rqbEGMwbY4RBb8/files/207/preview
+X-API-Version: 1
+```
+
+Behavior:
+- Requires anonymous read permission.
+- The storage node decides which representation is appropriate for preview based on file type and effective sharing configuration.
+- The preview may be the unchanged original file when the original format is already suitable for browser viewing.
+- The preview may be a generated derivative, for example a progressive JPEG generated from an original JPEG.
+- Preview handling is centralized in the storage node so clients do not need file-type-specific preview selection logic.
+- Preview content is streamed from the storage node that owns the share replica.
+- Preview content is not proxied through the coordinator.
+- Preview content is not fetched from other storage nodes in v1.
+- The request identifies files by numeric file_id; raw filesystem paths are not accepted.
+- link_hash must match an active public share.
+- Share must be active, not expired, and available on this storage node.
+- Replica must be active.
+- File must belong to this share inventory.
+- File must be active.
+- Local replica file must be synchronized.
+- If the file is known but not synchronized locally, preview access returns 409.
+- Content-Type describes the representation returned by the preview endpoint.
+- Content-Disposition is `inline` and contains the original file name when applicable.
+- ETag identifies the source file version and preview representation.
+- Range requests may be supported when the selected preview representation can be served using byte ranges.
+
+Example response for a generated JPEG preview:
+```
+200 OK
+Content-Type: image/jpeg
+ETag: "file-207-v4-preview"
+Cache-Control: private, max-age=0, must-revalidate
+Content-Disposition: inline; filename="photo.jpg"
+```
+
+Errors:
+- `400` malformed Range header
+- `403` matching public share exists but anonymous read is not allowed
+- `404` share or file not found / unavailable / inactive / expired on this storage node
+- `409` file not synchronized
+- `415` preview unsupported for this file type
+- `416` requested range not satisfiable
+- `500` preview generation or local storage read failed
 
 #### /s/{link_hash}/files/{file_id}/thumbnail endpoint
 ##### GET /s/{link_hash}/files/{file_id}/thumbnail

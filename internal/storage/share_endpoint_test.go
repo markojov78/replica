@@ -585,6 +585,50 @@ func TestServeAuthenticatedShareFileContentFollowsDocumentedResponse(t *testing.
 	if rec.Header().Get("Accept-Ranges") != "bytes" {
 		t.Fatalf("Accept-Ranges = %q, want bytes", rec.Header().Get("Accept-Ranges"))
 	}
+	for _, test := range []struct {
+		query, rangeHeader, disposition, body string
+		status                                int
+	}{
+		{"?download=false", "", "inline", "0123456789", http.StatusOK},
+		{"?download=true", "", "attachment", "0123456789", http.StatusOK},
+		{"?download=true", "bytes=2-5", "attachment", "2345", http.StatusPartialContent},
+		{"?download=false", "bytes=2-5", "inline", "2345", http.StatusPartialContent},
+		{"?download=", "", "", "", http.StatusBadRequest},
+		{"?download", "", "", "", http.StatusBadRequest},
+		{"?download=TRUE", "", "", "", http.StatusBadRequest},
+		{"?download=1", "", "", "", http.StatusBadRequest},
+		{"?download=0", "", "", "", http.StatusBadRequest},
+		{"?download=yes", "", "", "", http.StatusBadRequest},
+		{"?download=%20true", "", "", "", http.StatusBadRequest},
+		{"?download=%zz", "", "", "", http.StatusBadRequest},
+		{"?download=true&download=false", "", "", "", http.StatusBadRequest},
+		{"?download=true&download=true", "", "", "", http.StatusBadRequest},
+	} {
+		t.Run(test.query+test.rangeHeader, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/share/shares/4/files/41/content"+test.query, nil)
+			req.SetPathValue("id", "4")
+			req.SetPathValue("file_id", "41")
+			req.Header.Set("Authorization", "Bearer user-token")
+			req.Header.Set("Range", test.rangeHeader)
+			rec := httptest.NewRecorder()
+			runtime.ServeAuthenticatedShares(rec, req)
+			if rec.Code != test.status {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, test.status, rec.Body.String())
+			}
+			if test.status == http.StatusBadRequest {
+				return
+			}
+			if rec.Body.String() != test.body || rec.Header().Get("Content-Disposition") != test.disposition+`; filename="photo.jpg"` {
+				t.Fatalf("body/disposition = %q / %q", rec.Body.String(), rec.Header().Get("Content-Disposition"))
+			}
+			for _, header := range []string{"ETag", "Cache-Control", "Content-Type", "Accept-Ranges"} {
+				if rec.Header().Get(header) != map[string]string{"ETag": `"file-41-v24"`, "Cache-Control": "private, max-age=0, must-revalidate", "Content-Type": "image/jpeg", "Accept-Ranges": "bytes"}[header] {
+					t.Fatalf("unexpected %s: %q", header, rec.Header().Get(header))
+				}
+			}
+		})
+	}
+
 }
 
 func TestServeUserShareFileContentMatchesAuthenticatedAPIContent(t *testing.T) {
@@ -620,7 +664,7 @@ func TestServeUserShareFileContentMatchesAuthenticatedAPIContent(t *testing.T) {
 	apiRec := httptest.NewRecorder()
 	runtime.ServeAuthenticatedShares(apiRec, apiReq)
 
-	uiReq := httptest.NewRequest(http.MethodGet, "/share/shares/4/files/41/content", nil)
+	uiReq := httptest.NewRequest(http.MethodGet, "/share/shares/4/files/41/content?download=true", nil)
 	uiReq.SetPathValue("id", "4")
 	uiReq.SetPathValue("file_id", "41")
 	uiRec := httptest.NewRecorder()
@@ -668,7 +712,7 @@ func TestServePublicShareFileContentRangeAndErrors(t *testing.T) {
 		},
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/s/public-link/files/10/content", nil)
+	req := httptest.NewRequest(http.MethodGet, "/s/public-link/files/10/content?download=true", nil)
 	req.SetPathValue("link_hash", "public-link")
 	req.SetPathValue("file_id", "10")
 	req.Header.Set("Range", "bytes=2-5")
@@ -676,6 +720,9 @@ func TestServePublicShareFileContentRangeAndErrors(t *testing.T) {
 	runtime.ServePublicShares(rec, req)
 	if rec.Code != http.StatusPartialContent || rec.Body.String() != "2345" {
 		t.Fatalf("range status/body = %d/%q, want 206/2345", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("Content-Disposition") != `inline; filename="video.mp4"` {
+		t.Fatalf("public endpoint changed disposition: %q", rec.Header().Get("Content-Disposition"))
 	}
 	if rec.Header().Get("Content-Range") != "bytes 2-5/10" {
 		t.Fatalf("Content-Range = %q, want bytes 2-5/10", rec.Header().Get("Content-Range"))
