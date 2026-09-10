@@ -545,14 +545,14 @@ func TestFlatModePaginationUnchangedAndTreePaginationHidden(t *testing.T) {
 func TestAuthenticatedAndAnonymousTreeRenderingUseCorrectBasePaths(t *testing.T) {
 	authHTML := renderShareTemplate(t, treeTemplateData("grid", "sub", false))
 	if !strings.Contains(authHTML, `href="/share/shares/4?browse=tree`) ||
-		!strings.Contains(authHTML, `href="/share/shares/4/files/`) {
-		t.Fatalf("authenticated tree html = %s, want /share content and navigation links", authHTML)
+		!strings.Contains(authHTML, `href="/share/api/shares/4/files/3/preview"`) {
+		t.Fatalf("authenticated tree html = %s, want authenticated preview and navigation links", authHTML)
 	}
 
 	publicHTML := renderShareTemplate(t, treeTemplateData("grid", "sub", true))
 	if !strings.Contains(publicHTML, `href="/w/public-link?browse=tree`) ||
-		!strings.Contains(publicHTML, `href="/w/public-link/files/`) {
-		t.Fatalf("anonymous tree html = %s, want /w content and navigation links", publicHTML)
+		!strings.Contains(publicHTML, `href="/s/public-link/files/3/preview"`) {
+		t.Fatalf("anonymous tree html = %s, want anonymous preview and navigation links", publicHTML)
 	}
 }
 
@@ -784,7 +784,7 @@ func treeTemplateData(viewMode string, treePath string, public bool) pageData {
 		cleanPath = ""
 	}
 	basePath := "/share/shares/4"
-	apiBasePath := "/api/share/shares/4"
+	apiBasePath := "/share/api/shares/4"
 	authenticated := true
 	if public {
 		basePath = "/w/public-link"
@@ -883,4 +883,59 @@ func newShareUIRuntime(t *testing.T) *storage.Runtime {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 	return runtime
+}
+
+func TestFileViewsUsePreviewForImagesAndExplicitDownloads(t *testing.T) {
+	for _, authenticated := range []bool{false, true} {
+		apiBase, contentBase := "/s/public-link", "/w/public-link"
+		if authenticated {
+			apiBase, contentBase = "/share/api/shares/4", "/share/shares/4"
+		}
+		for _, extension := range []string{"jpg", "jpeg", "png", "gif", "webp", "mp4", "pdf", "mp3", "txt"} {
+			files := fileViews([]apiclient.ReplicaInventoryFile{{FileID: 10, RelativeURI: "photo." + extension, InventoryVersion: 4}}, apiBase, contentBase, 256, authenticated, config.SharingConfig{})
+			wantContent := contentBase + "/files/10/content"
+			if files[0].PreviewKind == "image" {
+				wantContent = apiBase + "/files/10/preview"
+			}
+			if files[0].ContentPath != wantContent || files[0].DownloadPath != apiBase+"/files/10/content?download=true" {
+				t.Fatalf("authenticated=%t extension=%s paths: %q, %q", authenticated, extension, files[0].ContentPath, files[0].DownloadPath)
+			}
+			if extension != "jpg" {
+				continue
+			}
+			for _, mode := range []string{"list", "grid"} {
+				html := renderShareTemplate(t, pageData{Title: "Photos", Authenticated: authenticated, Public: !authenticated, Share: apiclient.Share{ID: 4, Name: "Photos"}, Files: files, Permissions: []string{"read", "delete"}, Page: 1, Count: 20, Total: 1, BasePath: contentBase, APIBasePath: apiBase, ThumbnailSizes: []int{256}, ThumbnailSize: 256, ViewMode: mode, BrowseMode: "flat", HasEntries: true})
+				wantDownload := `href="` + apiBase + `/files/10/content?download=true"`
+				if authenticated {
+					wantDownload = `data-auth-download="` + apiBase + `/files/10/content?download=true"`
+				}
+				if !strings.Contains(html, wantDownload) || !strings.Contains(html, `data-actions-menu`) || !strings.Contains(html, `Delete`) {
+					t.Fatalf("authenticated=%t mode=%s missing download action: %s", authenticated, mode, html)
+				}
+				if !strings.Contains(html, `href="`+wantContent+`"`) {
+					t.Fatalf("authenticated=%t mode=%s missing image preview link", authenticated, mode)
+				}
+				if mode == "grid" && !strings.Contains(html, `data-content-url="`+wantContent+`"`) {
+					t.Fatal("image viewer does not receive preview URL")
+				}
+			}
+		}
+	}
+}
+
+func TestPreviewUIProxyRouteRequiresAuthentication(t *testing.T) {
+	mux := http.NewServeMux()
+	if err := Register(mux, nil); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/share/api/shares/4/files/10/preview", nil)
+	_, pattern := mux.Handler(req)
+	if pattern != "GET /share/api/shares/{id}/files/{file_id}/preview" {
+		t.Fatalf("preview UI proxy pattern = %q", pattern)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated preview = %d, body=%s", rec.Code, rec.Body.String())
+	}
 }

@@ -118,6 +118,7 @@ func Register(mux *http.ServeMux, runtime *storage.Runtime, authServices ...*ser
 	mux.HandleFunc("DELETE /share/api/shares/{id}/files/{file_id}", gateFunc(handler.shareAPI))
 	mux.HandleFunc("GET /share/api/shares/{id}/files/{file_id}/content", gateFunc(handler.shareAPI))
 	mux.HandleFunc("HEAD /share/api/shares/{id}/files/{file_id}/content", gateFunc(handler.shareAPI))
+	mux.HandleFunc("GET /share/api/shares/{id}/files/{file_id}/preview", gateFunc(handler.shareAPI))
 	mux.HandleFunc("GET /share/api/shares/{id}/files/{file_id}/thumbnail", gateFunc(handler.shareAPI))
 	mux.HandleFunc("HEAD /share/api/shares/{id}/files/{file_id}/thumbnail", gateFunc(handler.shareAPI))
 	mux.HandleFunc("PUT /share/api/shares/{id}/files/{file_id}/content", gateFunc(handler.shareAPI))
@@ -929,10 +930,13 @@ func fileViews(files []apiclient.ReplicaInventoryFile, apiBasePath string, conte
 			Name:                 path.Base(file.RelativeURI),
 			Type:                 fileType(ext),
 			ContentPath:          contentPath,
-			DownloadPath:         contentPath,
+			DownloadPath:         fmt.Sprintf("%s/files/%d/content?download=true", apiBasePath, file.FileID),
 			ThumbnailURL:         fmt.Sprintf("%s/files/%d/thumbnail?size=%d", apiBasePath, file.FileID, thumbSize),
 			CanPreview:           cfg.VideoPlaybackEnabled && isPlayableVideo(ext) && file.Size <= int64(cfg.VideoInlineMaxSizeMB)*1024*1024,
 			PreviewKind:          previewKind(ext, cfg, file.Size),
+		}
+		if view.PreviewKind == "image" {
+			view.ContentPath = fmt.Sprintf("%s/files/%d/preview", apiBasePath, file.FileID)
 		}
 		if authenticated {
 			view.ThumbnailURL = ""
