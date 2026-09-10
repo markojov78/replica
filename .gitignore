@@ -49,4 +49,5 @@ replica-seed.exe
 .cursor/
 .claude/
 .codex
-.aider
+.aider*
+
