@@ -679,7 +679,6 @@
         toolbar.append(button);
       }
       image.draggable = false;
-      image.hidden = true;
       stage.append(image);
       content.classList.add("preview-image-content");
       content.append(stage);
@@ -724,7 +723,7 @@
         const wasFit = !ready || Math.abs(scale - fit) < 0.000001;
         fit = Math.min(1, stage.clientWidth / image.naturalWidth, stage.clientHeight / image.naturalHeight);
         ready = true;
-        image.hidden = false;
+        stage.classList.add("is-ready");
         setZoom(wasFit ? fit : scale);
       }
 
