@@ -1075,9 +1075,55 @@ Possible errors:
 - `401` missing authenticated user
 - `400` invalid `sort`, `order`, `page`, or `count` value
 - `403` missing required permission
-- `400` invalid inventory file status
-- `404` inventory not found
-- `404` inventory file not found
+- `404` inventory or file not found
+
+#### GET /inventories/{id}/files/{file_id}/log
+Returns a paginated list of journal entries for a file belonging to the inventory.
+
+Journal entries represent changes reported for the file by replicas.
+
+Query parameters:
+- `page` optional, default `1`
+- `count` optional, default `20`
+- `order` optional, `asc` or `desc`, default `asc`
+
+Entries are ordered by `version`. The `order` parameter controls the version ordering.
+
+Example response:
+
+```json
+{
+  "items": [
+    {
+      "id": 42,
+      "file_id": 10,
+      "inventory_id": 1,
+      "replica_id": 3,
+      "version": 1,
+      "action": "created",
+      "timestamp": "2026-05-19T12:00:00Z"
+    },
+    {
+      "id": 57,
+      "file_id": 10,
+      "inventory_id": 1,
+      "replica_id": 3,
+      "version": 2,
+      "action": "updated",
+      "timestamp": "2026-05-20T08:15:30Z"
+    }
+  ],
+  "page": 1,
+  "count": 20,
+  "total": 2
+}
+```
+
+Possible errors:
+- `401` missing authenticated user
+- `400` invalid `sort`, `order`, `page`, or `count` value
+- `403` missing required permission
+- `404` inventory or file not found
 
 ### /replicas endpoint
 

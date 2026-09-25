@@ -89,6 +89,26 @@ func registerInventoryRoutes(api huma.API, svc services) {
 		return &inventoryFileResponse{Body: *file}, nil
 	})
 
+	huma.Get(api, "/inventories/{id}/files/{file_id}/log", func(ctx context.Context, input *listFileJournalInput) (*fileJournalListResponse, error) {
+		accessToken, err := bearerToken(input.Authorization)
+		if err != nil {
+			return nil, huma.Error401Unauthorized("missing authenticated user")
+		}
+		if err := AuthorizeInventoryAction(svc, accessToken, input.ID, model.PermissionResourceInventories, model.PermissionActionRead); err != nil {
+			return nil, mapPermissionError(err)
+		}
+
+		page, count, err := resolvePagination(input.Page, input.Count)
+		if err != nil {
+			return nil, err
+		}
+		entries, err := svc.inventories.ListFileJournal(input.ID, input.FileID, page, count, input.Order)
+		if err != nil {
+			return nil, mapInventoryError(err, svc.inventories)
+		}
+		return &fileJournalListResponse{Body: *entries}, nil
+	})
+
 	huma.Post(api, "/inventories", func(ctx context.Context, input *createInventoryInput) (*inventoryResponse, error) {
 		accessToken, err := bearerToken(input.Authorization)
 		if err != nil {
@@ -215,6 +235,16 @@ type getInventoryFileInput struct {
 	FileID        uint   `path:"file_id"`
 }
 
+type listFileJournalInput struct {
+	versionHeader
+	Authorization string `header:"Authorization"`
+	ID            uint   `path:"id"`
+	FileID        uint   `path:"file_id"`
+	Page          int    `query:"page" default:"1"`
+	Count         int    `query:"count" default:"20"`
+	Order         string `query:"order" default:"asc"`
+}
+
 type updateInventoryInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
@@ -246,4 +276,8 @@ type inventoryFileResponse struct {
 
 type inventoryFileListResponse struct {
 	Body service.InventoryFileList
+}
+
+type fileJournalListResponse struct {
+	Body service.FileJournalList
 }

@@ -1021,6 +1021,53 @@ func TestInventoryAndReplicaListsFilterByStatus(t *testing.T) {
 	}
 }
 
+func TestInventoryServiceListFileJournal(t *testing.T) {
+	database, err := db.Open(config.DatabaseConfig{
+		Driver: "sqlite",
+		DSN:    filepath.Join(t.TempDir(), "file-journal-list.db"),
+	})
+	if err != nil {
+		t.Fatalf("db.Open() error = %v", err)
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		t.Fatalf("db.AutoMigrate() error = %v", err)
+	}
+
+	inventory := model.Inventory{Name: "Photos", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(&inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	file := model.InventoryFile{InventoryID: inventory.ID, RelativeURI: "photo.jpg", Status: model.InventoryFileStatusActive}
+	if err := database.Create(&file).Error; err != nil {
+		t.Fatalf("Create(file) error = %v", err)
+	}
+	entries := []model.FileJournal{
+		{FileID: file.ID, InventoryID: inventory.ID, ReplicaID: 1, Version: 1, Action: model.FileJournalActionCreated, Timestamp: time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)},
+		{FileID: file.ID, InventoryID: inventory.ID, ReplicaID: 2, Version: 2, Action: model.FileJournalActionUpdated, Timestamp: time.Date(2026, 5, 20, 8, 15, 30, 0, time.UTC)},
+	}
+	if err := database.Create(&entries).Error; err != nil {
+		t.Fatalf("Create(entries) error = %v", err)
+	}
+
+	svc := NewInventoryService(repository.NewInventoryRepository(database))
+	result, err := svc.ListFileJournal(inventory.ID, file.ID, 1, 1, "desc")
+	if err != nil {
+		t.Fatalf("ListFileJournal() error = %v", err)
+	}
+	if result.Total != 2 || result.Page != 1 || result.Count != 1 || len(result.Items) != 1 || result.Items[0].Version != 2 {
+		t.Fatalf("ListFileJournal() = %+v, want first descending entry and total 2", result)
+	}
+	if result.Items[0].Action != string(model.FileJournalActionUpdated) || !result.Items[0].Timestamp.Equal(entries[1].Timestamp) {
+		t.Fatalf("ListFileJournal().Items[0] = %+v, want updated entry", result.Items[0])
+	}
+	if _, err := svc.ListFileJournal(inventory.ID, file.ID, 1, 20, "up"); err != ErrInvalidListOrder {
+		t.Fatalf("ListFileJournal(invalid order) error = %v, want %v", err, ErrInvalidListOrder)
+	}
+	if _, err := svc.ListFileJournal(inventory.ID, 999, 1, 20, "asc"); err != ErrInventoryFileNotFound {
+		t.Fatalf("ListFileJournal(missing file) error = %v, want %v", err, ErrInventoryFileNotFound)
+	}
+}
+
 func TestReplicaListIncludesSyncStatusSummary(t *testing.T) {
 	database, err := db.Open(config.DatabaseConfig{
 		Driver: "sqlite",

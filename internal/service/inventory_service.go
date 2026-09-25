@@ -98,6 +98,23 @@ type InventoryFileList struct {
 	Total int64                  `json:"total"`
 }
 
+type FileJournalDetails struct {
+	ID          uint      `json:"id"`
+	FileID      uint      `json:"file_id"`
+	InventoryID uint      `json:"inventory_id"`
+	ReplicaID   uint      `json:"replica_id"`
+	Version     uint      `json:"version"`
+	Action      string    `json:"action"`
+	Timestamp   time.Time `json:"timestamp"`
+}
+
+type FileJournalList struct {
+	Items []FileJournalDetails `json:"items"`
+	Page  int                  `json:"page"`
+	Count int                  `json:"count"`
+	Total int64                `json:"total"`
+}
+
 type ReplicaFileDetails struct {
 	ID        uint   `json:"id"`
 	FileID    uint   `json:"file_id"`
@@ -606,6 +623,38 @@ func (s *InventoryService) ListFiles(inventoryID uint, page, perPage int, filter
 		Count: perPage,
 		Total: total,
 	}, nil
+}
+
+func (s *InventoryService) ListFileJournal(inventoryID, fileID uint, page, perPage int, order string) (*FileJournalList, error) {
+	if _, err := s.GetFile(inventoryID, fileID); err != nil {
+		return nil, err
+	}
+	if order == "" {
+		order = "asc"
+	}
+	if order != "asc" && order != "desc" {
+		return nil, ErrInvalidListOrder
+	}
+
+	entries, total, err := s.repo.ListFileJournal(inventoryID, fileID, page, perPage, order)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]FileJournalDetails, 0, len(entries))
+	for _, entry := range entries {
+		items = append(items, FileJournalDetails{
+			ID:          entry.ID,
+			FileID:      entry.FileID,
+			InventoryID: entry.InventoryID,
+			ReplicaID:   entry.ReplicaID,
+			Version:     entry.Version,
+			Action:      string(entry.Action),
+			Timestamp:   entry.Timestamp,
+		})
+	}
+
+	return &FileJournalList{Items: items, Page: page, Count: perPage, Total: total}, nil
 }
 
 func (s *InventoryService) Update(id uint, input UpdateInventoryInput) (*InventoryDetails, error) {

@@ -202,6 +202,27 @@ func (r *InventoryRepository) ListFiles(inventoryID uint, page, perPage int, fil
 	return files, total, nil
 }
 
+func (r *InventoryRepository) ListFileJournal(inventoryID, fileID uint, page, perPage int, order string) ([]model.FileJournal, int64, error) {
+	query := r.db.Model(&model.FileJournal{}).Where("inventory_id = ? AND file_id = ?", inventoryID, fileID)
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var entries []model.FileJournal
+	err := query.
+		Order("version " + order).
+		Limit(perPage).
+		Offset((page - 1) * perPage).
+		Find(&entries).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return entries, total, nil
+}
+
 func (r *InventoryRepository) preloadDetails(db *gorm.DB) *gorm.DB {
 	return db.Preload("Replicas", func(tx *gorm.DB) *gorm.DB {
 		return tx.Order("replicas.id asc")
