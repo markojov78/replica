@@ -701,6 +701,9 @@ func (r *Runtime) serveShareFileContentWithDisposition(w http.ResponseWriter, re
 }
 
 func (r *Runtime) openShareFileContent(req *http.Request, share apiclient.Share, replica apiclient.Replica, fileID uint) (apiclient.ReplicaInventoryFile, io.ReadCloser, int64, error) {
+	if err := checkReplicaAvailable(replica); err != nil {
+		return apiclient.ReplicaInventoryFile{}, nil, 0, errShareFileNotFound
+	}
 	file, err := r.shareFileForReadInShare(share, replica.ID, fileID)
 	if err != nil {
 		return apiclient.ReplicaInventoryFile{}, nil, 0, err
@@ -852,12 +855,15 @@ func (r *Runtime) shareFileForRead(replicaID, fileID uint) (apiclient.ReplicaInv
 }
 
 func (r *Runtime) thumbnailSource(ctx context.Context, replica apiclient.Replica, file apiclient.ReplicaInventoryFile) (service.ThumbnailSource, error) {
-	uri, err := url.Parse(replica.URI)
+	if err := checkReplicaAvailable(replica); err != nil {
+		return nil, errShareFileNotFound
+	}
+	scheme, err := storageURIScheme(replica.URI)
 	if err != nil {
 		return nil, err
 	}
 
-	if uri.Scheme == "s3" {
+	if scheme == "s3" {
 		location, key, err := resolveS3ReadKey(replica.URI, file.RelativeURI)
 		if err != nil {
 			return nil, err

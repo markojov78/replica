@@ -202,12 +202,17 @@ When a storage service starts, it:
 1. Reads coordinator URL, node ID and node secret from configuration
 2. Authenticates against the coordinator node control API
 3. Retrieves assigned replicas, assigned shares and required runtime state from the coordinator
-4. Starts monitoring local replicas
-5. Establishes a WebSocket connection to the coordinator
-6. Starts sending periodic heartbeat requests
+4. Establishes a WebSocket connection and starts periodic heartbeats and token refresh
+5. Scans and starts monitoring local replicas
+6. Processes coordinator commands and starts replica recovery checks
 
 The storage service does not persist authoritative replication state locally.  
 After restart, all required runtime state is rebuilt from the coordinator.
+
+Replica scan and watcher initialization failures are local to the affected replica: they are logged and do not
+restart node authentication or prevent other replicas from initializing. Authentication and retrieval of required
+coordinator state must still succeed. Failed replicas are retried every 30 seconds in memory, with repeated identical
+recovery errors suppressed in logs. Recovery refreshes coordinator file state before scanning and restarting watches.
 
 Storage services track active watcher state by replica ID in volatile runtime state. A `scan_replica` command starts
 the replica watcher when one is not already running, allowing newly-created replica assignments to be monitored
@@ -904,3 +909,31 @@ file_id  version  status  modified  size      hash
 ------------------------------------------------------
 10       4        active  new_time  new_size  new_hash
 ```
+
+### Removable replica availability
+Removable replicas use the filesystem backend. A missing root directory/drive, an unreadable root, or an empty root
+is treated as unavailable. Empty means no directory entries other than internal temporary write files; a subdirectory
+counts as an entry. This is deliberately a heuristic, not mount or device identity verification.
+
+Unavailable removable replicas are not scanned, reported as emptied, written to, or used to serve file content.
+Existing coordinator inventory and replica file state is preserved. Reconciliation commands can fail while the medium
+is absent, but absence does not mark pending files as permanent errors. The existing coordinator heartbeat scheduling
+retries pending reconciliation; storage nodes do not select sources or schedule replication independently.
+
+Every 30 seconds, removable replicas are checked and rescanned using fresh coordinator file state, even when a watcher
+exists. This detects reconnection and changes on network mounts without relying solely on filesystem notifications.
+Failed or replaced-root watchers are rebuilt. Recovery scans, watcher reports and reconciliation are serialized per
+replica so recovery cannot restart a watcher during reconciliation. Scans retain the existing pending-file safeguards
+and base/downstream authority rules. Watcher events for removable replicas trigger a guarded scan rather than directly
+turning a possibly stale disappearance event into a deletion report.
+
+Removable scans check the root before and after scanning and discard results if it becomes unavailable or changes.
+Writes and deletes require a present, nonempty root and use an opened directory handle; they do not recreate a missing
+replica root. Writes recheck the root before publishing the completed temporary file. Transfer and sharing operations
+use their existing error responses when removable content is unavailable; no availability fields or statuses are added
+to the API or database.
+
+The empty-root rule intentionally prevents propagation of deleting the final local entry. It also means a genuinely
+empty removable destination cannot receive its initial replication until it contains an entry. A nonempty directory
+left behind after unmounting cannot be distinguished from mounted media by this heuristic. Availability checks reduce
+removal races but cannot guarantee detection of every mount change during a filesystem operation.

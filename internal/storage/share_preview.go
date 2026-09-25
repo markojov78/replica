@@ -15,6 +15,10 @@ import (
 )
 
 func (r *Runtime) serveShareFilePreview(w http.ResponseWriter, req *http.Request, share apiclient.Share, replica apiclient.Replica, fileID uint) {
+	if err := checkReplicaAvailable(replica); err != nil {
+		writeStorageShareError(w, http.StatusNotFound, errShareFileNotFound.Error())
+		return
+	}
 	if err := validateShareRangeHeader(req.Header.Get("Range")); err != nil {
 		writeStorageShareError(w, http.StatusBadRequest, err.Error())
 		return

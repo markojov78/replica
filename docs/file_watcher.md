@@ -2,7 +2,8 @@
 
 This document describes the reusable scanner and watcher infrastructure in `internal/storage`.
 
-The goal of this layer is to discover replica file state and surface change hints in a storage-backend-specific way without coupling that logic to coordinator communication, database updates, or replication orchestration.
+The goal of this layer is to discover replica file state and surface change hints in a storage-backend-specific way 
+without coupling that logic to coordinator communication, database updates, or replication orchestration.
 
 Storage writers use the centralized `TemporaryWritePrefix` constant for temporary files. Scanners and watchers exclude
 paths whose basename starts with that prefix so incomplete writes never become replica changes.
@@ -23,7 +24,8 @@ It contains:
 - `Created`: best available creation time
 - `Modified`: last modification time
 
-The intent is to provide the fields needed later for inventory and replica file reconciliation while keeping the storage layer independent of persistence.
+The intent is to provide the fields needed later for inventory and replica file reconciliation while keeping the 
+storage layer independent of persistence.
 
 ### FileChange
 
@@ -36,7 +38,8 @@ It contains:
 - `PreviousRelativeURI`: optional old path for rename-style implementations
 - `State`: optional `FileState` when the current file can be inspected safely
 
-Watcher events are hints, not authoritative state transitions. If an implementation cannot interpret an event safely, it should emit `rescan_required` instead of guessing.
+Watcher events are hints, not authoritative state transitions. If an implementation cannot interpret an event safely, 
+it should emit `rescan_required` instead of guessing.
 
 ### Scanner
 
@@ -181,7 +184,15 @@ Important limitations:
 - rename correlation is not currently reconstructed into full old-path/new-path pairs
 - watcher errors are surfaced on the error channel and also trigger a `rescan_required` hint
 
-This conservative design is intentional. The watcher helps detect likely changes quickly, while the scanner remains the authoritative way to rebuild complete file state.
+This conservative design is intentional. The watcher helps detect likely changes quickly, while the scanner remains the 
+authoritative way to rebuild complete file state.
+
+The storage runtime consumes `rescan_required` hints by requesting a scan with the existing pending-file safeguards.
+For removable replicas, the runtime also checks that the root is present and nonempty before and after scans, including
+targeted file-set scans. An unavailable root never becomes an empty successful snapshot for change reporting. Removable
+watcher hints trigger guarded scans, and the runtime rescans removable replicas every 30 seconds to recover from missing
+notifications or reconnection. Availability and retry state is volatile; the scanner/watcher interfaces remain unchanged.
+See [Removable replica availability](application.md#removable-replica-availability) for the heuristic and its limitations.
 
 ## S3
 The S3 implementation lives in:
@@ -191,7 +202,8 @@ The S3 implementation lives in:
 
 For the S3 scanner and watcher to work, the caller must provide an already-configured AWS SDK v2 S3 client.
 
-The storage package does not authenticate to AWS by itself. `S3Scanner` accepts an injected `*s3.Client`, so authentication and AWS configuration are handled by the code that constructs that client.
+The storage package does not authenticate to AWS by itself. `S3Scanner` accepts an injected `*s3.Client`, so 
+authentication and AWS configuration are handled by the code that constructs that client.
 
 In practice, this means the later integration layer will need to:
 
@@ -274,4 +286,5 @@ Behavior:
 - state is kept only in memory
 - no persistence or coordinator integration happens at this layer
 
-This polling watcher is not real-time, but it provides a clean backend-specific `Watcher` implementation while preserving the same interface used by the filesystem watcher.
+This polling watcher is not real-time, but it provides a clean backend-specific `Watcher` implementation while 
+preserving the same interface used by the filesystem watcher.

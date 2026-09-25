@@ -115,6 +115,9 @@ func (r *Runtime) openReplicaFileContent(req *http.Request, token string, replic
 		return nil, 0, errTransferVersionConflict
 	}
 
+	if err := checkReplicaAvailable(replica); err != nil {
+		return nil, 0, fmt.Errorf("%w: %v", errTransferFileNotFound, err)
+	}
 	profile, err := r.GetPprofile(replica.StorageProfile)
 	if err != nil {
 		return nil, 0, err
@@ -250,6 +253,9 @@ func resolveReplicaFilePath(rootURI, relativeURI string) (string, error) {
 // localFilesystemPath converts a local path or file:// URI into a filesystem path.
 // Only local filesystem locations are supported; remote or unsupported URI schemes return an error.
 func localFilesystemPath(rootURI string) (string, error) {
+	if filepath.VolumeName(rootURI) != "" && filepath.IsAbs(rootURI) {
+		return rootURI, nil
+	}
 	parsed, err := url.Parse(rootURI)
 	if err != nil {
 		return "", err

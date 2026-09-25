@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"path/filepath"
 	"replica/internal/config"
 	"sort"
 	"time"
@@ -152,12 +153,12 @@ var s3Provider = &S3ClientProvider{}
 
 // Scanner factory to resolve scanner implementation from uri scheme
 func GetScanner(ctx context.Context, uri string, profile *config.StorageProfileConfig, followSymlinks ...bool) (Scanner, error) {
-	u, err := url.Parse(uri)
+	scheme, err := storageURIScheme(uri)
 	if err != nil {
 		return nil, err
 	}
 
-	switch u.Scheme {
+	switch scheme {
 	case "s3":
 		s3client, err := s3Provider.Client(ctx, profile)
 		if err != nil {
@@ -167,17 +168,17 @@ func GetScanner(ctx context.Context, uri string, profile *config.StorageProfileC
 	case "file", "": // plain local path
 		return NewFilesystemScanner(followSymlinks...), nil
 	default:
-		return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)
+		return nil, fmt.Errorf("unsupported scheme: %s", scheme)
 	}
 }
 
 func GetWatcher(ctx context.Context, uri string, profile *config.StorageProfileConfig, followSymlinks ...bool) (Watcher, error) {
-	u, err := url.Parse(uri)
+	scheme, err := storageURIScheme(uri)
 	if err != nil {
 		return nil, err
 	}
 
-	switch u.Scheme {
+	switch scheme {
 	case "s3":
 		client, err := s3Provider.Client(ctx, profile)
 		if err != nil {
@@ -197,17 +198,17 @@ func GetWatcher(ctx context.Context, uri string, profile *config.StorageProfileC
 		), nil
 
 	default:
-		return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)
+		return nil, fmt.Errorf("unsupported scheme: %s", scheme)
 	}
 }
 
 func GetWriter(ctx context.Context, uri string, profile *config.StorageProfileConfig, followSymlinks ...bool) (Writer, error) {
-	u, err := url.Parse(uri)
+	scheme, err := storageURIScheme(uri)
 	if err != nil {
 		return nil, err
 	}
 
-	switch u.Scheme {
+	switch scheme {
 	case "s3":
 		client, err := s3Provider.Client(ctx, profile)
 		if err != nil {
@@ -219,17 +220,17 @@ func GetWriter(ctx context.Context, uri string, profile *config.StorageProfileCo
 		return NewFilesystemWriter(followSymlinks...), nil
 
 	default:
-		return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)
+		return nil, fmt.Errorf("unsupported scheme: %s", scheme)
 	}
 }
 
 func GetReader(ctx context.Context, uri string, profile *config.StorageProfileConfig) (Reader, error) {
-	u, err := url.Parse(uri)
+	scheme, err := storageURIScheme(uri)
 	if err != nil {
 		return nil, err
 	}
 
-	switch u.Scheme {
+	switch scheme {
 	case "s3":
 		client, err := s3Provider.Client(ctx, profile)
 		if err != nil {
@@ -243,4 +244,16 @@ func GetReader(ctx context.Context, uri string, profile *config.StorageProfileCo
 	default:
 		return nil, errTransferUnsupportedURI
 	}
+}
+
+// Drive-letter paths are filesystem paths, not URI schemes (for example D:\).
+func storageURIScheme(uri string) (string, error) {
+	if filepath.VolumeName(uri) != "" && filepath.IsAbs(uri) {
+		return "", nil
+	}
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		return "", err
+	}
+	return parsed.Scheme, nil
 }

@@ -55,6 +55,9 @@ type Runtime struct {
 	shareTokenCache            map[string]shareTokenCacheEntry
 	shareAPITokenCacheDuration time.Duration
 
+	replicaWork     sync.Map // replica ID -> *sync.Mutex; serializes scans, reports and reconciliation
+	replicaFailures sync.Map // replica ID -> last error; volatile retry state
+
 	watcherMu sync.Mutex
 	watchers  map[uint]*runningReplicaWatcher
 
@@ -67,6 +70,7 @@ type Runtime struct {
 
 type runningReplicaWatcher struct {
 	uri                string
+	rootInfo           os.FileInfo
 	inventoryType      string
 	targetRelativeURIs []string
 	cancel             context.CancelFunc
@@ -122,14 +126,18 @@ func (r *Runtime) run(ctx context.Context) {
 		return
 	}
 
+	go r.refreshLoop(ctx, pair)
+	go r.commandLoop(ctx)
+	go r.heartbeatLoop(ctx)
+	if err := r.reportStartupLocalChanges(ctx); err != nil {
+		return
+	}
 	r.startReplicaWatchers(ctx, replicas)
 	go r.commandProcessor(ctx)
 	for _, command := range commands {
 		r.enqueueCommand(command)
 	}
-	go r.refreshLoop(ctx, pair)
-	go r.commandLoop(ctx)
-	go r.heartbeatLoop(ctx)
+	go r.replicaRecoveryLoop(ctx)
 }
 
 func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []apiclient.Replica, []apiclient.Command, bool) {
@@ -162,13 +170,6 @@ func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []ap
 			continue
 		}
 		log.Printf("known storage profiles: %v", r.storageProfileNames())
-		if err := r.reportStartupLocalChanges(ctx); err != nil {
-			if !sleepContext(ctx, bootstrapRetryInterval) {
-				return nil, nil, nil, false
-			}
-			log.Printf("storage runtime startup scan failed: %v", err)
-			continue
-		}
 
 		log.Printf("storage runtime connected to coordinator as node_id=%s replicas=%d", r.client.NodeID(), len(r.replicas))
 		return pair, r.replicas, report.Commands, true
@@ -243,7 +244,7 @@ func (r *Runtime) refreshReplicaFiles(ctx context.Context, replicaID uint) ([]ap
 }
 
 func (r *Runtime) getReplicaFiles(id uint) map[string]FileState {
-	files := r.replicaFiles[id]
+	files := r.replicaFilesSnapshot(id)
 
 	result := make(map[string]FileState, len(files))
 
@@ -261,48 +262,61 @@ func (r *Runtime) getReplicaFiles(id uint) map[string]FileState {
 }
 
 func (r *Runtime) reportStartupLocalChanges(ctx context.Context) error {
-	for _, replica := range r.replicas {
-		if !replicaIsActive(replica) {
-			log.Printf("storage runtime startup scan skipped inactive replica_id=%d status=%s uri=%s", replica.ID, replica.Status, replica.URI)
-			continue
+	for _, replica := range r.replicasSnapshot() {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		if replicaHasPendingFiles(r.replicaFilesSnapshot(replica.ID)) {
-			log.Printf("storage runtime startup scan skipped pending replica_id=%d uri=%s", replica.ID, replica.URI)
-			continue
+		if err := r.reportReplicaLocalChanges(ctx, replica); err != nil {
+			r.recordReplicaFailure(replica, err)
 		}
-
-		profile, err := r.GetPprofile(replica.StorageProfile)
-		if err != nil {
-			return fmt.Errorf("startup scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
-		}
-		scanner, err := GetScanner(ctx, replica.URI, profile, replicaFollowsSymlinks(replica))
-		if err != nil {
-			return fmt.Errorf("startup scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
-		}
-
-		targetRelativeURIs, err := replicaScanTargets(replica, r.replicaFilesSnapshot(replica.ID))
-		if err != nil {
-			return fmt.Errorf("startup scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
-		}
-		states, err := scanner.Scan(ctx, replica.URI, r.getReplicaFiles(replica.ID), targetRelativeURIs...)
-		if err != nil {
-			return fmt.Errorf("startup scan replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
-		}
-
-		reports := replicaFileReports(r.replicaFilesSnapshot(replica.ID), states)
-		if len(reports) == 0 {
-			log.Printf("storage runtime startup scan detected no reportable changes replica_id=%d", replica.ID)
-			continue
-		}
-
-		if err := r.client.ReportReplicaFiles(ctx, replica.ID, reports); err != nil {
-			return fmt.Errorf("startup report replica_id=%d: %w", replica.ID, err)
-		}
-		if _, err := r.refreshReplicaFiles(ctx, replica.ID); err != nil {
-			return fmt.Errorf("startup refresh replica_id=%d: %w", replica.ID, err)
-		}
-		log.Printf("storage runtime startup scan reported files replica_id=%d count=%d", replica.ID, len(reports))
 	}
+	return ctx.Err()
+}
+
+func (r *Runtime) reportReplicaLocalChanges(ctx context.Context, replica apiclient.Replica) error {
+	if !replicaIsActive(replica) {
+		return nil
+	}
+	if err := checkReplicaAvailable(replica); err != nil {
+		return err
+	}
+	if replicaHasPendingFiles(r.replicaFilesSnapshot(replica.ID)) {
+		return nil
+	}
+
+	profile, err := r.GetPprofile(replica.StorageProfile)
+	if err != nil {
+		return fmt.Errorf("replica scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
+	}
+	scanner, err := GetScanner(ctx, replica.URI, profile, replicaFollowsSymlinks(replica))
+	if err != nil {
+		return fmt.Errorf("replica scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
+	}
+
+	targetRelativeURIs, err := replicaScanTargets(replica, r.replicaFilesSnapshot(replica.ID))
+	if err != nil {
+		return fmt.Errorf("replica scanner replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
+	}
+	states, err := scanReplicaStates(ctx, replica, scanner, r.getReplicaFiles(replica.ID), targetRelativeURIs...)
+	if err != nil {
+		return fmt.Errorf("replica scan replica_id=%d uri=%s: %w", replica.ID, replica.URI, err)
+	}
+
+	reports := replicaFileReports(r.replicaFilesSnapshot(replica.ID), states)
+	if len(reports) == 0 {
+		return nil
+	}
+
+	if err := checkReplicaAvailable(replica); err != nil {
+		return err
+	}
+	if err := r.client.ReportReplicaFiles(ctx, replica.ID, reports); err != nil {
+		return fmt.Errorf("replica report replica_id=%d: %w", replica.ID, err)
+	}
+	if _, err := r.refreshReplicaFiles(ctx, replica.ID); err != nil {
+		return fmt.Errorf("replica refresh replica_id=%d: %w", replica.ID, err)
+	}
+	log.Printf("storage runtime scan reported files replica_id=%d count=%d", replica.ID, len(reports))
 	return nil
 }
 
@@ -503,8 +517,11 @@ func (r *Runtime) findReplica(replicaID uint) (apiclient.Replica, bool) {
 
 func (r *Runtime) startReplicaWatchers(ctx context.Context, replicas []apiclient.Replica) {
 	for _, replica := range replicas {
+		if _, failed := r.replicaFailures.Load(replica.ID); failed {
+			continue
+		}
 		if err := r.ensureReplicaWatcher(ctx, replica); err != nil {
-			log.Printf("storage runtime watcher setup skipped replica_id=%d uri=%s error=%v", replica.ID, replica.URI, err)
+			r.recordReplicaFailure(replica, err)
 		}
 	}
 }
@@ -519,10 +536,27 @@ func (r *Runtime) ensureReplicaWatcher(ctx context.Context, replica apiclient.Re
 		return err
 	}
 
+	var rootInfo os.FileInfo
+	if replica.Type == "removable" {
+		rootInfo, err = removableRootInfo(replica.URI)
+		if err != nil {
+			return err
+		}
+	}
 	r.watcherMu.Lock()
 	defer r.watcherMu.Unlock()
-	if r.replicaWatcherExistsLocked(replica.ID) {
-		return nil
+	// Pair this check with watcher registration so refresh_state cannot stop
+	// a deleted assignment's watcher just before recovery recreates it.
+	current, ok := r.findReplica(replica.ID)
+	if !ok || !replicaIsActive(current) || current.URI != replica.URI || current.Type != replica.Type {
+		return fmt.Errorf("replica assignment changed during watcher setup")
+	}
+	if running, exists := r.watchers[replica.ID]; exists {
+		if rootInfo == nil || (running.rootInfo != nil && os.SameFile(rootInfo, running.rootInfo)) {
+			return nil
+		}
+		running.cancel()
+		delete(r.watchers, replica.ID)
 	}
 
 	profile, err := r.GetPprofile(replica.StorageProfile)
@@ -542,6 +576,7 @@ func (r *Runtime) ensureReplicaWatcher(ctx context.Context, replica apiclient.Re
 
 	running := &runningReplicaWatcher{
 		uri:                replica.URI,
+		rootInfo:           rootInfo,
 		inventoryType:      replica.InventoryType,
 		targetRelativeURIs: targetRelativeURIs,
 		cancel:             cancel,
@@ -611,7 +646,12 @@ func (r *Runtime) consumeReplicaWatcher(ctx context.Context, replica apiclient.R
 				errCh = nil
 				continue
 			}
-			log.Printf("storage runtime watcher error replica_id=%d uri=%s error=%v", replica.ID, replica.URI, err)
+			mu := r.replicaWorkMutex(replica.ID)
+			mu.Lock()
+			if ctx.Err() == nil {
+				r.recordReplicaFailure(replica, err)
+			}
+			mu.Unlock()
 		case change, ok := <-changeCh:
 			if !ok {
 				changeCh = nil
@@ -625,17 +665,32 @@ func (r *Runtime) consumeReplicaWatcher(ctx context.Context, replica apiclient.R
 				optionalString(change.PreviousRelativeURI),
 				formatFileState(change.State),
 			)
-			if err := r.reportWatcherChange(ctx, replica, change); err != nil {
-				log.Printf("storage runtime watcher report failed replica_id=%d uri=%s change_type=%s relative_uri=%s error=%v", replica.ID, replica.URI, change.ChangeType, change.RelativeURI, err)
-			}
+			_ = r.reportWatcherChange(ctx, replica, change)
 		}
 	}
 }
 
-func (r *Runtime) reportWatcherChange(ctx context.Context, replica apiclient.Replica, change FileChange) error {
+func (r *Runtime) reportWatcherChange(ctx context.Context, replica apiclient.Replica, change FileChange) (retErr error) {
+	mu := r.replicaWorkMutex(replica.ID)
+	mu.Lock()
+	defer mu.Unlock()
+	defer func() {
+		if retErr != nil && ctx.Err() == nil {
+			r.recordReplicaFailure(replica, retErr)
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	currentReplica, ok := r.findReplica(replica.ID)
 	if !ok || !replicaIsActive(currentReplica) {
 		return nil
+	}
+	if err := checkReplicaAvailable(currentReplica); err != nil {
+		return err
+	}
+	if change.ChangeType == FileChangeTypeRescanRequired || currentReplica.Type == "removable" {
+		return r.reportReplicaLocalChanges(ctx, currentReplica)
 	}
 	if change.ChangeType != FileChangeTypeCreated && change.ChangeType != FileChangeTypeModified && change.ChangeType != FileChangeTypeDeleted {
 		return nil
@@ -706,7 +761,7 @@ func (r *Runtime) currentFileState(ctx context.Context, replica apiclient.Replic
 	if err != nil {
 		return FileState{}, false, err
 	}
-	states, err := scanner.Scan(ctx, replica.URI, oldStates, targetRelativeURIs...)
+	states, err := scanReplicaStates(ctx, replica, scanner, oldStates, targetRelativeURIs...)
 	if err != nil {
 		return FileState{}, false, err
 	}
@@ -902,6 +957,12 @@ func (r *Runtime) handleCommand(ctx context.Context, command apiclient.Command) 
 		return r.markCommandCompleted(ctx, command.ID)
 	case "scan_replica":
 		if err := r.scanReplica(ctx, command); err != nil {
+			var payload scanReplicaCommandPayload
+			if json.Unmarshal(command.Payload, &payload) == nil {
+				if replica, ok := r.findReplica(payload.ReplicaID); ok {
+					r.recordReplicaFailure(replica, err)
+				}
+			}
 			r.markCommandFailed(ctx, command.ID, err)
 			return false
 		}
@@ -940,6 +1001,12 @@ func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Comman
 		return fmt.Errorf("invalid reconcile_replica payload: missing required field")
 	}
 
+	mu := r.replicaWorkMutex(payload.DestinationReplicaID)
+	mu.Lock()
+	defer mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	r.stopReplicaWatcher(payload.DestinationReplicaID) // stop watcher during reconcile
 	defer func() {
 		replica, ok := r.findReplica(payload.DestinationReplicaID)
@@ -971,11 +1038,15 @@ func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Comman
 		return nil
 	}
 
+	if err := checkReplicaAvailable(destination); err != nil {
+		r.recordReplicaFailure(destination, err)
+		return err
+	}
 	profile, err := r.GetPprofile(destination.StorageProfile)
 	if err != nil {
 		return err
 	}
-	writer, err := GetWriter(ctx, destination.URI, profile, replicaFollowsSymlinks(destination))
+	writer, err := replicaWriter(ctx, destination, profile)
 	if err != nil {
 		return err
 	}
@@ -1009,8 +1080,15 @@ func (r *Runtime) reconcileReplica(ctx context.Context, command apiclient.Comman
 			token,
 		)
 		if err != nil {
+			if unavailable := checkReplicaAvailable(destination); unavailable != nil {
+				err = unavailable
+			}
 			failure := fmt.Errorf("reconcile replica_id=%d file_id=%d: %w", payload.DestinationReplicaID, pendingFile.FileID, err)
 			if isReconcileAuthError(err) {
+				return failure
+			}
+			if errors.Is(err, errRemovableUnavailable) {
+				r.recordReplicaFailure(destination, err)
 				return failure
 			}
 			if !errors.Is(err, errReconcileTransient) && (isReconcileFileError(err) || errors.Is(err, ErrFileIntegrityMismatch)) {
@@ -1241,6 +1319,12 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 		return fmt.Errorf("invalid scan_replica payload: missing replica_id")
 	}
 
+	mu := r.replicaWorkMutex(payload.ReplicaID)
+	mu.Lock()
+	defer mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	replica, ok := r.findReplica(payload.ReplicaID)
 	if !ok {
 		if err := r.refreshLocalState(ctx); err != nil {
@@ -1274,13 +1358,16 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 	if err != nil {
 		return err
 	}
-	states, err := scanner.Scan(ctx, replica.URI, r.getReplicaFiles(replica.ID), targetRelativeURIs...)
+	states, err := scanReplicaStates(ctx, replica, scanner, r.getReplicaFiles(replica.ID), targetRelativeURIs...)
 	if err != nil {
 		return err
 	}
 
 	reports := replicaFileReports(files, states)
 	if len(reports) > 0 {
+		if err := checkReplicaAvailable(replica); err != nil {
+			return err
+		}
 		if err := r.client.ReportReplicaFiles(ctx, payload.ReplicaID, reports); err != nil {
 			return err
 		}

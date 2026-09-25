@@ -394,7 +394,7 @@ func (r *Runtime) createShareFileOperation(ctx context.Context, share apiclient.
 	if err != nil {
 		return err
 	}
-	writer, err := GetWriter(ctx, replica.URI, profile, replicaFollowsSymlinks(replica))
+	writer, err := replicaWriter(ctx, replica, profile)
 	if err != nil {
 		return err
 	}
@@ -416,7 +416,7 @@ func (r *Runtime) replaceShareFileContentOperation(ctx context.Context, share ap
 	if err != nil {
 		return err
 	}
-	writer, err := GetWriter(ctx, replica.URI, profile, replicaFollowsSymlinks(replica))
+	writer, err := replicaWriter(ctx, replica, profile)
 	if err != nil {
 		return err
 	}
@@ -438,7 +438,7 @@ func (r *Runtime) deleteShareFileOperation(ctx context.Context, share apiclient.
 	if err != nil {
 		return err
 	}
-	writer, err := GetWriter(ctx, replica.URI, profile, replicaFollowsSymlinks(replica))
+	writer, err := replicaWriter(ctx, replica, profile)
 	if err != nil {
 		return err
 	}

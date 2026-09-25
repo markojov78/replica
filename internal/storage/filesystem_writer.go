@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ var ErrFileIntegrityMismatch = errors.New("file integrity mismatch")
 
 type FilesystemWriter struct {
 	followSymlinks bool
+	removable      bool
 }
 
 func NewFilesystemWriter(followSymlinks ...bool) *FilesystemWriter {
@@ -32,7 +34,24 @@ func (w *FilesystemWriter) SaveVerified(ctx context.Context, replicaURI string, 
 	return w.save(ctx, replicaURI, relativeURI, content, expectedSize, expectedHash, true)
 }
 
-func (w *FilesystemWriter) save(ctx context.Context, replicaURI string, relativeURI string, content io.Reader, expectedSize int64, expectedHash string, verify bool) error {
+func (w *FilesystemWriter) save(ctx context.Context, replicaURI string, relativeURI string, content io.Reader, expectedSize int64, expectedHash string, verify bool) (retErr error) {
+	var root *os.Root
+	var rootInfo os.FileInfo
+	if w.removable {
+		var err error
+		root, rootInfo, err = openRemovableRoot(replicaURI)
+		if err != nil {
+			return err
+		}
+		defer root.Close()
+		defer func() {
+			if retErr != nil {
+				if err := checkRemovableRootUnchanged(replicaURI, rootInfo, true); err != nil {
+					retErr = err
+				}
+			}
+		}()
+	}
 	targetPath, err := resolveFilesystemWritePath(replicaURI, relativeURI)
 	if err != nil {
 		return err
@@ -57,19 +76,40 @@ func (w *FilesystemWriter) save(ctx context.Context, replicaURI string, relative
 	}
 
 	targetDir := filepath.Dir(targetPath)
-	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+	mkdirAll := os.MkdirAll
+	createTemp := func(dir string) (*os.File, error) { return os.CreateTemp(dir, temporaryWritePattern()) }
+	remove := os.Remove
+	rename := os.Rename
+	if root != nil {
+		cleanRelative, err := cleanWriteRelativeURI(relativeURI)
+		if err != nil {
+			return err
+		}
+		targetPath = filepath.FromSlash(cleanRelative)
+		targetDir = filepath.Dir(targetPath)
+		mkdirAll = root.MkdirAll
+		createTemp = func(dir string) (*os.File, error) {
+			return root.OpenFile(filepath.Join(dir, TemporaryWritePrefix+rand.Text()), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+		}
+		remove = root.Remove
+		rename = root.Rename
+	}
+	if err := mkdirAll(targetDir, 0o755); err != nil {
 		return err
 	}
 
-	tempFile, err := os.CreateTemp(targetDir, temporaryWritePattern())
+	tempFile, err := createTemp(targetDir)
 	if err != nil {
 		return err
 	}
 	tempPath := tempFile.Name()
+	if root != nil {
+		tempPath = filepath.Join(targetDir, filepath.Base(tempPath))
+	}
 	removeTemp := true
 	defer func() {
 		if removeTemp {
-			_ = os.Remove(tempPath)
+			_ = remove(tempPath)
 		}
 	}()
 
@@ -102,14 +142,46 @@ func (w *FilesystemWriter) save(ctx context.Context, replicaURI string, relative
 		}
 	}
 
-	if err := os.Rename(tempPath, targetPath); err != nil {
+	if root != nil {
+		if err := checkRemovableRootUnchanged(replicaURI, rootInfo, true); err != nil {
+			return err
+		}
+	}
+	if err := rename(tempPath, targetPath); err != nil {
 		return err
 	}
 	removeTemp = false
+	if root != nil {
+		return checkRemovableRootUnchanged(replicaURI, rootInfo, true)
+	}
 	return nil
 }
 
-func (w *FilesystemWriter) Delete(_ context.Context, replicaURI string, relativeURI string) error {
+func (w *FilesystemWriter) Delete(_ context.Context, replicaURI string, relativeURI string) (retErr error) {
+	if w.removable {
+		root, info, err := openRemovableRoot(replicaURI)
+		if err != nil {
+			return err
+		}
+		defer root.Close()
+		defer func() {
+			if retErr != nil {
+				if err := checkRemovableRootUnchanged(replicaURI, info, true); err != nil {
+					retErr = err
+				}
+			}
+		}()
+		rel, err := cleanWriteRelativeURI(relativeURI)
+		if err != nil {
+			return err
+		}
+		if err := root.Remove(filepath.FromSlash(rel)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		// An intentional deletion may have removed the final entry. Verify
+		// the same root remains, without mistaking that result for removal.
+		return checkRemovableRootUnchanged(replicaURI, info, false)
+	}
 	targetPath, err := resolveFilesystemWritePath(replicaURI, relativeURI)
 	if err != nil {
 		return err
