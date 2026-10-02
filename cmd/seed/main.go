@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"os"
+	"replica/internal/buildinfo"
 
 	"replica/internal/config"
 	"replica/internal/db"
@@ -9,6 +11,10 @@ import (
 )
 
 func main() {
+	if buildinfo.PrintVersion(os.Args[1:], os.Stdout) {
+		return
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("load config: %v", err)
