@@ -25,7 +25,7 @@ func (r *ShareRepository) List() ([]model.Share, error) {
 	return shares, err
 }
 
-// ExpireAnonymousAccess clears only public access and records runtime refreshes atomically.
+// ExpireAnonymousAccess clears public access and its expiration and records runtime refreshes atomically.
 func (r *ShareRepository) ExpireAnonymousAccess(now time.Time) ([]model.Command, error) {
 	var commands []model.Command
 	err := r.db.Transaction(func(tx *gorm.DB) error {
@@ -38,7 +38,7 @@ func (r *ShareRepository) ExpireAnonymousAccess(now time.Time) ([]model.Command,
 			result := tx.Model(&model.Share{}).
 				Where("id = ? AND share_expiration <= ?", share.ID, now).
 				Where("link_hash IS NOT NULL OR EXISTS (SELECT 1 FROM share_users WHERE share_users.share_id = shares.id AND share_users.anonymous = ?)", true).
-				Update("link_hash", nil)
+				Updates(map[string]interface{}{"link_hash": nil, "share_expiration": nil})
 			if result.Error != nil {
 				return result.Error
 			}

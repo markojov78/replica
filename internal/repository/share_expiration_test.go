@@ -97,7 +97,14 @@ func TestExpireAnonymousAccess(t *testing.T) {
 				if (share.LinkHash != nil) != (tc.hash && !cleared) {
 					t.Fatalf("case %d: unexpected hash %v", i, share.LinkHash)
 				}
-				if !reflect.DeepEqual(share.ShareExpiration, tc.expiration) || share.Status != shares[i].Status || share.Name != shares[i].Name {
+				wantExpiration := tc.expiration
+				if cleared {
+					wantExpiration = nil
+				}
+				if !reflect.DeepEqual(share.ShareExpiration, wantExpiration) {
+					t.Fatalf("case %d: expiration = %v, want %v", i, share.ShareExpiration, wantExpiration)
+				}
+				if share.Status != shares[i].Status || share.Name != shares[i].Name {
 					t.Fatalf("case %d: unrelated share fields changed", i)
 				}
 				permissions, err := repo.UserPermissions(share.ID)
