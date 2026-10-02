@@ -606,7 +606,7 @@ func TestShareRouteLinkHashAndExpirationCreatePatchBehavior(t *testing.T) {
 	})
 	replica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
 	handler := newShareRouteHandler(database)
-	expiresAt := time.Date(2026, 3, 17, 10, 30, 0, 0, time.UTC)
+	expiresAt := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Second)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/shares", strings.NewReader(`{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"share_expiration":`+strconv.Quote(expiresAt.Format(time.RFC3339))+`,"generate_hash":true}`))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
@@ -885,4 +885,65 @@ func createShareRouteReplica(t *testing.T, database *gorm.DB, status model.Repli
 		t.Fatalf("Create(replica) error = %v", err)
 	}
 	return replica
+}
+
+func TestShareRouteRejectsPastExpiration(t *testing.T) {
+	database := openRouterTestDB(t)
+	_, accessToken := createShareRouteUser(t, database, []model.Permission{
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionCreate},
+		{Resource: model.PermissionResourceShares, Action: model.PermissionActionUpdate},
+	})
+	replica := createShareRouteReplica(t, database, model.ReplicaStatusActive)
+	handler := newShareRouteHandler(database)
+	hash := "existing-public-link"
+	future := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Second)
+	share := model.Share{ReplicaID: replica.ID, Name: "Original", Status: model.ShareStatusActive, LinkHash: &hash, ShareExpiration: &future}
+	if err := database.Create(&share).Error; err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+	for _, method := range []string{http.MethodPost, http.MethodPatch} {
+		t.Run(method, func(t *testing.T) {
+			path := "/api/admin/shares"
+			if method == http.MethodPatch {
+				path += "/" + strconv.FormatUint(uint64(share.ID), 10)
+			}
+			body := `{"name":"Changed","generate_hash":true,"anonymous_permissions":["read"],"share_expiration":` + strconv.Quote(past) + `}`
+			if method == http.MethodPost {
+				body = `{"replica_id":` + strconv.FormatUint(uint64(replica.ID), 10) + `,` + body[1:]
+			}
+			req := httptest.NewRequest(method, path, strings.NewReader(body))
+			req.Header.Set("Authorization", "Bearer "+accessToken)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-API-Version", "1")
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, req)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body=%s", recorder.Code, recorder.Body.String())
+			}
+			var stored model.Share
+			if err := database.First(&stored, share.ID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if stored.Name != share.Name || stored.LinkHash == nil || *stored.LinkHash != hash || stored.ShareExpiration == nil || !stored.ShareExpiration.Equal(future) {
+				t.Fatalf("rejected request changed share: %+v", stored)
+			}
+			for _, table := range []interface{}{&model.Command{}, &model.ShareUser{}} {
+				var count int64
+				if err := database.Model(table).Count(&count).Error; err != nil {
+					t.Fatal(err)
+				}
+				if count != 0 {
+					t.Fatalf("rejected request created %T rows: %d", table, count)
+				}
+			}
+			var count int64
+			if err := database.Model(&model.Share{}).Count(&count).Error; err != nil {
+				t.Fatal(err)
+			}
+			if count != 1 {
+				t.Fatalf("share count = %d, want 1", count)
+			}
+		})
+	}
 }

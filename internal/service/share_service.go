@@ -188,6 +188,9 @@ func (s *ShareService) Get(id uint) (*ShareDetails, error) {
 }
 
 func (s *ShareService) Create(input CreateShareInput) (*ShareDetails, error) {
+	if input.ShareExpiration != nil && input.ShareExpiration.Before(time.Now()) {
+		return nil, ErrInvalidShareExpiration
+	}
 	replica, err := s.repo.FindReplicaByID(input.ReplicaID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -307,6 +310,9 @@ func (s *ShareService) Update(id uint, input UpdateShareInput) (*ShareDetails, e
 		share.Status = status
 	}
 	if input.ShareExpirationSet {
+		if input.ShareExpiration != nil && input.ShareExpiration.Before(time.Now()) {
+			return nil, ErrInvalidShareExpiration
+		}
 		share.ShareExpiration = input.ShareExpiration
 	}
 	if input.GenerateHash != nil {
