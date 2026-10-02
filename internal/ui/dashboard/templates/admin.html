@@ -343,7 +343,7 @@
   <form action="{{if .IsEdit}}/dashboard/shares/{{.Share.ID}}{{else}}/dashboard/shares{{end}}" method="post" class="form-grid" data-share-form>
     {{if .IsEdit}}
       <div class="callout full">Share #{{.Share.ID}} · Inventory #{{.Share.InventoryID}} · Replica #{{.Share.ReplicaID}}</div>
-      <div class="anon-label full" data-anonymous-warning {{if not (anonymousEnabled .Share)}}hidden{{end}}>Anonymous access is enabled.</div>
+      <div class="anon-label full" data-anonymous-warning {{if not (anonymousEnabled .Share)}}hidden{{end}}>anonymous access enabled{{if .Share.LinkHash}} at {{.Share.LinkHash}}{{end}}</div>
       <label>Name<input name="name" value="{{.Share.Name}}" required></label>
       <label>Status<select name="status"><option value="active" {{if eq .Share.Status "active"}}selected{{end}}>active</option><option value="deleted" {{if eq .Share.Status "deleted"}}selected{{end}}>deleted</option></select></label>
     {{else}}

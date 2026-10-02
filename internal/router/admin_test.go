@@ -581,7 +581,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("new share response = %d body=%q", response.Code, response.Body.String())
 	}
 
-	expiresAt := "2026-03-17"
+	expiresAt := time.Now().UTC().Add(48 * time.Hour).Format("2006-01-02")
 	response = adminRequest(t, handler, http.MethodPost, "/dashboard/shares", url.Values{
 		"replica_id": {"1"},
 		"name":       {""},
@@ -604,7 +604,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 	if createdShare.LinkHash == nil || *createdShare.LinkHash == "" {
 		t.Fatalf("createdShare.LinkHash = %v, want generated value", createdShare.LinkHash)
 	}
-	parsedExpiresAt, err := time.Parse(time.RFC3339, "2026-03-17T00:00:00Z")
+	parsedExpiresAt, err := time.Parse(time.RFC3339, expiresAt+"T00:00:00Z")
 	if err != nil {
 		t.Fatalf("Parse(expiresAt) error = %v", err)
 	}
@@ -692,8 +692,8 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), "Edit share") ||
 		!strings.Contains(response.Body.String(), `value="Documents"`) ||
 		!strings.Contains(response.Body.String(), `name="status"`) ||
-		!strings.Contains(response.Body.String(), `Anonymous access is enabled.`) ||
-		!strings.Contains(response.Body.String(), `value="2026-03-17"`) ||
+		!strings.Contains(response.Body.String(), `anonymous access enabled at `+*createdShare.LinkHash) ||
+		!strings.Contains(response.Body.String(), `value="`+expiresAt+`"`) ||
 		!strings.Contains(response.Body.String(), `<option value="grid" selected>Grid</option>`) ||
 		!strings.Contains(response.Body.String(), `name="property_page_size" type="number" min="1" step="1" value="100"`) ||
 		!strings.Contains(response.Body.String(), `<option value="256" selected>256</option>`) ||
