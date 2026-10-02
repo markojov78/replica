@@ -2,8 +2,10 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"slices"
 	"sort"
 	"strings"
@@ -88,6 +90,32 @@ func NewShareService(repo *repository.ShareRepository, nodes *NodeService, confi
 		provider = configProviders[0]
 	}
 	return &ShareService{repo: repo, nodes: nodes, sharingConfig: provider}
+}
+
+func (s *ShareService) Start(ctx context.Context) {
+	go func() {
+		cleanup := func() {
+			commands, err := s.repo.ExpireAnonymousAccess(time.Now().UTC())
+			if err != nil {
+				log.Printf("expire anonymous share access: %v", err)
+				return
+			}
+			for i := range commands {
+				s.publishCommand(&commands[i])
+			}
+		}
+		cleanup()
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				cleanup()
+			}
+		}
+	}()
 }
 
 func (s *ShareService) List() ([]model.Share, error) {

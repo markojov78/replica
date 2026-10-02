@@ -88,6 +88,7 @@ func main() {
 		shareService = service.NewShareService(shareRepo, nodeService, func() config.SharingConfig {
 			return configService.EffectiveConfig().Sharing
 		})
+		shareService.Start(ctx)
 	}
 
 	var storageRuntime *storage.Runtime

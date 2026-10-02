@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"time"
 
 	"replica/internal/model"
 
@@ -22,6 +23,47 @@ func (r *ShareRepository) List() ([]model.Share, error) {
 	var shares []model.Share
 	err := r.db.Order("id asc").Find(&shares).Error
 	return shares, err
+}
+
+// ExpireAnonymousAccess clears only public access and records runtime refreshes atomically.
+func (r *ShareRepository) ExpireAnonymousAccess(now time.Time) ([]model.Command, error) {
+	var commands []model.Command
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		var shares []model.Share
+		if err := tx.Preload("Replica").Where("share_expiration <= ?", now).Order("id asc").Find(&shares).Error; err != nil {
+			return err
+		}
+		for _, share := range shares {
+			// Recheck expiration while acquiring the write lock, so a concurrent extension is preserved.
+			result := tx.Model(&model.Share{}).
+				Where("id = ? AND share_expiration <= ?", share.ID, now).
+				Where("link_hash IS NOT NULL OR EXISTS (SELECT 1 FROM share_users WHERE share_users.share_id = shares.id AND share_users.anonymous = ?)", true).
+				Update("link_hash", nil)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				continue
+			}
+			if err := replaceShareAnonymousPermissions(tx, share.ID, nil); err != nil {
+				return err
+			}
+			command := &model.Command{
+				NodeID: share.Replica.NodeID,
+				Type:   model.NodeCommandTypeRefreshState,
+				Status: model.NodeCommandStatusPending,
+			}
+			if err := createShareRefreshCommand(tx, command); err != nil {
+				return err
+			}
+			commands = append(commands, *command)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return commands, nil
 }
 
 type ShareListFilter struct {
