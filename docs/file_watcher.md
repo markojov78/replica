@@ -199,26 +199,19 @@ The S3 implementation lives in:
 
 - `internal/storage/s3_scanner.go`
 - `internal/storage/s3_watcher.go`
+- `internal/storage/s3_client.go`
 
-For the S3 scanner and watcher to work, the caller must provide an already-configured AWS SDK v2 S3 client.
+`GetScanner` and `GetWatcher` in `internal/storage/scan.go` already construct AWS SDK v2 S3 clients through the shared
+`S3ClientProvider`. `GetWatcher` passes the client to `NewS3Scanner` and uses a five-minute polling interval.
 
-The storage package does not authenticate to AWS by itself. `S3Scanner` accepts an injected `*s3.Client`, so 
-authentication and AWS configuration are handled by the code that constructs that client.
+The provider loads AWS SDK configuration and caches clients by storage profile name, with a separate default client:
 
-In practice, this means the later integration layer will need to:
+- with a storage profile, it uses static access key credentials without a session token, plus the profile's region and
+  endpoint when supplied
+- without a storage profile, it uses the AWS SDK's default configuration and credential chain
 
-- load AWS SDK configuration
-- construct an authenticated S3 client
-- pass that client into `NewS3Scanner`
-- pass the scanner into `NewS3Watcher` when polling is needed
-
-Typical AWS SDK v2 authentication sources include:
-
-- environment variables such as `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optional session token
-- shared AWS config or credentials files
-- profile-based configuration such as `AWS_PROFILE`
-- IAM role credentials in AWS runtime environments such as EC2, ECS, or EKS
-- an explicitly configured credentials provider
+Direct callers of `NewS3Scanner` still supply a configured `*s3.Client`; `NewS3Watcher` accepts the scanner and polling
+interval.
 
 The scanner and watcher assume that the supplied client can list objects, read object metadata, and download object
 content when a BLAKE3 hash must be calculated.
