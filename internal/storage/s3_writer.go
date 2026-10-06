@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"encoding/hex"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/zeebo/blake3"
 )
 
 type s3PutObjectAPI interface {
@@ -60,6 +63,35 @@ func (w *S3Writer) Save(ctx context.Context, replicaURI string, relativeURI stri
 	}
 	_, err = w.putClient.PutObject(ctx, input)
 	return err
+}
+
+func (w *S3Writer) SaveVerified(ctx context.Context, replicaURI string, relativeURI string, content io.Reader, expectedSize int64, expectedHash string) error {
+	if _, _, err := resolveS3WriteKey(replicaURI, relativeURI); err != nil {
+		return err
+	}
+
+	hasher := blake3.New()
+	// TeeReader deliberately hides any seeker: upload the exact staged bytes
+	// that were verified, even if the original source can change.
+	body, cleanup, err := seekableS3UploadBody(ctx, io.TeeReader(content, hasher))
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	written, err := body.Seek(0, io.SeekEnd)
+	if err != nil {
+		return err
+	}
+	actualHash := hex.EncodeToString(hasher.Sum(nil))
+	if written != expectedSize || actualHash != expectedHash {
+		return fmt.Errorf("%w: expected size=%d hash=%s, got size=%d hash=%s",
+			ErrFileIntegrityMismatch, expectedSize, expectedHash, written, actualHash)
+	}
+	if _, err := body.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	return w.Save(ctx, replicaURI, relativeURI, body, expectedSize)
 }
 
 func (w *S3Writer) Delete(ctx context.Context, replicaURI string, relativeURI string) error {

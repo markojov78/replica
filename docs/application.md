@@ -327,6 +327,12 @@ responses leave the replica file `pending` so a later command can retry with fre
 token. Exhausted integrity or permanent filesystem failures mark the replica file `error`.
 The destination replica watcher is restored after reconciliation succeeds or fails.
 
+For S3 replicas, incoming replication content is staged in a local temporary file while calculating its BLAKE3 hash.
+The staged size and hash must match authoritative inventory metadata before `PutObject` uploads those same bytes.
+A mismatch leaves the existing S3 object untouched and uses the existing integrity-mismatch retry handling.
+The temporary file is cleaned up on success or failure. Verification requires no additional S3 download; it verifies
+the upload input rather than rereading the stored object. Ordinary unverified writes retain their existing behavior.
+
 For filesystem replicas with `follow_symlinks` enabled, scans and change reports use a file symlink's target metadata
 and content. Replicated updates are written to the target while preserving the symlink. Replicated deletes remove the
 symlink itself without removing its target. Directory symlinks are ignored.
@@ -891,7 +897,7 @@ use and includes a short-lived replica-scoped transfer token.
 #### 7) File data is transferred
 The destination storage service retrieves data directly from the selected source storage service and writes it to replica B.
   
-Filesystem destinations verify:
+Filesystem and S3 destinations verify:
 `hash == inventory_files.hash && size == inventory_files.size`  
 
 #### 8) Coordinator marks replica B synchronized
