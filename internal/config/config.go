@@ -609,7 +609,10 @@ func (c SharingConfig) ThumbnailStorageLimitBytes() (int64, error) {
 
 func (c Config) Validate() error {
 	for name, profile := range c.Storage.Profiles {
-		if profile.Type != "" && profile.Type != "s3" && profile.Type != "sftp" {
+		if profile.Type == "" {
+			return fmt.Errorf("storage profile %q type is required", name)
+		}
+		if profile.Type != "s3" && profile.Type != "sftp" {
 			return fmt.Errorf("storage profile %q has unsupported type %q", name, profile.Type)
 		}
 		if profile.Type == "sftp" && (profile.PrivateKeyFile == "" || profile.KnownHostsFile == "") {

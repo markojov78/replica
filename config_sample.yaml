@@ -48,10 +48,17 @@ seed:
 storage:
   profiles:
     aws:
+      type: "s3"
       access_key_id: "change-me"
       secret_access_key: "change-me"
       region: "us-east-1"
     backblaze:
+      type: "s3"
       access_key_id: "change-me"
       secret_access_key: "change-me"
       endpoint: "s3.eu-central-003.backblazeb2.com"
+    sftp_server:
+      type: "sftp"
+      username: "username"
+      private_key_file: "/home/username/.ssh/id_rsa"
+      known_hosts_file: "/home/username/.ssh/known_hosts"

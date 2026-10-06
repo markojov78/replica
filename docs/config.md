@@ -7,15 +7,21 @@ Environment variables override config file values. Empty environment variables a
 
 Duration values use Go duration syntax such as `15s`, `10m`, or `8h`.
 
-Storage profiles configure credentials and connection settings for cloud storage providers. 
+Storage profiles configure credentials and connection settings for S3-compatible storage and SFTP servers.
 Profiles live under `storage.profiles` and are keyed by profile name. 
 Profile names are case-insensitive: names from files and environment variables are normalized to lowercase, 
 so `aws` and `AWS` refer to the same profile.
 
-There is no limit on the number of profiles. Each profile supports only the fields documented below, and every field is optional. 
+There is no limit on the number of profiles. Each profile supports only the fields documented below.
+Every configured profile must explicitly set `type` to `s3` or `sftp`. Missing, empty or unsupported types fail
+configuration validation. SFTP profiles also require `private_key_file` and `known_hosts_file`.
 Storage profiles have no built-in defaults. Environment variables for profiles use 
 `STORAGE_PROFILES_<PROFILE_NAME>_<FIELD_NAME>`, for example `STORAGE_PROFILES_AWS_ACCESS_KEY_ID` or 
 `STORAGE_PROFILES_BACKBLAZE_ENDPOINT`.
+
+SFTP profiles are configured on the assigned storage node; profiles and private keys are not distributed by the
+coordinator. Local SFTP profiles take precedence over coordinator profiles with matching names. Restart the service
+after changing local profile configuration. See [SFTP storage](application.md#sftp-storage) for replica requirements.
 
 ## Config file path
 
@@ -391,6 +397,50 @@ Default value: `change-me`
 
 Initial admin password used by seed logic.
 
+## Storage profile type
+
+Config value: `storage.profiles.<profile_name>.type`  
+Environment variable: `STORAGE_PROFILES_<PROFILE_NAME>_TYPE`  
+Type: string  
+Mandatory: yes
+Default value: n/a
+
+Storage backend for the named profile. Must be explicitly set to `s3` or `sftp`.
+
+## Storage profile username
+
+Config value: `storage.profiles.<profile_name>.username`  
+Environment variable: `STORAGE_PROFILES_<PROFILE_NAME>_USERNAME`  
+Type: string  
+Mandatory: no
+Default value: n/a
+
+SSH username for an SFTP profile. Required unless supplied in the replica's SFTP URI.
+If both the profile and URI specify a username, they must match.
+
+## Storage profile private key file
+
+Config value: `storage.profiles.<profile_name>.private_key_file`  
+Environment variable: `STORAGE_PROFILES_<PROFILE_NAME>_PRIVATE_KEY_FILE`  
+Type: string  
+Mandatory: yes for `sftp`
+Default value: n/a
+
+Path to an unencrypted SSH private key on the assigned storage node. The file must be readable by the service
+account. Install the corresponding public key in the remote account's `authorized_keys`.
+Password and SSH agent authentication are not supported.
+
+## Storage profile known hosts file
+
+Config value: `storage.profiles.<profile_name>.known_hosts_file`  
+Environment variable: `STORAGE_PROFILES_<PROFILE_NAME>_KNOWN_HOSTS_FILE`  
+Type: string  
+Mandatory: yes for `sftp`
+Default value: n/a
+
+Path to an SSH known hosts file on the assigned storage node. The file must be readable by the service account
+and contain the SFTP server's host key for host verification.
+
 ## Storage profile access key ID
 
 Config value: `storage.profiles.<profile_name>.access_key_id`  
@@ -399,7 +449,7 @@ Type: string
 Mandatory: no
 Default value: n/a
 
-Access key ID for the named storage profile.
+Access key ID for the named S3 profile.
 
 ## Storage profile secret access key
 
@@ -409,7 +459,7 @@ Type: string
 Mandatory: no
 Default value: n/a
 
-Secret access key for the named storage profile.
+Secret access key for the named S3 profile.
 
 ## Storage profile region
 
@@ -419,7 +469,7 @@ Type: string
 Mandatory: no
 Default value: n/a
 
-Region for the named storage profile.
+Region for the named S3 profile.
 
 ## Storage profile endpoint
 
@@ -429,5 +479,4 @@ Type: string
 Mandatory: no
 Default value: n/a
 
-Endpoint for the named storage profile.
-
+Endpoint for the named S3 profile.

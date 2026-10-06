@@ -965,6 +965,6 @@ storage:
 Use an unencrypted private key readable only by the service account, with its public key in the remote account's
 `authorized_keys`; host keys must be provisioned in `known_hosts`.
 Password/agent authentication is not supported in this version. Optional URI usernames must match the profile username.
-Existing profiles with no `type` remain S3 profiles. Local SFTP profiles take precedence over coordinator profiles with
+Every configured storage profile must explicitly set `type` to `s3` or `sftp`; missing or unsupported types fail configuration validation. Local SFTP profiles take precedence over coordinator profiles with
 matching names. Profile fields also accept `STORAGE_PROFILES_<NAME>_<FIELD>` environment overrides. Restart after local
 profile changes. The admin form accepts profile names that exist only on the assigned node.

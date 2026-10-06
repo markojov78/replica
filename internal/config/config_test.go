@@ -56,10 +56,12 @@ seed:
 storage:
   profiles:
     AWS:
+      type: s3
       access_key_id: "file-access"
       secret_access_key: "file-secret-key"
       region: "us-east-1"
     backblaze:
+      type: s3
       access_key_id: "b2-file-access"
       secret_access_key: "b2-file-secret"
       endpoint: "s3.eu-central-003.backblazeb2.com"
@@ -78,6 +80,7 @@ storage:
 	t.Setenv("STORAGE_PROFILES_AWS_REGION", "eu-west-1")
 	t.Setenv("STORAGE_PROFILES_BACKBLAZE_ENDPOINT", "s3.us-west-004.backblazeb2.com")
 	t.Setenv("STORAGE_PROFILES_ARCHIVE_ACCESS_KEY_ID", "archive-access")
+	t.Setenv("STORAGE_PROFILES_ARCHIVE_TYPE", "s3")
 	t.Setenv("STORAGE_PROFILES_ARCHIVE_SECRET_ACCESS_KEY", "archive-secret")
 
 	cfg, err := Load()
@@ -195,6 +198,7 @@ dsn = "custom.db"
 auto_migrate = false
 
 [storage.profiles.aws]
+type = "s3"
 access_key_id = "toml-access"
 secret_access_key = "toml-secret-access"
 region = "us-east-2"
@@ -475,6 +479,34 @@ func TestLoadImageCacheConfiguration(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidStorageProfileType(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		typeField string
+		want      string
+	}{
+		{"missing", "", `storage profile "archive" type is required`},
+		{"empty", `type: ""`, `storage profile "archive" type is required`},
+		{"unsupported", "type: ftp", `storage profile "archive" has unsupported type "ftp"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clearStorageProfileEnv(t)
+			name := filepath.Join(t.TempDir(), "config.yaml")
+			body := "storage:\n  profiles:\n    archive:\n      access_key_id: test\n"
+			if tc.typeField != "" {
+				body += "      " + tc.typeField + "\n"
+			}
+			if err := os.WriteFile(name, []byte(body), 0600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CONFIG_FILE", name)
+			if _, err := Load(); err == nil || err.Error() != tc.want {
+				t.Fatalf("Load() error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestLoadSFTPProfile(t *testing.T) {
 	clearStorageProfileEnv(t)
 	name := filepath.Join(t.TempDir(), "config.yaml")
@@ -492,6 +524,7 @@ storage:
       private_key_file: /keys/archive
       known_hosts_file: /keys/known_hosts
     legacy:
+      type: s3
       access_key_id: old
       secret_access_key: secret
 `), 0600); err != nil {
@@ -507,7 +540,7 @@ storage:
 	if p.Type != "sftp" || p.Username != "backup" || p.PrivateKeyFile != "/keys/override" || p.KnownHostsFile != "/keys/known_hosts" {
 		t.Fatalf("profile: %+v", p)
 	}
-	if cfg.Storage.Profiles["legacy"].Type != "" || cfg.Storage.Profiles["legacy"].AccessKeyID != "old" {
+	if cfg.Storage.Profiles["legacy"].Type != "s3" || cfg.Storage.Profiles["legacy"].AccessKeyID != "old" {
 		t.Fatal("legacy profile changed")
 	}
 }
