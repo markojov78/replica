@@ -9,6 +9,7 @@ import (
 
 	"replica/internal/model"
 	"replica/internal/repository"
+	"replica/internal/storageuri"
 
 	"gorm.io/gorm"
 )
@@ -69,7 +70,15 @@ func (s *ReplicaService) Create(input CreateReplicaInput) (*InventoryReplicaDeta
 	if !replicaType.Valid() {
 		return nil, ErrInvalidReplicaType
 	}
-	if input.FollowSymlinks && replicaType != model.ReplicaTypeFilesystem {
+	if strings.HasPrefix(uri, "sftp://") {
+		if replicaType != model.ReplicaTypeStorage {
+			return nil, ErrInvalidReplicaURI
+		}
+		if _, err := storageuri.ParseSFTP(uri); err != nil {
+			return nil, ErrInvalidReplicaURI
+		}
+	}
+	if input.FollowSymlinks && !replicaSupportsSymlinks(replicaType, uri) {
 		return nil, ErrInvalidReplicaFollowSymlinks
 	}
 	if err := s.validateUpstreamReplica(input.InventoryID, 0, input.UpstreamReplicaID); err != nil {
@@ -494,7 +503,10 @@ func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput) (*Inve
 		changed = changed || followSymlinksChanged
 		replica.FollowSymlinks = *input.FollowSymlinks
 	}
-	if replica.FollowSymlinks && replica.Type != model.ReplicaTypeFilesystem {
+	if strings.HasPrefix(replica.URI, "sftp://") && replica.Type != model.ReplicaTypeStorage {
+		return nil, ErrInvalidReplicaURI
+	}
+	if replica.FollowSymlinks && !replicaSupportsSymlinks(replica.Type, replica.URI) {
 		return nil, ErrInvalidReplicaFollowSymlinks
 	}
 

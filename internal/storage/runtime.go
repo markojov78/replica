@@ -69,6 +69,8 @@ type Runtime struct {
 }
 
 type runningReplicaWatcher struct {
+	storageProfile     string
+	followSymlinks     bool
 	uri                string
 	rootInfo           os.FileInfo
 	inventoryType      string
@@ -552,7 +554,8 @@ func (r *Runtime) ensureReplicaWatcher(ctx context.Context, replica apiclient.Re
 		return fmt.Errorf("replica assignment changed during watcher setup")
 	}
 	if running, exists := r.watchers[replica.ID]; exists {
-		if rootInfo == nil || (running.rootInfo != nil && os.SameFile(rootInfo, running.rootInfo)) {
+		if (rootInfo == nil || (running.rootInfo != nil && os.SameFile(rootInfo, running.rootInfo))) &&
+			(!strings.HasPrefix(replica.URI, "sftp://") || (running.storageProfile == replica.StorageProfile && running.followSymlinks == replica.FollowSymlinks)) {
 			return nil
 		}
 		running.cancel()
@@ -575,6 +578,8 @@ func (r *Runtime) ensureReplicaWatcher(ctx context.Context, replica apiclient.Re
 	}
 
 	running := &runningReplicaWatcher{
+		storageProfile:     replica.StorageProfile,
+		followSymlinks:     replica.FollowSymlinks,
 		uri:                replica.URI,
 		rootInfo:           rootInfo,
 		inventoryType:      replica.InventoryType,
@@ -614,17 +619,15 @@ func (r *Runtime) stopReplicaWatcher(replicaID uint) {
 }
 
 func (r *Runtime) stopDeletedReplicaWatchers() {
-	r.stateMu.RLock()
-	deletedReplicaIDs := make([]uint, 0)
-	for _, replica := range r.replicas {
-		if replica.Status == "deleted" {
-			deletedReplicaIDs = append(deletedReplicaIDs, replica.ID)
+	r.watcherMu.Lock()
+	defer r.watcherMu.Unlock()
+	for id, running := range r.watchers {
+		replica, ok := r.findReplica(id)
+		changedSFTP := ok && strings.HasPrefix(replica.URI, "sftp://") && (running.storageProfile != replica.StorageProfile || running.followSymlinks != replica.FollowSymlinks)
+		if (ok && replica.Status == "deleted") || changedSFTP {
+			running.cancel()
+			delete(r.watchers, id)
 		}
-	}
-	r.stateMu.RUnlock()
-
-	for _, replicaID := range deletedReplicaIDs {
-		r.stopReplicaWatcher(replicaID)
 	}
 }
 
@@ -1394,7 +1397,7 @@ func replicaIsActive(replica apiclient.Replica) bool {
 }
 
 func replicaFollowsSymlinks(replica apiclient.Replica) bool {
-	return replica.Type == "filesystem" && replica.FollowSymlinks
+	return replica.FollowSymlinks && (replica.Type == "filesystem" || (replica.Type == "storage" && strings.HasPrefix(replica.URI, "sftp://")))
 }
 
 func replicaScanTargets(replica apiclient.Replica, files []apiclient.ReplicaInventoryFile) ([]string, error) {
@@ -1637,6 +1640,9 @@ func cloneStorageProfiles(profiles map[string]config.StorageProfileConfig) map[s
 func mergeStorageProfiles(base map[string]config.StorageProfileConfig, overrides map[string]config.StorageProfileConfig) map[string]config.StorageProfileConfig {
 	merged := cloneStorageProfiles(base)
 	for name, profile := range overrides {
+		if local, ok := merged[name]; ok && local.Type == "sftp" {
+			continue
+		}
 		profile.ProfileName = name
 		merged[name] = profile
 	}

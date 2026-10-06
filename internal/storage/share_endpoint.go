@@ -863,6 +863,17 @@ func (r *Runtime) thumbnailSource(ctx context.Context, replica apiclient.Replica
 		return nil, err
 	}
 
+	if scheme == "sftp" {
+		profile, err := r.GetPprofile(replica.StorageProfile)
+		if err != nil {
+			return nil, err
+		}
+		reader, err := GetReader(ctx, replica.URI, profile)
+		if err != nil {
+			return nil, err
+		}
+		return &sftpThumbnailSource{reader: reader, uri: replica.URI, relativeURI: file.RelativeURI, size: file.Size}, nil
+	}
 	if scheme == "s3" {
 		location, key, err := resolveS3ReadKey(replica.URI, file.RelativeURI)
 		if err != nil {

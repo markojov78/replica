@@ -87,6 +87,7 @@ func TestInventoryServiceCreateAppliesDefaultReplicaOptions(t *testing.T) {
 		wantType       model.ReplicaType
 	}{
 		{name: "filesystem follows symlinks", folderURI: "/data/photos", followSymlinks: true, wantType: model.ReplicaTypeFilesystem},
+		{name: "SFTP follows file links", folderURI: "sftp://host/archive", storageProfile: "archive", followSymlinks: true, wantType: model.ReplicaTypeStorage},
 		{name: "storage uses profile", folderURI: "s3://photos/archive", storageProfile: "aws", wantType: model.ReplicaTypeStorage},
 		{name: "removable filesystem location", folderURI: "/media/archive", wantType: model.ReplicaTypeRemovable},
 	}
@@ -2227,5 +2228,23 @@ func TestReplicaServiceReportFileChangesRepairsDownstreamReplica(t *testing.T) {
 	}
 	if commandCount != 1 {
 		t.Fatalf("commandCount = %d, want 1", commandCount)
+	}
+}
+
+func TestSFTPFileSetURIs(t *testing.T) {
+	root, files, err := resolveFileSetURIs([]string{"sftp://backup@HOST/album/a.jpg", "sftp://backup@host:22/album/sub/b.jpg"})
+	if err != nil || root != "sftp://backup@host:22/album" || !reflect.DeepEqual(files, []string{"a.jpg", "sub/b.jpg"}) {
+		t.Fatalf("%q %v %v", root, files, err)
+	}
+	for _, values := range [][]string{
+		{"sftp://host/a", "sftp://other/b"},
+		{"sftp://a@host/a", "sftp://b@host/b"},
+		{"sftp://host/a", "sftp://host:2222/b"},
+		{"sftp://host/a", "s3://bucket/b"},
+		{"sftp://host/a", "sftp://host:22/a"},
+	} {
+		if _, _, err := resolveFileSetURIs(values); err == nil {
+			t.Fatalf("accepted %v", values)
+		}
 	}
 }

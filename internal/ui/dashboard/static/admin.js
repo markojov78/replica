@@ -134,7 +134,7 @@
     for (const form of document.querySelectorAll("[data-replica-form]")) {
       const typeSelect = form.querySelector("[data-replica-type]");
       const profileField = form.querySelector("[data-storage-profile-field]");
-      const profileSelect = profileField?.querySelector("select");
+      const profileSelect = profileField?.querySelector("[name=storage_profile]");
       const followSymlinks = form.querySelector("[data-follow-symlinks]");
       const syncProfile = () => {
         const enabled = typeSelect?.value === "storage";
@@ -147,10 +147,14 @@
       };
       const syncFollowSymlinks = () => {
         if (followSymlinks) {
-          followSymlinks.disabled = typeSelect?.value !== "filesystem";
+          const uri = form.querySelector("[name=uri]")?.value || form.querySelector("[name=folder_uri]")?.value || form.querySelector("[name=file_uris]")?.value.trim().split(/\s+/)[0] || form.dataset.replicaUri || "";
+          followSymlinks.disabled = !(typeSelect?.value === "filesystem" || (typeSelect?.value === "storage" && uri.startsWith("sftp://")));
         }
       };
 
+      for (const field of form.querySelectorAll("[name=uri], [name=folder_uri], [name=file_uris]")) {
+        field.addEventListener("input", syncFollowSymlinks);
+      }
       typeSelect?.addEventListener("change", syncProfile);
       typeSelect?.addEventListener("change", syncFollowSymlinks);
       syncProfile();

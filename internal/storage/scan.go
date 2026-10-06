@@ -159,6 +159,12 @@ func GetScanner(ctx context.Context, uri string, profile *config.StorageProfileC
 	}
 
 	switch scheme {
+	case "sftp":
+		connector, err := newSFTPConnector(uri, profile)
+		if err != nil {
+			return nil, err
+		}
+		return &SFTPScanner{connector: connector, followSymlinks: followSymlinkEnabled(followSymlinks)}, nil
 	case "s3":
 		s3client, err := s3Provider.Client(ctx, profile)
 		if err != nil {
@@ -179,6 +185,12 @@ func GetWatcher(ctx context.Context, uri string, profile *config.StorageProfileC
 	}
 
 	switch scheme {
+	case "sftp":
+		connector, err := newSFTPConnector(uri, profile)
+		if err != nil {
+			return nil, err
+		}
+		return &SFTPWatcher{scanner: &SFTPScanner{connector: connector, followSymlinks: followSymlinkEnabled(followSymlinks)}, interval: 30 * time.Second}, nil
 	case "s3":
 		client, err := s3Provider.Client(ctx, profile)
 		if err != nil {
@@ -209,6 +221,12 @@ func GetWriter(ctx context.Context, uri string, profile *config.StorageProfileCo
 	}
 
 	switch scheme {
+	case "sftp":
+		connector, err := newSFTPConnector(uri, profile)
+		if err != nil {
+			return nil, err
+		}
+		return &SFTPWriter{connector: connector, followSymlinks: followSymlinkEnabled(followSymlinks)}, nil
 	case "s3":
 		client, err := s3Provider.Client(ctx, profile)
 		if err != nil {
@@ -231,6 +249,12 @@ func GetReader(ctx context.Context, uri string, profile *config.StorageProfileCo
 	}
 
 	switch scheme {
+	case "sftp":
+		connector, err := newSFTPConnector(uri, profile)
+		if err != nil {
+			return nil, err
+		}
+		return &SFTPReader{connector: connector}, nil
 	case "s3":
 		client, err := s3Provider.Client(ctx, profile)
 		if err != nil {

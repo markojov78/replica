@@ -474,3 +474,40 @@ func TestLoadImageCacheConfiguration(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadSFTPProfile(t *testing.T) {
+	clearStorageProfileEnv(t)
+	name := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(name, []byte(`
+app:
+  node_id: coordinator
+  coordinator: true
+auth:
+  jwt_secret: test
+storage:
+  profiles:
+    archive:
+      type: sftp
+      username: backup
+      private_key_file: /keys/archive
+      known_hosts_file: /keys/known_hosts
+    legacy:
+      access_key_id: old
+      secret_access_key: secret
+`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CONFIG_FILE", name)
+	t.Setenv("STORAGE_PROFILES_ARCHIVE_PRIVATE_KEY_FILE", "/keys/override")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := cfg.Storage.Profiles["archive"]
+	if p.Type != "sftp" || p.Username != "backup" || p.PrivateKeyFile != "/keys/override" || p.KnownHostsFile != "/keys/known_hosts" {
+		t.Fatalf("profile: %+v", p)
+	}
+	if cfg.Storage.Profiles["legacy"].Type != "" || cfg.Storage.Profiles["legacy"].AccessKeyID != "old" {
+		t.Fatal("legacy profile changed")
+	}
+}

@@ -240,6 +240,7 @@ func TestNodeStorageProfilesReturnsReferencedProfilesEncrypted(t *testing.T) {
 		t.Fatalf("Create(inventory) error = %v", err)
 	}
 	replicas := []model.Replica{
+		{InventoryID: inventory.ID, NodeID: "node-a", URI: "sftp://host/root", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeStorage, StorageProfile: "local-sftp"},
 		{InventoryID: inventory.ID, NodeID: "node-a", URI: "/data/a", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeStorage, StorageProfile: "aws"},
 		{InventoryID: inventory.ID, NodeID: "node-a", URI: "/data/b", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeStorage, StorageProfile: "aws"},
 		{InventoryID: inventory.ID, NodeID: "node-a", URI: "/data/c", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeStorage, StorageProfile: "backblaze"},
@@ -349,6 +350,7 @@ func newConfigRouteHandler(database *gorm.DB) http.Handler {
 func newConfigRouteHandlerWithAuth(database *gorm.DB, authService *service.AuthService) http.Handler {
 	return newConfigRouteHandlerWithConfigAndAuth(database, authService, config.Config{
 		Storage: config.StorageConfig{Profiles: map[string]config.StorageProfileConfig{
+			"local-sftp": {Type: "sftp", Username: "backup", PrivateKeyFile: "/private/key", KnownHostsFile: "/private/hosts"},
 			"aws": {
 				AccessKeyID:     "aws-access",
 				SecretAccessKey: "aws-secret",

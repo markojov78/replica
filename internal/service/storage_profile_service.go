@@ -68,7 +68,7 @@ func (s *StorageProfileService) ListForNode(nodeID string, nodePublicKey string)
 		seen[name] = struct{}{}
 
 		profile, ok := s.config.Profiles[name]
-		if !ok {
+		if !ok || profile.Type == "sftp" {
 			continue
 		}
 		encrypted, err := encryptStorageProfileCredentials(publicKey, profile)

@@ -955,7 +955,7 @@ Request body:
 - `user_permissions` optional per-user permissions for the inventory
 - exactly one of `folder_uri` or `file_uris` is required
 - `folder_uri` is a non-empty URI for a folder inventory
-- `file_uris` is a non-empty list of unique absolute filesystem paths, local `file://` URIs, or `s3://` object URIs
+- `file_uris` is a non-empty list of unique absolute filesystem paths, local `file://` URIs, `s3://` object URIs, or `sftp://` file URIs
 - `replica_type` required, could be `filesystem`, `storage` or `removable`
 - `storage_profile` optional, storage profile name used by storage-backed replicas
 - `follow_symlinks` optional, whether symbolic links are followed; defaults to `false`
@@ -965,13 +965,13 @@ Behavior:
   files during the initial scan
 - `file_uris` creates a `file` inventory representing a file set
 - filesystem paths and local `file://` URIs are normalized to unified `file://` URIs; they may be mixed in one file set
-- S3 file URIs in a file set must use the same bucket
-- if `replica_type` is `storage` , providd uris must be `s3://`, otherwise uris can be `file://` or filesystem paths but not `s3://`
+- S3 file URIs in a file set must use the same bucket; SFTP files must share host, port and URI username. Backends cannot be mixed.
+- `storage` replicas accept `s3://` or `sftp://` URIs; filesystem/removable replicas use local paths or `file://`.
 - the deepest common directory/prefix becomes the default replica URI
 - one active synchronized version-`0` placeholder is created for every requested file
 - the initial scan is restricted to the placeholder relative URIs; missing files are reported as deleted
 - `storage_profile` is valid only for replica type `storage`; otherwise the request is rejected with `400`.
-- `follow_symlinks: true` is valid only when `type` is `filesystem`; otherwise the request is rejected with `400`.
+- `follow_symlinks: true` is valid for `filesystem` replicas or `storage` replicas with an `sftp://` URI; otherwise the request is rejected with `400`.
 
 Example requests:
 ```json
@@ -1192,7 +1192,7 @@ Request body:
 - `storage_profile` optional, storage profile name used by storage-backed replicas
 - `follow_symlinks` optional, whether symbolic links are followed; defaults to `false`
 
-`follow_symlinks: true` is valid only when `type` is `filesystem`; otherwise the request is rejected with `400`.
+`follow_symlinks: true` is valid for `filesystem` replicas or `storage` replicas with an `sftp://` URI; otherwise the request is rejected with `400`.
 
 Example request:
 ```json
@@ -1232,8 +1232,8 @@ Request body fields are optional:
 - `storage_profile`
 - `follow_symlinks`
 
-The resulting replica state must not have `follow_symlinks: true` unless its type is `filesystem`. A PATCH that would
-create that combination is rejected with `400 follow_symlinks requires filesystem replica`.
+The resulting replica state permits `follow_symlinks: true` for filesystem or SFTP storage replicas. A PATCH that would
+violate this restriction is rejected with `400 follow_symlinks requires filesystem replica`.
 
 #### DELETE /replicas/{id}
 Soft-deletes a replica by setting its status to `deleted`.
@@ -3164,7 +3164,7 @@ Behavior:
 - resolves the current node from the auth token
 - loads all replicas assigned to the authenticated node
 - collects all distinct non-empty `storage_profile` values referenced by those replicas
-- returns only storage profiles referenced by those replicas
+- returns only referenced S3 profiles; SFTP profiles are configured locally on each assigned node
 - returns each storage profile at most once
 - returns the storage profile name in plaintext
 - encrypts the complete storage profile separately for the authenticated node

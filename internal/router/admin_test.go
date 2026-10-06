@@ -466,7 +466,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), `name="storage_profile"`) ||
 		!strings.Contains(response.Body.String(), `data-storage-profile-field`) ||
 		strings.Contains(response.Body.String(), `name="storage_profile" disabled`) ||
-		!strings.Contains(response.Body.String(), `<option value="aws" selected`) {
+		!strings.Contains(response.Body.String(), `value="aws" list="storage-profile-names"`) {
 		t.Fatalf("edit replica form response = %d body=%q", response.Code, response.Body.String())
 	}
 	if !strings.Contains(response.Body.String(), `name="follow_symlinks" type="checkbox" data-follow-symlinks  disabled`) {

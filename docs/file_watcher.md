@@ -281,3 +281,14 @@ Behavior:
 
 This polling watcher is not real-time, but it provides a clean backend-specific `Watcher` implementation while 
 preserving the same interface used by the filesystem watcher.
+
+## SFTP
+
+SFTP uses recursive directory listings or targeted stat requests and polls every 30 seconds. Size and modification
+time determine hash reuse; changed files are streamed through BLAKE3. Creation time falls back to modification time.
+Second-resolution timestamps can miss same-size edits within one second or edits preserving timestamps; no forced
+rehash schedule is added. Metadata is checked again after hashing; unstable files fail the scan for retry.
+File symlinks follow the filesystem policy; directory links and temporary write paths are excluded. Missing roots,
+failed listings and interrupted scans fail rather than report an empty snapshot. Polling retains the last successful
+snapshot across failures. Connections are operation-scoped, with context cancellation and 30-second network I/O deadlines.
+Temporary writes are removed on failure when the connection remains available; abandoned temporary files stay excluded.

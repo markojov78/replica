@@ -150,7 +150,7 @@ uri - data prefix uri for the replica; full file paths are formed from replica `
 status - active, deleted  
 type - storage, filesystem, removable
 upstream_replica_id - nullable reference to another replica in the same inventory; null means base multi-directional replica, non-null means downstream/read-only from replication perspective
-follow_symlinks - whether the storage node follows symbolic links while processing a filesystem replica; defaults to false and cannot be true for other replica types
+follow_symlinks - whether the storage node follows file symbolic links for filesystem or SFTP storage replicas; defaults to false
 
 #### replica_files
 version - last file version in the replica  
@@ -333,7 +333,7 @@ A mismatch leaves the existing S3 object untouched and uses the existing integri
 The temporary file is cleaned up on success or failure. Verification requires no additional S3 download; it verifies
 the upload input rather than rereading the stored object. Ordinary unverified writes retain their existing behavior.
 
-For filesystem replicas with `follow_symlinks` enabled, scans and change reports use a file symlink's target metadata
+For filesystem and SFTP replicas with `follow_symlinks` enabled, scans and change reports use a file symlink's target metadata
 and content. Replicated updates are written to the target while preserving the symlink. Replicated deletes remove the
 symlink itself without removing its target. Directory symlinks are ignored.
 
@@ -480,8 +480,8 @@ Every discovered file starts at version `1`.
 #### File-set inventory
 
 For a file inventory, the request supplies one or more file URIs. Absolute filesystem paths and local `file://` URIs
-are normalized to unified `file://` URIs. S3 file URIs must belong to one bucket. Filesystem and S3 URIs cannot be
-mixed in one inventory.
+are normalized to unified `file://` URIs. S3 file URIs must belong to one bucket. SFTP file URIs must share host, port
+and URI username. Different backends cannot be mixed in one inventory.
 
 Example:
 ```
@@ -943,3 +943,28 @@ The empty-root rule intentionally prevents propagation of deleting the final loc
 empty removable destination cannot receive its initial replication until it contains an entry. A nonempty directory
 left behind after unmounting cannot be distinguished from mounted media by this heuristic. Availability checks reduce
 removal races but cannot guarantee detection of every mount change during a filesystem operation.
+
+### SFTP storage
+
+SFTP replicas use type `storage`, an `sftp://host[:port]/absolute/path` URI, and a named node-local
+`storage_profile`. The remote root must already exist. Files transfer through the assigned storage node.
+Writes require `posix-rename@openssh.com`: verified temporary files replace their destinations only after size/hash
+checks succeed. Symlink targets may be outside the root, subject to remote account permissions, as with filesystem replicas.
+Profiles and private keys are not distributed by the coordinator. Example configuration on each assigned node:
+
+```yaml
+storage:
+  profiles:
+    archive:
+      type: sftp
+      username: backup
+      private_key_file: /etc/replica/ssh/archive_ed25519
+      known_hosts_file: /etc/replica/ssh/known_hosts
+```
+
+Use an unencrypted private key readable only by the service account, with its public key in the remote account's
+`authorized_keys`; host keys must be provisioned in `known_hosts`.
+Password/agent authentication is not supported in this version. Optional URI usernames must match the profile username.
+Existing profiles with no `type` remain S3 profiles. Local SFTP profiles take precedence over coordinator profiles with
+matching names. Profile fields also accept `STORAGE_PROFILES_<NAME>_<FIELD>` environment overrides. Restart after local
+profile changes. The admin form accepts profile names that exist only on the assigned node.

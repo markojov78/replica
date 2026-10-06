@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"replica/internal/config"
 	"sync"
 
@@ -17,6 +18,9 @@ type S3ClientProvider struct {
 }
 
 func (p *S3ClientProvider) Client(ctx context.Context, profile *config.StorageProfileConfig) (*s3.Client, error) {
+	if profile != nil && profile.Type != "" && profile.Type != "s3" {
+		return nil, fmt.Errorf("storage profile %q is not S3", profile.ProfileName)
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

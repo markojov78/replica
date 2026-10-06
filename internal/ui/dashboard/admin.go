@@ -282,6 +282,7 @@ func Register(mux *http.ServeMux, api http.Handler, cfg config.Config, authServi
 		"formatTime":             formatTime,
 		"pathEscape":             url.PathEscape,
 		"isUpstream":             isUpstream,
+		"hasPrefix":              strings.HasPrefix,
 		"formatBytes":            formatBytes,
 		"formatDate":             formatDate,
 		"hasRole":                hasRole,

@@ -12,6 +12,7 @@ import (
 
 	"replica/internal/model"
 	"replica/internal/repository"
+	"replica/internal/storageuri"
 
 	"gorm.io/gorm"
 )
@@ -293,8 +294,13 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 			})
 		}
 	}
-	isS3 := strings.HasPrefix(replicaURI, "s3://")
-	if (replicaType == model.ReplicaTypeStorage) != isS3 {
+	isStorage := strings.HasPrefix(replicaURI, "s3://") || strings.HasPrefix(replicaURI, "sftp://")
+	if strings.HasPrefix(replicaURI, "sftp://") {
+		if _, err := storageuri.ParseSFTP(replicaURI); err != nil {
+			return nil, ErrInvalidInventoryURI
+		}
+	}
+	if (replicaType == model.ReplicaTypeStorage) != isStorage {
 		return nil, ErrInvalidInventoryURI
 	}
 
@@ -302,7 +308,7 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 	if storageProfile != "" && replicaType != model.ReplicaTypeStorage {
 		return nil, ErrInvalidReplicaStorageProfile
 	}
-	if input.FollowSymlinks && replicaType != model.ReplicaTypeFilesystem {
+	if input.FollowSymlinks && !replicaSupportsSymlinks(replicaType, replicaURI) {
 		return nil, ErrInvalidReplicaFollowSymlinks
 	}
 
@@ -425,6 +431,19 @@ func normalizeFileURI(value string) (normalizedFileURI, string, error) {
 		if err != nil {
 			return normalizedFileURI{}, "", err
 		}
+		if parsed.Scheme == "sftp" {
+			if strings.HasSuffix(parsed.Path, "/") {
+				return normalizedFileURI{}, "", ErrInvalidInventoryURI
+			}
+			u, err := storageuri.ParseSFTP(trimmed)
+			if err != nil || u.Path == "/" {
+				return normalizedFileURI{}, "", ErrInvalidInventoryURI
+			}
+			canonical := u.String()
+			components := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
+			u.Path = ""
+			return normalizedFileURI{kind: "sftp", root: u.String(), components: components}, canonical, nil
+		}
 		if parsed.Scheme == "s3" {
 			if parsed.Host == "" || parsed.RawQuery != "" || parsed.Fragment != "" || strings.HasSuffix(parsed.Path, "/") {
 				return normalizedFileURI{}, "", ErrInvalidInventoryURI
@@ -495,6 +514,12 @@ func isWindowsAbsoluteFilesystemPath(value string) bool {
 }
 
 func fileSetReplicaURI(kind, root string, components []string) string {
+	if kind == "sftp" {
+		u, _ := url.Parse(root)
+		u.Path = "/" + strings.Join(components, "/")
+		return u.String()
+	}
+
 	if kind == "s3" {
 		if len(components) == 0 {
 			return "s3://" + root
@@ -854,4 +879,15 @@ func toReplicaFileDetails(file *model.ReplicaFile) *ReplicaFileDetails {
 		Version:   file.Version,
 		Status:    string(file.Status),
 	}
+}
+
+func replicaSupportsSymlinks(kind model.ReplicaType, uri string) bool {
+	if kind == model.ReplicaTypeFilesystem {
+		return true
+	}
+	if kind != model.ReplicaTypeStorage {
+		return false
+	}
+	_, err := storageuri.ParseSFTP(uri)
+	return err == nil
 }

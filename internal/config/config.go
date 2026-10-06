@@ -81,6 +81,10 @@ type StorageConfig struct {
 }
 
 type StorageProfileConfig struct {
+	Type            string
+	Username        string
+	PrivateKeyFile  string
+	KnownHostsFile  string
 	ProfileName     string
 	AccessKeyID     string
 	SecretAccessKey string
@@ -153,6 +157,10 @@ type rawStorageConfig struct {
 }
 
 type rawStorageProfileConfig struct {
+	Type            *string `json:"type" yaml:"type" toml:"type"`
+	Username        *string `json:"username" yaml:"username" toml:"username"`
+	PrivateKeyFile  *string `json:"private_key_file" yaml:"private_key_file" toml:"private_key_file"`
+	KnownHostsFile  *string `json:"known_hosts_file" yaml:"known_hosts_file" toml:"known_hosts_file"`
 	AccessKeyID     *string `json:"access_key_id" yaml:"access_key_id" toml:"access_key_id"`
 	SecretAccessKey *string `json:"secret_access_key" yaml:"secret_access_key" toml:"secret_access_key"`
 	Region          *string `json:"region" yaml:"region" toml:"region"`
@@ -466,6 +474,10 @@ func resolveStorageProfiles(fileProfiles map[string]rawStorageProfileConfig) map
 		}
 		profiles[normalized] = StorageProfileConfig{
 			ProfileName:     normalized,
+			Type:            strings.ToLower(optionalString(fileProfile.Type)),
+			Username:        optionalString(fileProfile.Username),
+			PrivateKeyFile:  optionalString(fileProfile.PrivateKeyFile),
+			KnownHostsFile:  optionalString(fileProfile.KnownHostsFile),
 			AccessKeyID:     optionalString(fileProfile.AccessKeyID),
 			SecretAccessKey: optionalString(fileProfile.SecretAccessKey),
 			Region:          optionalString(fileProfile.Region),
@@ -486,6 +498,14 @@ func resolveStorageProfiles(fileProfiles map[string]rawStorageProfileConfig) map
 		profile := profiles[profileName]
 		profile.ProfileName = profileName
 		switch field {
+		case "type":
+			profile.Type = strings.ToLower(strings.TrimSpace(value))
+		case "username":
+			profile.Username = strings.TrimSpace(value)
+		case "private_key_file":
+			profile.PrivateKeyFile = strings.TrimSpace(value)
+		case "known_hosts_file":
+			profile.KnownHostsFile = strings.TrimSpace(value)
 		case "access_key_id":
 			profile.AccessKeyID = strings.TrimSpace(value)
 		case "secret_access_key":
@@ -508,7 +528,7 @@ func parseStorageProfileEnvKey(key string) (string, string, bool) {
 	}
 
 	remainder := strings.TrimPrefix(key, prefix)
-	for _, field := range []string{"ACCESS_KEY_ID", "SECRET_ACCESS_KEY", "REGION", "ENDPOINT"} {
+	for _, field := range []string{"ACCESS_KEY_ID", "SECRET_ACCESS_KEY", "REGION", "ENDPOINT", "TYPE", "USERNAME", "PRIVATE_KEY_FILE", "KNOWN_HOSTS_FILE"} {
 		suffix := "_" + field
 		if !strings.HasSuffix(remainder, suffix) {
 			continue
@@ -588,6 +608,15 @@ func (c SharingConfig) ThumbnailStorageLimitBytes() (int64, error) {
 }
 
 func (c Config) Validate() error {
+	for name, profile := range c.Storage.Profiles {
+		if profile.Type != "" && profile.Type != "s3" && profile.Type != "sftp" {
+			return fmt.Errorf("storage profile %q has unsupported type %q", name, profile.Type)
+		}
+		if profile.Type == "sftp" && (profile.PrivateKeyFile == "" || profile.KnownHostsFile == "") {
+			return fmt.Errorf("SFTP profile %q requires private_key_file and known_hosts_file", name)
+		}
+	}
+
 	if _, err := c.Sharing.ThumbnailStorageLimitBytes(); err != nil {
 		return err
 	}
