@@ -970,7 +970,7 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request, sess authC
 		ReplicaID:            uint(replicaID),
 		Name:                 r.FormValue("name"),
 		UserPermissions:      shareUserPermissionsFromForm(r.Form, users),
-		AnonymousPermissions: sharePermissionsFromForm(r.Form["anonymous_permissions"], []string{"read", "update"}),
+		AnonymousPermissions: sharePermissionsFromForm(r.Form["anonymous_permissions"], []string{"read", "create", "update", "delete"}),
 	}
 	properties, err := sharePropertiesFromForm(r.Form)
 	if err != nil {
@@ -1053,7 +1053,7 @@ func (h *Handler) updateShare(w http.ResponseWriter, r *http.Request, sess authC
 		Status:               r.FormValue("status"),
 		LinkHash:             current.LinkHash,
 		UserPermissions:      mergeHiddenUserPermissions(current.UserPermissions, shareUserPermissionsFromForm(r.Form, users), users),
-		AnonymousPermissions: sharePermissionsFromForm(r.Form["anonymous_permissions"], []string{"read", "update"}),
+		AnonymousPermissions: sharePermissionsFromForm(r.Form["anonymous_permissions"], []string{"read", "create", "update", "delete"}),
 	}
 	properties, err := sharePropertiesFromForm(r.Form)
 	if err != nil {

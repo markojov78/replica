@@ -420,7 +420,9 @@
       <div class="section-head"><div><h2>Anonymous permissions</h2><p>Anonymous access creates a public link hash; clearing these permissions removes it.</p></div></div>
       <div class="permission-row">
         <label class="filter-toggle"><input type="checkbox" name="anonymous_permissions" value="read" data-anonymous-permission {{if hasStringPermission "read" .Share.AnonymousPermissions}}checked{{end}}> Read</label>
+        <label class="filter-toggle"><input type="checkbox" name="anonymous_permissions" value="create" data-anonymous-permission {{if hasStringPermission "create" .Share.AnonymousPermissions}}checked{{end}}> Create</label>
         <label class="filter-toggle"><input type="checkbox" name="anonymous_permissions" value="update" data-anonymous-permission {{if hasStringPermission "update" .Share.AnonymousPermissions}}checked{{end}}> Update</label>
+        <label class="filter-toggle"><input type="checkbox" name="anonymous_permissions" value="delete" data-anonymous-permission {{if hasStringPermission "delete" .Share.AnonymousPermissions}}checked{{end}}> Delete</label>
       </div>
     </div>
     <div class="full permission-panel">
