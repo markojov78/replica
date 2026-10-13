@@ -25,7 +25,11 @@ func (r *Runtime) replicasSnapshot() []apiclient.Replica {
 func (r *Runtime) recordReplicaFailure(replica apiclient.Replica, err error) {
 	previous, loaded := r.replicaFailures.Swap(replica.ID, err.Error())
 	if !loaded || previous != err.Error() {
-		log.Printf("storage runtime replica unavailable; will retry replica_id=%d uri=%s error=%v", replica.ID, replica.URI, err)
+		if replica.Status == "deleted" {
+			log.Printf("storage runtime replica %d deleted", replica.ID)
+		} else {
+			log.Printf("storage runtime replica unavailable; will retry replica_id=%d uri=%s error=%v", replica.ID, replica.URI, err)
+		}
 	}
 	r.stopReplicaWatcher(replica.ID)
 }
