@@ -52,7 +52,7 @@ func newSFTPConnector(uri string, profile *config.StorageProfileConfig) (*sftpCo
 		return nil, err
 	}
 	if profile == nil || profile.Type != "sftp" {
-		return nil, fmt.Errorf("SFTP requires a node-local sftp storage profile")
+		return nil, fmt.Errorf("SFTP requires an sftp storage profile")
 	}
 	if profile.PrivateKeyFile == "" || profile.KnownHostsFile == "" {
 		return nil, fmt.Errorf("SFTP profile requires private_key_file and known_hosts_file")

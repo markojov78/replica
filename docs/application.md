@@ -946,11 +946,12 @@ removal races but cannot guarantee detection of every mount change during a file
 
 ### SFTP storage
 
-SFTP replicas use type `storage`, an `sftp://host[:port]/absolute/path` URI, and a named node-local
-`storage_profile`. The remote root must already exist. Files transfer through the assigned storage node.
+SFTP replicas use type `storage`, an `sftp://host[:port]/absolute/path` URI, and a named
+`storage_profile`. The profile may come from the coordinator or local configuration. The remote root must already exist. Files transfer through the assigned storage node.
 Writes require `posix-rename@openssh.com`: verified temporary files replace their destinations only after size/hash
 checks succeed. Symlink targets may be outside the root, subject to remote account permissions, as with filesystem replicas.
-Profiles and private keys are not distributed by the coordinator. Example configuration on each assigned node:
+Profiles are distributed encrypted; referenced key and known-hosts files must exist on the assigned node. A local
+profile overrides the entire coordinator profile with the same name. Example configuration:
 
 ```yaml
 storage:
@@ -965,6 +966,6 @@ storage:
 Use an unencrypted private key readable only by the service account, with its public key in the remote account's
 `authorized_keys`; host keys must be provisioned in `known_hosts`.
 Password/agent authentication is not supported in this version. Optional URI usernames must match the profile username.
-Every configured storage profile must explicitly set `type` to `s3` or `sftp`; missing or unsupported types fail configuration validation. Local SFTP profiles take precedence over coordinator profiles with
+Every configured storage profile must explicitly set `type` to `s3` or `sftp`; missing or unsupported types fail configuration validation. Local profiles take precedence over coordinator profiles with
 matching names. Profile fields also accept `STORAGE_PROFILES_<NAME>_<FIELD>` environment overrides. Restart after local
 profile changes. The admin form accepts profile names that exist only on the assigned node.

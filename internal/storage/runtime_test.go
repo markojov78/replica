@@ -26,6 +26,7 @@ import (
 
 	"replica/internal/apiclient"
 	"replica/internal/config"
+	"replica/internal/service"
 
 	"github.com/gorilla/websocket"
 )
@@ -1014,6 +1015,7 @@ func TestRuntimeRefreshConfigCommandReloadsConfigAndCompletes(t *testing.T) {
 			storageProfileCalls++
 			_ = json.NewEncoder(w).Encode([]apiclient.EncryptedStorageProfile{
 				encryptStorageProfileForTest(t, runtime.nodePublicKey, "aws", config.StorageProfileConfig{
+					Type:            "s3",
 					Endpoint:        "https://s3.example",
 					Region:          "eu-central-1",
 					AccessKeyID:     "aws-access",
@@ -1113,12 +1115,14 @@ func TestRuntimeStorageProfilesMergeLocalAndCoordinatorProfilesWithoutChangingCo
 		case "/node/config/storage-profiles":
 			_ = json.NewEncoder(w).Encode([]apiclient.EncryptedStorageProfile{
 				encryptStorageProfileForTest(t, runtime.nodePublicKey, "shared", config.StorageProfileConfig{
+					Type:            "s3",
 					Endpoint:        "https://coordinator.example",
 					Region:          "eu-central-1",
 					AccessKeyID:     "coordinator-access",
 					SecretAccessKey: "coordinator-secret",
 				}),
 				encryptStorageProfileForTest(t, runtime.nodePublicKey, "coordinator-only", config.StorageProfileConfig{
+					Type:            "s3",
 					Endpoint:        "https://coordinator-only.example",
 					Region:          "us-east-1",
 					AccessKeyID:     "coordinator-only-access",
@@ -1163,6 +1167,17 @@ func TestRuntimeStorageProfilesMergeLocalAndCoordinatorProfilesWithoutChangingCo
 
 	if err := runtime.refreshLocalConfig(context.Background()); err != nil {
 		t.Fatalf("refreshLocalConfig() error = %v", err)
+	}
+	for _, name := range []string{"local-only", "shared"} {
+		got, err := runtime.GetPprofile(name)
+		want := runtime.cfg.Storage.Profiles[name]
+		want.ProfileName = name
+		if err != nil || got == nil || *got != want {
+			t.Fatalf("runtime profile %q = %+v, error=%v, want whole local profile %+v", name, got, err, want)
+		}
+	}
+	if got, err := runtime.GetPprofile("coordinator-only"); err != nil || got == nil || got.AccessKeyID != "coordinator-only-access" {
+		t.Fatalf("coordinator-only profile = %+v, error=%v", got, err)
 	}
 	_, cfg := runtime.thumbnailSnapshot()
 	if got := cfg.Storage.Profiles["shared"]; got.Endpoint != "https://local-shared.example" || got.AccessKeyID != "local-shared-access" {
@@ -2305,6 +2320,35 @@ func newRuntimeForTest(t *testing.T, coordinatorURL string) *Runtime {
 func encryptStorageProfileForTest(t *testing.T, publicKeyPEM string, name string, profile config.StorageProfileConfig) apiclient.EncryptedStorageProfile {
 	t.Helper()
 
+	plaintext, err := json.Marshal(struct {
+		Type            string `json:"type"`
+		Username        string `json:"username,omitempty"`
+		PrivateKeyFile  string `json:"private_key_file,omitempty"`
+		KnownHostsFile  string `json:"known_hosts_file,omitempty"`
+		Endpoint        string `json:"endpoint"`
+		Region          string `json:"region"`
+		AccessKeyID     string `json:"access_key_id"`
+		SecretAccessKey string `json:"secret_access_key"`
+	}{
+		Type:            profile.Type,
+		Username:        profile.Username,
+		PrivateKeyFile:  profile.PrivateKeyFile,
+		KnownHostsFile:  profile.KnownHostsFile,
+		Endpoint:        profile.Endpoint,
+		Region:          profile.Region,
+		AccessKeyID:     profile.AccessKeyID,
+		SecretAccessKey: profile.SecretAccessKey,
+	})
+	if err != nil {
+		t.Fatalf("Marshal(profile) error = %v", err)
+	}
+
+	return encryptStorageProfilePlaintextForTest(t, publicKeyPEM, name, plaintext)
+}
+
+func encryptStorageProfilePlaintextForTest(t *testing.T, publicKeyPEM, name string, plaintext []byte) apiclient.EncryptedStorageProfile {
+	t.Helper()
+
 	block, _ := pem.Decode([]byte(publicKeyPEM))
 	if block == nil {
 		t.Fatal("public key PEM missing block")
@@ -2316,21 +2360,6 @@ func encryptStorageProfileForTest(t *testing.T, publicKeyPEM string, name string
 	publicKey, ok := key.(*rsa.PublicKey)
 	if !ok {
 		t.Fatal("public key is not RSA")
-	}
-
-	plaintext, err := json.Marshal(struct {
-		Endpoint        string `json:"endpoint"`
-		Region          string `json:"region"`
-		AccessKeyID     string `json:"access_key_id"`
-		SecretAccessKey string `json:"secret_access_key"`
-	}{
-		Endpoint:        profile.Endpoint,
-		Region:          profile.Region,
-		AccessKeyID:     profile.AccessKeyID,
-		SecretAccessKey: profile.SecretAccessKey,
-	})
-	if err != nil {
-		t.Fatalf("Marshal(profile) error = %v", err)
 	}
 
 	symmetricKey := make([]byte, 32)
@@ -2833,4 +2862,50 @@ func captureLogs(t *testing.T) *capturedLogs {
 	})
 
 	return &buffer
+}
+
+func TestTransferredSFTPProfileAndLocalPrecedence(t *testing.T) {
+	runtime, err := NewRuntime(config.Config{App: config.AppConfig{NodeID: "node-a", CoordinatorURL: "http://coordinator", NodeAddress: "http://node-a"}, Auth: config.AuthConfig{NodeSecret: "test-secret"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote := config.StorageProfileConfig{
+		Type: "sftp", Username: "backup", PrivateKeyFile: "/remote/key", KnownHostsFile: "/remote/hosts",
+	}
+	profiles, err := decryptStorageProfiles(runtime.nodePrivateKey, []apiclient.EncryptedStorageProfile{
+		encryptStorageProfileForTest(t, runtime.nodePublicKey, "homepi", remote),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote.ProfileName = "homepi"
+	if got := mergeStorageProfiles(nil, profiles)["homepi"]; got != remote {
+		t.Fatalf("transferred profile = %+v, want %+v", got, remote)
+	}
+	local := config.StorageProfileConfig{Type: "sftp", Username: "local", PrivateKeyFile: "/local/key", KnownHostsFile: "/local/hosts", ProfileName: "homepi"}
+	if got := mergeStorageProfiles(map[string]config.StorageProfileConfig{"homepi": local}, profiles)["homepi"]; got != local {
+		t.Fatalf("local profile = %+v, want whole local profile %+v", got, local)
+	}
+}
+
+func TestTransferredStorageProfileRequiresValidType(t *testing.T) {
+	publicKey, privateKey, err := service.GenerateTransferKeyPairPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, payload := range []string{`{}`, `{"type":""}`, `{"type":"ftp"}`, `{"type":"S3"}`, `{"type":"s3"}`, `{"type":"sftp"}`} {
+		t.Run(payload, func(t *testing.T) {
+			profiles, err := decryptStorageProfiles(privateKey, []apiclient.EncryptedStorageProfile{
+				encryptStorageProfilePlaintextForTest(t, publicKey, "test", []byte(payload)),
+			})
+			valid := payload == `{"type":"s3"}` || payload == `{"type":"sftp"}`
+			if valid {
+				if err != nil || profiles["test"].Type == "" {
+					t.Fatalf("valid profile rejected: profiles=%+v error=%v", profiles, err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), `decrypt storage profile "test": storage profile type must be s3 or sftp`) {
+				t.Fatalf("invalid profile type error = %v", err)
+			}
+		})
+	}
 }

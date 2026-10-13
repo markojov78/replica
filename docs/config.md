@@ -19,8 +19,8 @@ Storage profiles have no built-in defaults. Environment variables for profiles u
 `STORAGE_PROFILES_<PROFILE_NAME>_<FIELD_NAME>`, for example `STORAGE_PROFILES_AWS_ACCESS_KEY_ID` or 
 `STORAGE_PROFILES_BACKBLAZE_ENDPOINT`.
 
-SFTP profiles are configured on the assigned storage node; profiles and private keys are not distributed by the
-coordinator. Local SFTP profiles take precedence over coordinator profiles with matching names. Restart the service
+Referenced SFTP profiles are distributed encrypted by the coordinator; private key and known-hosts file contents
+are never transferred. A local profile replaces the entire coordinator profile with the same name. Restart the service
 after changing local profile configuration. See [SFTP storage](application.md#sftp-storage) for replica requirements.
 
 ## Config file path

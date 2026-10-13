@@ -3164,7 +3164,7 @@ Behavior:
 - resolves the current node from the auth token
 - loads all replicas assigned to the authenticated node
 - collects all distinct non-empty `storage_profile` values referenced by those replicas
-- returns only referenced S3 profiles; SFTP profiles are configured locally on each assigned node
+- returns referenced S3 and SFTP profiles; local profiles override coordinator profiles with the same name
 - returns each storage profile at most once
 - returns the storage profile name in plaintext
 - encrypts the complete storage profile separately for the authenticated node
@@ -3226,6 +3226,8 @@ for example:
   "secret_access_key": "..."
 }
 ```
+Every decrypted profile must explicitly specify `type` as `s3` or `sftp`; missing or unsupported types are rejected.
+SFTP payloads include `type`, `username`, `private_key_file`, and `known_hosts_file`; file contents are never transferred.
 Storage drivers must ignore unknown fields to allow future extensibility.
 
 Possible errors:

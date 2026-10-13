@@ -1612,6 +1612,10 @@ func decryptStorageProfile(privateKey *rsa.PrivateKey, encryptedProfile apiclien
 	}
 
 	var plaintextProfile struct {
+		Type            string `json:"type"`
+		Username        string `json:"username,omitempty"`
+		PrivateKeyFile  string `json:"private_key_file,omitempty"`
+		KnownHostsFile  string `json:"known_hosts_file,omitempty"`
 		Endpoint        string `json:"endpoint"`
 		Region          string `json:"region"`
 		AccessKeyID     string `json:"access_key_id"`
@@ -1620,7 +1624,14 @@ func decryptStorageProfile(privateKey *rsa.PrivateKey, encryptedProfile apiclien
 	if err := json.Unmarshal(plaintext, &plaintextProfile); err != nil {
 		return config.StorageProfileConfig{}, err
 	}
+	if plaintextProfile.Type != "s3" && plaintextProfile.Type != "sftp" {
+		return config.StorageProfileConfig{}, fmt.Errorf("storage profile type must be s3 or sftp, got %q", plaintextProfile.Type)
+	}
 	return config.StorageProfileConfig{
+		Type:            plaintextProfile.Type,
+		Username:        plaintextProfile.Username,
+		PrivateKeyFile:  plaintextProfile.PrivateKeyFile,
+		KnownHostsFile:  plaintextProfile.KnownHostsFile,
 		Endpoint:        plaintextProfile.Endpoint,
 		Region:          plaintextProfile.Region,
 		AccessKeyID:     plaintextProfile.AccessKeyID,
@@ -1640,7 +1651,7 @@ func cloneStorageProfiles(profiles map[string]config.StorageProfileConfig) map[s
 func mergeStorageProfiles(base map[string]config.StorageProfileConfig, overrides map[string]config.StorageProfileConfig) map[string]config.StorageProfileConfig {
 	merged := cloneStorageProfiles(base)
 	for name, profile := range overrides {
-		if local, ok := merged[name]; ok && local.Type == "sftp" {
+		if _, ok := merged[name]; ok {
 			continue
 		}
 		profile.ProfileName = name

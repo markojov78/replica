@@ -68,7 +68,7 @@ func (s *StorageProfileService) ListForNode(nodeID string, nodePublicKey string)
 		seen[name] = struct{}{}
 
 		profile, ok := s.config.Profiles[name]
-		if !ok || profile.Type == "sftp" {
+		if !ok {
 			continue
 		}
 		encrypted, err := encryptStorageProfileCredentials(publicKey, profile)
@@ -104,11 +104,19 @@ func parseStorageProfileRSAPublicKey(value string) (*rsa.PublicKey, error) {
 
 func encryptStorageProfileCredentials(publicKey *rsa.PublicKey, profile config.StorageProfileConfig) (encryptedStorageProfile, error) {
 	plaintext, err := json.Marshal(struct {
+		Type            string `json:"type"`
+		Username        string `json:"username,omitempty"`
+		PrivateKeyFile  string `json:"private_key_file,omitempty"`
+		KnownHostsFile  string `json:"known_hosts_file,omitempty"`
 		Endpoint        string `json:"endpoint"`
 		Region          string `json:"region"`
 		AccessKeyID     string `json:"access_key_id"`
 		SecretAccessKey string `json:"secret_access_key"`
 	}{
+		Type:            profile.Type,
+		Username:        profile.Username,
+		PrivateKeyFile:  profile.PrivateKeyFile,
+		KnownHostsFile:  profile.KnownHostsFile,
 		Endpoint:        strings.TrimSpace(profile.Endpoint),
 		Region:          strings.TrimSpace(profile.Region),
 		AccessKeyID:     profile.AccessKeyID,

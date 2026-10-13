@@ -262,7 +262,7 @@ func TestNodeStorageProfilesReturnsReferencedProfilesEncrypted(t *testing.T) {
 		t.Fatalf("status = %d body=%s, want %d", recorder.Code, recorder.Body.String(), http.StatusOK)
 	}
 	body := recorder.Body.String()
-	for _, secret := range []string{"aws-access", "aws-secret", "backblaze-access", "backblaze-secret"} {
+	for _, secret := range []string{"aws-access", "aws-secret", "backblaze-access", "backblaze-secret", "backup", "/private/key", "/private/hosts"} {
 		if strings.Contains(body, secret) {
 			t.Fatalf("response contains plaintext credential %q: %s", secret, body)
 		}
@@ -275,8 +275,8 @@ func TestNodeStorageProfilesReturnsReferencedProfilesEncrypted(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &profiles); err != nil {
 		t.Fatalf("Unmarshal(response) error = %v", err)
 	}
-	if len(profiles) != 2 {
-		t.Fatalf("len(profiles) = %d, want 2: %+v", len(profiles), profiles)
+	if len(profiles) != 3 {
+		t.Fatalf("len(profiles) = %d, want 3: %+v", len(profiles), profiles)
 	}
 	var rawProfiles []map[string]any
 	if err := json.Unmarshal(recorder.Body.Bytes(), &rawProfiles); err != nil {
@@ -304,7 +304,15 @@ func TestNodeStorageProfilesReturnsReferencedProfilesEncrypted(t *testing.T) {
 		seen[profile.Name] = profile
 	}
 
+	sftpPlaintext := decryptStorageProfilePayloadForTest(t, privateKey, seen["local-sftp"])
+	if sftpPlaintext["type"] != "sftp" || sftpPlaintext["username"] != "backup" || sftpPlaintext["private_key_file"] != "/private/key" || sftpPlaintext["known_hosts_file"] != "/private/hosts" {
+		t.Fatalf("SFTP encrypted settings = %+v, want configured settings", sftpPlaintext)
+	}
+
 	awsPlaintext := decryptStorageProfilePayloadForTest(t, privateKey, seen["aws"])
+	if awsPlaintext["type"] != "s3" {
+		t.Fatalf("aws encrypted type = %q, want s3", awsPlaintext["type"])
+	}
 	if awsPlaintext["region"] != "eu-central-1" {
 		t.Fatalf("aws encrypted region = %q, want eu-central-1", awsPlaintext["region"])
 	}
@@ -352,17 +360,20 @@ func newConfigRouteHandlerWithAuth(database *gorm.DB, authService *service.AuthS
 		Storage: config.StorageConfig{Profiles: map[string]config.StorageProfileConfig{
 			"local-sftp": {Type: "sftp", Username: "backup", PrivateKeyFile: "/private/key", KnownHostsFile: "/private/hosts"},
 			"aws": {
+				Type:            "s3",
 				AccessKeyID:     "aws-access",
 				SecretAccessKey: "aws-secret",
 				Region:          "eu-central-1",
 			},
 			"backblaze": {
+				Type:            "s3",
 				AccessKeyID:     "backblaze-access",
 				SecretAccessKey: "backblaze-secret",
 				Region:          "eu-central-003",
 				Endpoint:        "https://s3.eu-central-003.backblazeb2.com",
 			},
 			"unused": {
+				Type:            "s3",
 				AccessKeyID:     "unused-access",
 				SecretAccessKey: "unused-secret",
 			},
