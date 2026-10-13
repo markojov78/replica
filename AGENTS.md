@@ -103,10 +103,8 @@ The following rules must not be violated unless explicitly requested:
 
 ## API Rules
 
-* Public endpoints live under `/api`.
-* Internal coordinator/node endpoints live under `/internal`.
+* The service has 4 APIs in different namespaces: Coordinator Admin API, Storage Sharing API, Coordinator Node Control API and Storage Transfer API
 * Preserve API compatibility unless explicitly instructed otherwise.
-* Do not introduce new endpoints when existing endpoints can be extended.
 * Update API documentation whenever request or response contracts change.
 * Keep public and internal APIs clearly separated.
 
@@ -119,17 +117,6 @@ The following rules must not be violated unless explicitly requested:
 * Prefer additive schema changes over breaking schema changes.
 * Keep GORM models aligned with documented schema.
 * Update database documentation when schema changes.
-
----
-
-## Replication Rules
-
-* Base replicas have `upstream_replica_id = null`.
-* Downstream replicas have `upstream_replica_id != null`.
-* Downstream replicas are not authoritative sources for inventory changes.
-* Inventory state is authoritative.
-* Replica state reflects synchronization progress relative to inventory state.
-* Changes flow through coordinator validation before becoming authoritative inventory state.
 
 ---
 
