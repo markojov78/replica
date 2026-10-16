@@ -212,7 +212,7 @@
 {{$file := .File}}
 <article class="gallery-item has-actions">
   <div class="gallery-media">
-    <a class="gallery-surface" href="{{$file.ContentPath}}" data-preview-item data-file-id="{{$file.FileID}}" data-file-name="{{$file.Name}}" data-file-type="{{$file.Type}}" data-file-size="{{formatBytes $file.Size}}" data-content-url="{{$file.ContentPath}}" data-preview-kind="{{$file.PreviewKind}}">
+    <a class="gallery-surface" href="{{$file.ContentPath}}" data-preview-item data-file-id="{{$file.FileID}}" data-file-name="{{$file.Name}}" data-file-type="{{$file.Type}}" data-file-size="{{formatBytes $file.Size}}" data-content-url="{{$file.ContentPath}}" data-preview-kind="{{$file.PreviewKind}}" data-thumbnail-url="{{$root.APIBasePath}}/files/{{$file.FileID}}/thumbnail?size={{$root.ThumbnailSize}}">
       {{if $file.ThumbnailURL}}
         <img class="grid-thumb" data-public-src="{{$file.ThumbnailURL}}" alt="" onerror="this.hidden=true; this.nextElementSibling.hidden=false">
         <span class="file-fallback" hidden>{{$file.Type}}</span>

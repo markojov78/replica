@@ -573,6 +573,7 @@
         fileType: item.dataset.fileType,
         fileSize: item.dataset.fileSize,
         contentURL: item.dataset.contentUrl,
+        thumbnailURL: item.dataset.thumbnailUrl,
         previewKind: item.dataset.previewKind,
         page,
         element: item.isConnected ? item : undefined,
@@ -655,7 +656,7 @@
       modal.querySelector("[data-preview-next]").disabled = loading || !nextAvailable;
     }
 
-    function bindImageZoom(content, image) {
+    function bindImageZoom(content, image, thumbnailURL) {
       const stage = document.createElement("div");
       stage.className = "preview-image-stage";
       const toolbar = document.createElement("div");
@@ -678,6 +679,18 @@
         buttons.set(action, button);
         toolbar.append(button);
       }
+      // Keep a thumbnail behind the visible image while progressive scans arrive.
+      const placeholder = document.createElement("img");
+      placeholder.className = "preview-image-placeholder";
+      placeholder.alt = "";
+      placeholder.draggable = false;
+      const removePlaceholder = () => placeholder.remove();
+      placeholder.addEventListener("error", removePlaceholder);
+      if (thumbnailURL) {
+        placeholder.src = thumbnailURL;
+        stage.append(placeholder);
+      }
+      image.addEventListener("load", removePlaceholder);
       image.draggable = false;
       stage.append(image);
       content.classList.add("preview-image-content");
@@ -776,6 +789,9 @@
         disposed = true;
         observer.disconnect();
         image.removeEventListener("load", resize);
+        image.removeEventListener("load", removePlaceholder);
+        placeholder.removeEventListener("error", removePlaceholder);
+        removePlaceholder();
         if (drag) endDrag({pointerId: drag.id});
         content.classList.remove("preview-image-content");
         toolbar.remove();
@@ -799,7 +815,6 @@
       if (kind === "image") {
         media = document.createElement("img");
         media.alt = item.fileName || "File preview";
-        media.src = url;
       } else if (kind === "video") {
         media = document.createElement("video");
         media.controls = true;
@@ -826,7 +841,11 @@
         media.append(name, details, original);
       }
       if (kind === "image") {
-        clearImageZoom = bindImageZoom(content, media);
+        const thumbnail = item.element?.querySelector("img.grid-thumb");
+        const thumbnailURL = thumbnail?.complete && thumbnail.naturalWidth
+          ? thumbnail.currentSrc || thumbnail.src : item.thumbnailURL;
+        clearImageZoom = bindImageZoom(content, media, thumbnailURL);
+        media.src = url;
       } else {
         content.append(media);
       }
