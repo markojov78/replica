@@ -110,6 +110,9 @@ refreshed from the coordinator.
 ### Sharing service + sharing UI
 Sharing service is both a web app with UI with data presentation (previews for images, links for documents etc) and 
 interface for data upload / replace / delete if share permissions allow it.  
+The share gallery image viewer displays the gallery thumbnail beneath the loading preview. The preview remains
+visible while downloading so progressive images can refine as data arrives; the thumbnail is removed when the
+preview finishes loading.
 The sharing service uses the coordinator to resolve which replica to use and can even use local read-only replica for 
 fast read and remote updateable replica for update.
 
