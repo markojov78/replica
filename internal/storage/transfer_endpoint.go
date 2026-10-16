@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -297,12 +298,7 @@ func parseUintQueryValue(req *http.Request, name string) (uint, error) {
 }
 
 func hasParentPathSegment(value string) bool {
-	for _, part := range strings.Split(filepath.ToSlash(value), "/") {
-		if part == ".." {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(strings.Split(filepath.ToSlash(value), "/"), "..")
 }
 
 func bearerTransferToken(header string) (string, error) {
