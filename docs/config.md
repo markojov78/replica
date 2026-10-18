@@ -480,3 +480,59 @@ Mandatory: no
 Default value: n/a
 
 Endpoint for the named S3 profile.
+
+## FUSE enabled flag
+
+Config value: `sharing.fuse.enabled`\
+Environment variable: `SHARING_FUSE_ENABLED`\
+Type: bool\
+Mandatory: no
+Default value: `false`
+
+Enables read-only FUSE mounts of shares on a storage node. Only valid when `app.storage` is true. When enabled,
+every active share assigned to this node is mounted under `sharing.fuse.path_prefix`. Mounts are created, updated
+and removed from the same state the sharing API uses, driven by startup hydration and `refresh_state` commands.
+
+## FUSE path prefix
+
+Config value: `sharing.fuse.path_prefix`\
+Environment variable: `SHARING_FUSE_PATH_PREFIX`\
+Type: string\
+Mandatory: yes when `sharing.fuse.enabled` is true
+Default value: n/a
+
+Absolute directory under which share mounts are created. Each share is mounted at
+`<path_prefix>/<sanitized-share-name>`; colliding or empty names fall back to a share-id suffix. The storage node
+must be able to create this directory and mount FUSE on it.
+
+## FUSE allow other flag
+
+Config value: `sharing.fuse.allow_other`\
+Environment variable: `SHARING_FUSE_ALLOW_OTHER`\
+Type: bool\
+Mandatory: no
+Default value: `false`
+
+When true, passes `allow_other` so users other than the mount owner may access the mount. Requires `allow_other`
+to be permitted in `/etc/fuse.conf`. When false, only the OS user running the storage node can access the mounts.
+
+## FUSE entry timeout
+
+Config value: `sharing.fuse.entry_timeout`\
+Environment variable: `SHARING_FUSE_ENTRY_TIMEOUT`\
+Type: duration\
+Mandatory: no
+Default value: `1s`
+
+Kernel cache TTL for directory entry lookups. Must be greater than zero when `sharing.fuse.enabled` is true.
+
+## FUSE attribute timeout
+
+Config value: `sharing.fuse.attr_timeout`\
+Environment variable: `SHARING_FUSE_ATTR_TIMEOUT`\
+Type: duration\
+Mandatory: no
+Default value: `1s`
+
+Kernel cache TTL for file and directory attributes. Must be greater than zero when `sharing.fuse.enabled` is true.
+

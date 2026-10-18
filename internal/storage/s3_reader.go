@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"path"
 	"strings"
@@ -41,6 +42,27 @@ func (r *S3Reader) Open(ctx context.Context, replicaURI string, relativeURI stri
 	}
 
 	return output.Body, aws.ToInt64(output.ContentLength), nil
+}
+
+func (r *S3Reader) OpenRange(ctx context.Context, replicaURI string, relativeURI string, offset int64, length int64) (io.ReadCloser, error) {
+	location, key, err := resolveS3ReadKey(replicaURI, relativeURI)
+	if err != nil {
+		return nil, err
+	}
+	if offset < 0 || length <= 0 {
+		return nil, fmt.Errorf("invalid s3 range offset=%d length=%d", offset, length)
+	}
+
+	output, err := r.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(location.Bucket),
+		Key:    aws.String(key),
+		Range:  aws.String(fmt.Sprintf("bytes=%d-%d", offset, offset+length-1)),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return output.Body, nil
 }
 
 func resolveS3ReadKey(replicaURI string, relativeURI string) (s3Location, string, error) {

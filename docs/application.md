@@ -64,6 +64,19 @@ Anonymous sharing uses the share `link_hash` as the public non-guessable identif
 only when the share has a `link_hash`, the share and replica are active, the share is not expired, and anonymous
 permissions include `read`.
 
+#### Share FUSE mount
+
+A storage node can optionally expose its shares as read-only FUSE mounts when `sharing.fuse.enabled` is true. Each
+active share assigned to the node is mounted at `<sharing.fuse.path_prefix>/<sanitized-share-name>`. Mounts are
+derived from the same runtime state the sharing API uses and are created, updated and removed on startup hydration
+and `refresh_state` commands; they add no authoritative state.
+
+The FUSE view is read-only and has no per-share Replica permissions. Access is governed by OS mount permissions:
+by default only the OS user running the storage node can access a mount, and `sharing.fuse.allow_other` widens
+this. Files are reported as mode `0444` and synthetic directories as `0555`. Directory structure is derived from
+file `relative_uri` segments, and file content is served through the same storage readers as the sharing API, using
+ranged reads for S3-backed files. See [FUSE configuration](config.md#fuse-enabled-flag).
+
 ### Users, ownership and permissions
 Users can be authenticated or anonymous. Inventory and share can have one or more users and each user can have a list 
 of actions allowed to perform for an inventory or share.

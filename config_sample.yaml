@@ -22,6 +22,12 @@ sharing:
   thumbnail_storage_limit_mb: 500
   image_cache_storage: "/tmp/replica_images"
   image_cache_storage_limit_mb: 1024
+  fuse:
+    enabled: false
+    path_prefix: "/mnt/replica-shares"
+    allow_other: false
+    entry_timeout: "1s"
+    attr_timeout: "1s"
 
 auth:
   jwt_secret: "change-me"

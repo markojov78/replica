@@ -45,6 +45,12 @@ type Reader interface {
 	Open(ctx context.Context, replicaURI string, relativeURI string) (io.ReadCloser, int64, error)
 }
 
+// RangeReader is implemented by readers that can serve a byte range without
+// streaming the whole object. It backs random-access reads for FUSE mounts.
+type RangeReader interface {
+	OpenRange(ctx context.Context, replicaURI string, relativeURI string, offset int64, length int64) (io.ReadCloser, error)
+}
+
 type Writer interface {
 	Save(ctx context.Context, replicaURI string, relativeURI string, content io.Reader, size int64) error
 	Delete(ctx context.Context, replicaURI string, relativeURI string) error

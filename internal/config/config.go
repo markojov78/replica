@@ -51,6 +51,7 @@ type SharingConfig struct {
 	ProgressiveLoading         bool
 	ImageStorage               string
 	ImageStorageLimitMB        int
+	Fuse                       FuseConfig
 }
 
 type AuthConfig struct {
@@ -92,6 +93,14 @@ type StorageProfileConfig struct {
 	Endpoint        string
 }
 
+type FuseConfig struct {
+	Enabled      bool
+	PathPrefix   string
+	AllowOther   bool
+	EntryTimeout time.Duration
+	AttrTimeout  time.Duration
+}
+
 type rawConfig struct {
 	App      rawAppConfig      `json:"app" yaml:"app" toml:"app"`
 	Sharing  rawSharingConfig  `json:"sharing" yaml:"sharing" toml:"sharing"`
@@ -116,17 +125,18 @@ type rawAppConfig struct {
 }
 
 type rawSharingConfig struct {
-	ThumbnailSizes             *[]int  `json:"thumbnail_sizes" yaml:"thumbnail_sizes" toml:"thumbnail_sizes"`
-	ThumbnailDefaultSize       *int    `json:"thumbnail_default_size" yaml:"thumbnail_default_size" toml:"thumbnail_default_size"`
-	ThumbnailsGenerateForVideo *bool   `json:"thumbnails_generate_for_video" yaml:"thumbnails_generate_for_video" toml:"thumbnails_generate_for_video"`
-	FfmpegPath                 *string `json:"ffmpeg_path" yaml:"ffmpeg_path" toml:"ffmpeg_path"`
-	VideoInlineMaxSizeMB       *int    `json:"video_inline_max_size_mb" yaml:"video_inline_max_size_mb" toml:"video_inline_max_size_mb"`
-	VideoPlaybackEnabled       *bool   `json:"video_playback_enabled" yaml:"video_playback_enabled" toml:"video_playback_enabled"`
-	ThumbnailStorage           *string `json:"thumbnail_storage" yaml:"thumbnail_storage" toml:"thumbnail_storage"`
-	ThumbnailStorageLimitMB    *int    `json:"thumbnail_storage_limit_mb" yaml:"thumbnail_storage_limit_mb" toml:"thumbnail_storage_limit_mb"`
-	ProgressiveLoading         *bool   `json:"progressive_loading" yaml:"progressive_loading" toml:"progressive_loading"`
-	ImageStorage               *string `json:"image_cache_storage" yaml:"image_cache_storage" toml:"image_cache_storage"`
-	ImageStorageLimitMB        *int    `json:"image_cache_storage_limit_mb" yaml:"image_cache_storage_limit_mb" toml:"image_cache_storage_limit_mb"`
+	ThumbnailSizes             *[]int        `json:"thumbnail_sizes" yaml:"thumbnail_sizes" toml:"thumbnail_sizes"`
+	ThumbnailDefaultSize       *int          `json:"thumbnail_default_size" yaml:"thumbnail_default_size" toml:"thumbnail_default_size"`
+	ThumbnailsGenerateForVideo *bool         `json:"thumbnails_generate_for_video" yaml:"thumbnails_generate_for_video" toml:"thumbnails_generate_for_video"`
+	FfmpegPath                 *string       `json:"ffmpeg_path" yaml:"ffmpeg_path" toml:"ffmpeg_path"`
+	VideoInlineMaxSizeMB       *int          `json:"video_inline_max_size_mb" yaml:"video_inline_max_size_mb" toml:"video_inline_max_size_mb"`
+	VideoPlaybackEnabled       *bool         `json:"video_playback_enabled" yaml:"video_playback_enabled" toml:"video_playback_enabled"`
+	ThumbnailStorage           *string       `json:"thumbnail_storage" yaml:"thumbnail_storage" toml:"thumbnail_storage"`
+	ThumbnailStorageLimitMB    *int          `json:"thumbnail_storage_limit_mb" yaml:"thumbnail_storage_limit_mb" toml:"thumbnail_storage_limit_mb"`
+	ProgressiveLoading         *bool         `json:"progressive_loading" yaml:"progressive_loading" toml:"progressive_loading"`
+	ImageStorage               *string       `json:"image_cache_storage" yaml:"image_cache_storage" toml:"image_cache_storage"`
+	ImageStorageLimitMB        *int          `json:"image_cache_storage_limit_mb" yaml:"image_cache_storage_limit_mb" toml:"image_cache_storage_limit_mb"`
+	Fuse                       rawFuseConfig `json:"fuse" yaml:"fuse" toml:"fuse"`
 }
 
 type rawAuthConfig struct {
@@ -165,6 +175,14 @@ type rawStorageProfileConfig struct {
 	SecretAccessKey *string `json:"secret_access_key" yaml:"secret_access_key" toml:"secret_access_key"`
 	Region          *string `json:"region" yaml:"region" toml:"region"`
 	Endpoint        *string `json:"endpoint" yaml:"endpoint" toml:"endpoint"`
+}
+
+type rawFuseConfig struct {
+	Enabled      *bool   `json:"enabled" yaml:"enabled" toml:"enabled"`
+	PathPrefix   *string `json:"path_prefix" yaml:"path_prefix" toml:"path_prefix"`
+	AllowOther   *bool   `json:"allow_other" yaml:"allow_other" toml:"allow_other"`
+	EntryTimeout *string `json:"entry_timeout" yaml:"entry_timeout" toml:"entry_timeout"`
+	AttrTimeout  *string `json:"attr_timeout" yaml:"attr_timeout" toml:"attr_timeout"`
 }
 
 var defaultConfigFiles = []string{
@@ -217,6 +235,13 @@ func Load() (Config, error) {
 			ProgressiveLoading:         resolveBool("SHARING_PROGRESSIVE_LOADING", fileCfg.Sharing.ProgressiveLoading, false),
 			ImageStorage:               resolveString("SHARING_IMAGE_CACHE_STORAGE", fileCfg.Sharing.ImageStorage, "/tmp/replica_images"),
 			ImageStorageLimitMB:        resolveInt("SHARING_IMAGE_CACHE_STORAGE_LIMIT_MB", fileCfg.Sharing.ImageStorageLimitMB, 1024),
+			Fuse: FuseConfig{
+				Enabled:      resolveBool("SHARING_FUSE_ENABLED", fileCfg.Sharing.Fuse.Enabled, false),
+				PathPrefix:   resolveString("SHARING_FUSE_PATH_PREFIX", fileCfg.Sharing.Fuse.PathPrefix, ""),
+				AllowOther:   resolveBool("SHARING_FUSE_ALLOW_OTHER", fileCfg.Sharing.Fuse.AllowOther, false),
+				EntryTimeout: resolveDuration("SHARING_FUSE_ENTRY_TIMEOUT", fileCfg.Sharing.Fuse.EntryTimeout, time.Second),
+				AttrTimeout:  resolveDuration("SHARING_FUSE_ATTR_TIMEOUT", fileCfg.Sharing.Fuse.AttrTimeout, time.Second),
+			},
 		},
 		Auth: AuthConfig{
 			JWTSecret:                  resolveString("AUTH_JWT_SECRET", fileCfg.Auth.JWTSecret, ""),
@@ -643,6 +668,18 @@ func (c Config) Validate() error {
 	}
 	if c.App.Storage && c.App.FileSyncRetryTime <= 0 {
 		return errors.New("app.file_sync_retry_time must be greater than 0 when storage is enabled")
+	}
+
+	if c.App.Storage && c.Sharing.Fuse.Enabled {
+		if !filepath.IsAbs(c.Sharing.Fuse.PathPrefix) {
+			return errors.New("sharing.fuse.path_prefix must be an absolute path when sharing.fuse is enabled")
+		}
+		if c.Sharing.Fuse.EntryTimeout <= 0 {
+			return errors.New("sharing.fuse.entry_timeout must be greater than 0 when sharing.fuse is enabled")
+		}
+		if c.Sharing.Fuse.AttrTimeout <= 0 {
+			return errors.New("sharing.fuse.attr_timeout must be greater than 0 when sharing.fuse is enabled")
+		}
 	}
 
 	if !c.App.Coordinator && c.App.Storage {

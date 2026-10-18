@@ -66,6 +66,7 @@ type Runtime struct {
 	cfg             config.Config
 	thumbnail       *service.ThumbnailService
 	progressiveJPEG *service.ProgressiveJPEGService
+	fuseManager     *fuseManager
 }
 
 type runningReplicaWatcher struct {
@@ -99,7 +100,7 @@ func NewRuntime(cfg config.Config) (*Runtime, error) {
 	}
 	client.SetNodePublicKey(nodePublicKey)
 
-	return &Runtime{
+	r := &Runtime{
 		client:                     client,
 		heartbeatInterval:          cfg.App.HeartbeatInterval,
 		wsDialer:                   websocket.DefaultDialer,
@@ -115,7 +116,19 @@ func NewRuntime(cfg config.Config) (*Runtime, error) {
 		cfg:                        cfg,
 		thumbnail:                  service.NewThumbnailService(cfg),
 		progressiveJPEG:            service.NewProgressiveJPEGService(cfg),
-	}, nil
+		fuseManager:                newFuseManagerIfEnabled(cfg),
+	}
+	if r.fuseManager != nil {
+		r.fuseManager.runtime = r
+	}
+	return r, nil
+}
+
+func newFuseManagerIfEnabled(cfg config.Config) *fuseManager {
+	if !cfg.Sharing.Fuse.Enabled || !cfg.App.Storage {
+		return nil
+	}
+	return &fuseManager{cfg: cfg.Sharing.Fuse, mounts: make(map[uint]*fuseMount)}
 }
 
 func (r *Runtime) Start(ctx context.Context) {
@@ -140,6 +153,9 @@ func (r *Runtime) run(ctx context.Context) {
 		r.enqueueCommand(command)
 	}
 	go r.replicaRecoveryLoop(ctx)
+	if r.fuseManager != nil {
+		r.fuseManager.Start(ctx)
+	}
 }
 
 func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []apiclient.Replica, []apiclient.Command, bool) {
@@ -951,6 +967,9 @@ func (r *Runtime) handleCommand(ctx context.Context, command apiclient.Command) 
 			return false
 		}
 		r.stopDeletedReplicaWatchers()
+		if r.fuseManager != nil {
+			r.fuseManager.reconcile(ctx)
+		}
 		return r.markCommandCompleted(ctx, command.ID)
 	case "refresh_config":
 		if err := r.refreshLocalConfig(ctx); err != nil {
