@@ -481,27 +481,17 @@ Default value: n/a
 
 Endpoint for the named S3 profile.
 
-## FUSE enabled flag
-
-Config value: `sharing.fuse.enabled`\
-Environment variable: `SHARING_FUSE_ENABLED`\
-Type: bool\
-Mandatory: no
-Default value: `false`
-
-Enables read-only FUSE mounts of shares on a storage node. Only valid when `app.storage` is true. When enabled,
-every active share assigned to this node is mounted under `sharing.fuse.path_prefix`. Mounts are created, updated
-and removed from the same state the sharing API uses, driven by startup hydration and `refresh_state` commands.
-
 ## FUSE path prefix
 
 Config value: `sharing.fuse.path_prefix`\
 Environment variable: `SHARING_FUSE_PATH_PREFIX`\
 Type: string\
-Mandatory: yes when `sharing.fuse.enabled` is true
+Mandatory: no
 Default value: n/a
 
-Absolute directory under which share mounts are created. Each share is mounted at
+Absolute directory under which share mounts are created. Shares are exposed as read-only FUSE mounts when their
+`fuse_enabled` share property is true and sharing is enabled for the node; both are managed on the coordinator. When
+not set, no FUSE mounts are created. Each share is mounted at
 `<path_prefix>/<sanitized-share-name>`; colliding or empty names fall back to a share-id suffix. The storage node
 must be able to create this directory and mount FUSE on it.
 
@@ -524,7 +514,7 @@ Type: duration\
 Mandatory: no
 Default value: `1s`
 
-Kernel cache TTL for directory entry lookups. Must be greater than zero when `sharing.fuse.enabled` is true.
+Kernel cache TTL for directory entry lookups. Must be greater than zero when `sharing.fuse.path_prefix` is set.
 
 ## FUSE attribute timeout
 
@@ -534,5 +524,5 @@ Type: duration\
 Mandatory: no
 Default value: `1s`
 
-Kernel cache TTL for file and directory attributes. Must be greater than zero when `sharing.fuse.enabled` is true.
+Kernel cache TTL for file and directory attributes. Must be greater than zero when `sharing.fuse.path_prefix` is set.
 

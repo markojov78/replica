@@ -1363,7 +1363,8 @@ Example response:
         "view": "grid",
         "page_size": 100,
         "thumbnail_size": 256,
-        "theme": "dark"
+        "theme": "dark",
+        "fuse_enabled": true
       },
       "user_permissions": [
         {
@@ -1401,7 +1402,8 @@ Example response:
     "view": null,
     "page_size": 100,
     "thumbnail_size": 256,
-    "theme": null
+    "theme": null,
+    "fuse_enabled": null
   },
   "user_permissions": [
     {
@@ -1430,6 +1432,7 @@ Request body:
   - `page_size` optional integer greater than `0`
   - `thumbnail_size` optional integer configured in `sharing.thumbnail_sizes`
   - `theme` optional, `light` or `dark`
+  - `fuse_enabled` optional boolean; when `true`, the storage node exposes the share as a read-only FUSE mount
 
 Example request:
 ```json
@@ -1442,7 +1445,8 @@ Example request:
     "view": "grid",
     "page_size": 100,
     "thumbnail_size": 256,
-    "theme": "dark"
+    "theme": "dark",
+    "fuse_enabled": true
   },
   "user_permissions": [
     {
@@ -1478,7 +1482,8 @@ Example response:
     "view": "grid",
     "page_size": 100,
     "thumbnail_size": 256,
-    "theme": "dark"
+    "theme": "dark",
+    "fuse_enabled": true
   },
   "user_permissions": [
     {
@@ -1553,7 +1558,8 @@ Example response:
     "view": null,
     "page_size": 100,
     "thumbnail_size": 256,
-    "theme": "light"
+    "theme": "light",
+    "fuse_enabled": true
   },
   "user_permissions": [
     {
@@ -1685,7 +1691,7 @@ Availability rules:
 
 The response shape intentionally matches coordinator `GET /api/admin/shares`. Storage nodes still only return shares currently available from their local runtime state, so filters such as `status=deleted` return an empty page.
 
-The `properties` object contains the same `view`, `page_size`, `thumbnail_size`, and `theme` fields as the Coordinator Admin API. Unset fields are returned as `null`.
+The `properties` object contains the same `view`, `page_size`, `thumbnail_size`, `theme`, and `fuse_enabled` fields as the Coordinator Admin API. Unset fields are returned as `null`.
 
 Example response:
 ```json
@@ -1703,7 +1709,8 @@ Example response:
         "view": "grid",
         "page_size": 100,
         "thumbnail_size": 256,
-        "theme": "dark"
+        "theme": "dark",
+        "fuse_enabled": true
       },
       "user_permissions": [
         {
@@ -2847,6 +2854,7 @@ Behavior:
 - returns only shares whose replica `node_id` matches the authenticated node
 - includes per-user and anonymous share permissions
 - includes the share `properties` object; unset property fields are returned as `null`
+- `properties.fuse_enabled` tells the storage node whether to expose the share as a read-only FUSE mount
 - does not support user-style filtering or pagination
 
 Example request:
@@ -2873,7 +2881,8 @@ Example response:
       "view": "grid",
       "page_size": 100,
       "thumbnail_size": 256,
-      "theme": "dark"
+      "theme": "dark",
+      "fuse_enabled": true
     },
     "user_permissions": [
       {

@@ -167,6 +167,7 @@ type ShareProperties struct {
 	PageSize      *int    `json:"page_size"`
 	ThumbnailSize *int    `json:"thumbnail_size"`
 	Theme         *string `json:"theme"`
+	FuseEnabled   *bool   `json:"fuse_enabled"`
 }
 
 type ConfigItem struct {

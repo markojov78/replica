@@ -121,7 +121,7 @@ func TestServeAuthenticatedSharesFiltersReadableSharesAndCachesToken(t *testing.
 	req.Header.Set("Authorization", "Bearer user-token")
 	rec := httptest.NewRecorder()
 	runtime.ServeAuthenticatedShares(rec, req)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"properties":{"view":"grid","page_size":100,"thumbnail_size":256,"theme":"dark"}`) {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"properties":{"view":"grid","page_size":100,"thumbnail_size":256,"theme":"dark","fuse_enabled":null}`) {
 		t.Fatalf("share detail status = %d body=%s, want properties", rec.Code, rec.Body.String())
 	}
 
@@ -192,7 +192,7 @@ func TestServeAuthenticatedSharesUsesCoordinatorListEnvelopeAndFilters(t *testin
 	if len(list.Items) != 1 || list.Items[0].ID != 2 {
 		t.Fatalf("items = %+v, want share 2", list.Items)
 	}
-	if !strings.Contains(rec.Body.String(), `"properties":{"view":null,"page_size":null,"thumbnail_size":null,"theme":null}`) {
+	if !strings.Contains(rec.Body.String(), `"properties":{"view":null,"page_size":null,"thumbnail_size":null,"theme":null,"fuse_enabled":null}`) {
 		t.Fatalf("body = %s, want explicit null property values", rec.Body.String())
 	}
 }

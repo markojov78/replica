@@ -116,7 +116,7 @@ func NewRuntime(cfg config.Config) (*Runtime, error) {
 		cfg:                        cfg,
 		thumbnail:                  service.NewThumbnailService(cfg),
 		progressiveJPEG:            service.NewProgressiveJPEGService(cfg),
-		fuseManager:                newFuseManagerIfEnabled(cfg),
+		fuseManager:                newStorageFuseManager(cfg),
 	}
 	if r.fuseManager != nil {
 		r.fuseManager.runtime = r
@@ -124,8 +124,8 @@ func NewRuntime(cfg config.Config) (*Runtime, error) {
 	return r, nil
 }
 
-func newFuseManagerIfEnabled(cfg config.Config) *fuseManager {
-	if !cfg.Sharing.Fuse.Enabled || !cfg.App.Storage {
+func newStorageFuseManager(cfg config.Config) *fuseManager {
+	if !cfg.App.Storage {
 		return nil
 	}
 	return &fuseManager{cfg: cfg.Sharing.Fuse, mounts: make(map[uint]*fuseMount)}
@@ -975,6 +975,9 @@ func (r *Runtime) handleCommand(ctx context.Context, command apiclient.Command) 
 		if err := r.refreshLocalConfig(ctx); err != nil {
 			r.markCommandFailed(ctx, command.ID, err)
 			return false
+		}
+		if r.fuseManager != nil {
+			r.fuseManager.reconcile(ctx)
 		}
 		return r.markCommandCompleted(ctx, command.ID)
 	case "scan_replica":

@@ -18,9 +18,10 @@ import (
 )
 
 // fuseManager owns the read-only FUSE mounts exposed by a storage node. Each
-// active share assigned to this node is mounted at <path_prefix>/<share-name>.
-// Mounts are created, updated and removed from the same state that the sharing
-// API uses, driven by startup hydration and refresh_state commands.
+// active share assigned to this node with the fuse_enabled property is mounted
+// at <path_prefix>/<share-name> while sharing is enabled on the node. Mounts are
+// created, updated and removed from the same state that the sharing API uses,
+// driven by startup hydration, refresh_state and refresh_config commands.
 type fuseManager struct {
 	runtime *Runtime
 	cfg     config.FuseConfig
@@ -65,12 +66,20 @@ func (m *fuseManager) reconcile(ctx context.Context) {
 
 	desired := make(map[uint]desiredMount)
 	usedMountPoints := make(map[string]uint)
+	sharingEnabled := m.runtime.SharingEnabled()
 	for _, share := range m.runtime.sharesSnapshot() {
+		if !sharingEnabled || !shareFuseEnabled(share) {
+			continue
+		}
 		replica, ok := replicas[share.ReplicaID]
 		if !ok {
 			continue
 		}
 		if !shareAvailableOnReplica(share, replica, nodeID) {
+			continue
+		}
+		if m.cfg.PathPrefix == "" {
+			log.Printf("storage runtime fuse mount skipped share_id=%d: sharing.fuse.path_prefix is not configured", share.ID)
 			continue
 		}
 		mountPoint := m.mountPoint(share, usedMountPoints)
@@ -92,6 +101,10 @@ func (m *fuseManager) reconcile(ctx context.Context) {
 		}
 		m.mount(ctx, want)
 	}
+}
+
+func shareFuseEnabled(share apiclient.Share) bool {
+	return share.Properties.FuseEnabled != nil && *share.Properties.FuseEnabled
 }
 
 func (m *fuseManager) mountPoint(share apiclient.Share, used map[string]uint) string {

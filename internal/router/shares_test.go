@@ -49,7 +49,7 @@ func TestShareRoutesCreateAndListWithGlobalPermissions(t *testing.T) {
 	if created.Properties.View != nil || created.Properties.PageSize != nil || created.Properties.ThumbnailSize != nil || created.Properties.Theme != nil {
 		t.Fatalf("created.Properties = %+v, want null values", created.Properties)
 	}
-	if !strings.Contains(recorder.Body.String(), `"properties":{"view":null,"page_size":null,"thumbnail_size":null,"theme":null}`) {
+	if !strings.Contains(recorder.Body.String(), `"properties":{"view":null,"page_size":null,"thumbnail_size":null,"theme":null,"fuse_enabled":null}`) {
 		t.Fatalf("created response = %s, want explicit null property values", recorder.Body.String())
 	}
 	if len(created.UserPermissions) != 1 || created.UserPermissions[0].UserID != user.ID || len(created.UserPermissions[0].Permissions) != 4 {
@@ -251,6 +251,7 @@ func TestShareRoutesCreatePatchAndValidateProperties(t *testing.T) {
 		`{"page_size":1.5}`,
 		`{"thumbnail_size":999}`,
 		`{"theme":"system"}`,
+		`{"fuse_enabled":"yes"}`,
 		`{"unknown":true}`,
 	}
 	for _, properties := range invalidProperties {
@@ -260,7 +261,7 @@ func TestShareRoutesCreatePatchAndValidateProperties(t *testing.T) {
 		}
 	}
 
-	recorder := request(http.MethodPost, "/api/admin/shares", `{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"properties":{"view":"grid","page_size":100,"thumbnail_size":256,"theme":"dark"}}`)
+	recorder := request(http.MethodPost, "/api/admin/shares", `{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"properties":{"view":"grid","page_size":100,"thumbnail_size":256,"theme":"dark","fuse_enabled":true}}`)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("create status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
 	}
@@ -271,7 +272,8 @@ func TestShareRoutesCreatePatchAndValidateProperties(t *testing.T) {
 	if created.Properties.View == nil || *created.Properties.View != "grid" ||
 		created.Properties.PageSize == nil || *created.Properties.PageSize != 100 ||
 		created.Properties.ThumbnailSize == nil || *created.Properties.ThumbnailSize != 256 ||
-		created.Properties.Theme == nil || *created.Properties.Theme != "dark" {
+		created.Properties.Theme == nil || *created.Properties.Theme != "dark" ||
+		created.Properties.FuseEnabled == nil || !*created.Properties.FuseEnabled {
 		t.Fatalf("created.Properties = %+v, want all requested values", created.Properties)
 	}
 
@@ -286,7 +288,8 @@ func TestShareRoutesCreatePatchAndValidateProperties(t *testing.T) {
 	}
 	if patched.Properties.View != nil || patched.Properties.PageSize == nil || *patched.Properties.PageSize != 25 ||
 		patched.Properties.ThumbnailSize == nil || *patched.Properties.ThumbnailSize != 256 ||
-		patched.Properties.Theme == nil || *patched.Properties.Theme != "light" {
+		patched.Properties.Theme == nil || *patched.Properties.Theme != "light" ||
+		patched.Properties.FuseEnabled == nil || !*patched.Properties.FuseEnabled {
 		t.Fatalf("patched.Properties = %+v, want merged values with view cleared", patched.Properties)
 	}
 

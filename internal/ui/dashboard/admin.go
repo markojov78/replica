@@ -106,6 +106,7 @@ type shareProperties struct {
 	PageSize      *int    `json:"page_size"`
 	ThumbnailSize *int    `json:"thumbnail_size"`
 	Theme         *string `json:"theme"`
+	FuseEnabled   *bool   `json:"fuse_enabled"`
 }
 
 type shareUserPermission struct {
@@ -294,6 +295,7 @@ func Register(mux *http.ServeMux, api http.Handler, cfg config.Config, authServi
 		"selectedString":         selectedString,
 		"selectedInt":            selectedInt,
 		"optionalIntValue":       optionalIntValue,
+		"enabledBool":            enabledBool,
 		"shareNodeIDs":           shareNodeIDs,
 		"shareFilterNodes":       shareFilterNodes,
 		"shareFilterInventories": shareFilterInventories,
@@ -1679,6 +1681,10 @@ func sharePropertiesFromForm(values url.Values) (shareProperties, error) {
 		}
 		properties.Theme = &theme
 	}
+	if values.Get("property_fuse_enabled") == "on" {
+		fuseEnabled := true
+		properties.FuseEnabled = &fuseEnabled
+	}
 	return properties, nil
 }
 
@@ -1700,6 +1706,10 @@ func selectedString(value *string, expected string) bool {
 
 func selectedInt(value *int, expected int) bool {
 	return value != nil && *value == expected
+}
+
+func enabledBool(value *bool) bool {
+	return value != nil && *value
 }
 
 func optionalIntValue(value *int) string {

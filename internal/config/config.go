@@ -94,7 +94,6 @@ type StorageProfileConfig struct {
 }
 
 type FuseConfig struct {
-	Enabled      bool
 	PathPrefix   string
 	AllowOther   bool
 	EntryTimeout time.Duration
@@ -178,7 +177,6 @@ type rawStorageProfileConfig struct {
 }
 
 type rawFuseConfig struct {
-	Enabled      *bool   `json:"enabled" yaml:"enabled" toml:"enabled"`
 	PathPrefix   *string `json:"path_prefix" yaml:"path_prefix" toml:"path_prefix"`
 	AllowOther   *bool   `json:"allow_other" yaml:"allow_other" toml:"allow_other"`
 	EntryTimeout *string `json:"entry_timeout" yaml:"entry_timeout" toml:"entry_timeout"`
@@ -236,7 +234,6 @@ func Load() (Config, error) {
 			ImageStorage:               resolveString("SHARING_IMAGE_CACHE_STORAGE", fileCfg.Sharing.ImageStorage, "/tmp/replica_images"),
 			ImageStorageLimitMB:        resolveInt("SHARING_IMAGE_CACHE_STORAGE_LIMIT_MB", fileCfg.Sharing.ImageStorageLimitMB, 1024),
 			Fuse: FuseConfig{
-				Enabled:      resolveBool("SHARING_FUSE_ENABLED", fileCfg.Sharing.Fuse.Enabled, false),
 				PathPrefix:   resolveString("SHARING_FUSE_PATH_PREFIX", fileCfg.Sharing.Fuse.PathPrefix, ""),
 				AllowOther:   resolveBool("SHARING_FUSE_ALLOW_OTHER", fileCfg.Sharing.Fuse.AllowOther, false),
 				EntryTimeout: resolveDuration("SHARING_FUSE_ENTRY_TIMEOUT", fileCfg.Sharing.Fuse.EntryTimeout, time.Second),
@@ -670,15 +667,15 @@ func (c Config) Validate() error {
 		return errors.New("app.file_sync_retry_time must be greater than 0 when storage is enabled")
 	}
 
-	if c.App.Storage && c.Sharing.Fuse.Enabled {
+	if c.App.Storage && c.Sharing.Fuse.PathPrefix != "" {
 		if !filepath.IsAbs(c.Sharing.Fuse.PathPrefix) {
-			return errors.New("sharing.fuse.path_prefix must be an absolute path when sharing.fuse is enabled")
+			return errors.New("sharing.fuse.path_prefix must be an absolute path")
 		}
 		if c.Sharing.Fuse.EntryTimeout <= 0 {
-			return errors.New("sharing.fuse.entry_timeout must be greater than 0 when sharing.fuse is enabled")
+			return errors.New("sharing.fuse.entry_timeout must be greater than 0 when sharing.fuse.path_prefix is set")
 		}
 		if c.Sharing.Fuse.AttrTimeout <= 0 {
-			return errors.New("sharing.fuse.attr_timeout must be greater than 0 when sharing.fuse is enabled")
+			return errors.New("sharing.fuse.attr_timeout must be greater than 0 when sharing.fuse.path_prefix is set")
 		}
 	}
 

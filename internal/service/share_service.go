@@ -451,6 +451,12 @@ func mergeShareProperties(current model.ShareProperties, values map[string]json.
 				return current, ErrInvalidShareProperties
 			}
 			properties.Theme = value
+		case "fuse_enabled":
+			value, err := nullableJSONBool(raw)
+			if err != nil {
+				return current, ErrInvalidShareProperties
+			}
+			properties.FuseEnabled = value
 		default:
 			return current, ErrInvalidShareProperties
 		}
@@ -463,6 +469,17 @@ func nullableJSONString(raw json.RawMessage) (*string, error) {
 		return nil, nil
 	}
 	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
+func nullableJSONBool(raw json.RawMessage) (*bool, error) {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, nil
+	}
+	var value bool
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return nil, err
 	}

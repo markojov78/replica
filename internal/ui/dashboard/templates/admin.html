@@ -369,6 +369,7 @@
       </label>
       <label class="full">Name<input name="name" value="{{.Share.Name}}" placeholder="Leave empty to use inventory name"><small>If omitted, the share name is taken from the selected inventory.</small></label>
     {{end}}
+    <label class="checkbox-field full"><input name="property_fuse_enabled" type="checkbox" {{if enabledBool .Share.Properties.FuseEnabled}}checked{{end}}> Expose as read-only FUSE mount on the storage node</label>
     <div class="full permission-panel">
       <div class="section-head"><div><h2>Appearance</h2><p>Optional defaults for the share interface. Unset values use the interface defaults.</p></div></div>
       <div class="appearance-grid">

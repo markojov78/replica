@@ -284,3 +284,51 @@ func TestShareFSFuseMountIntegration(t *testing.T) {
 		t.Fatalf("mount entries = %v, want top.txt and album", names)
 	}
 }
+
+func TestFuseReconcileSkipsSharesNotEnabledForFuse(t *testing.T) {
+	client, err := apiclient.New(config.Config{App: config.AppConfig{NodeID: "node", NodeAddress: "http://127.0.0.1", CoordinatorURL: "http://127.0.0.1"}, Auth: config.AuthConfig{NodeSecret: "test"}})
+	if err != nil {
+		t.Fatalf("apiclient.New() error = %v", err)
+	}
+	enabled, disabled := true, false
+	cases := map[string]struct {
+		sharingEnabled bool
+		fuseEnabled    *bool
+		pathPrefix     bool
+	}{
+		"sharing disabled":    {sharingEnabled: false, fuseEnabled: &enabled, pathPrefix: true},
+		"fuse unset":          {sharingEnabled: true, fuseEnabled: nil, pathPrefix: true},
+		"fuse disabled":       {sharingEnabled: true, fuseEnabled: &disabled, pathPrefix: true},
+		"path prefix not set": {sharingEnabled: true, fuseEnabled: &enabled, pathPrefix: false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			prefix := t.TempDir()
+			cfg := config.Config{}
+			cfg.Sharing.Enabled = tc.sharingEnabled
+			r := &Runtime{
+				client:   client,
+				cfg:      cfg,
+				replicas: []apiclient.Replica{{ID: 7, NodeID: "node", Status: "active"}},
+				shares:   []apiclient.Share{{ID: 1, ReplicaID: 7, Name: "Album", Status: "active", Properties: apiclient.ShareProperties{FuseEnabled: tc.fuseEnabled}}},
+			}
+			m := &fuseManager{runtime: r, mounts: make(map[uint]*fuseMount)}
+			if tc.pathPrefix {
+				m.cfg.PathPrefix = prefix
+			}
+
+			m.reconcile(context.Background())
+
+			if len(m.mounts) != 0 {
+				t.Fatalf("mounts = %v, want none", m.mounts)
+			}
+			entries, err := os.ReadDir(prefix)
+			if err != nil {
+				t.Fatalf("ReadDir() error = %v", err)
+			}
+			if len(entries) != 0 {
+				t.Fatalf("mount point entries = %d, want none", len(entries))
+			}
+		})
+	}
+}

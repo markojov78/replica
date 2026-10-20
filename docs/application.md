@@ -66,16 +66,17 @@ permissions include `read`.
 
 #### Share FUSE mount
 
-A storage node can optionally expose its shares as read-only FUSE mounts when `sharing.fuse.enabled` is true. Each
-active share assigned to the node is mounted at `<sharing.fuse.path_prefix>/<sanitized-share-name>`. Mounts are
-derived from the same runtime state the sharing API uses and are created, updated and removed on startup hydration
-and `refresh_state` commands; they add no authoritative state.
+A storage node can expose individual shares as read-only FUSE mounts. FUSE exposure is enabled per share through the
+`fuse_enabled` share property and requires sharing to be enabled for the node. Each such active share assigned to the
+node is mounted at `<sharing.fuse.path_prefix>/<sanitized-share-name>`; nodes without `sharing.fuse.path_prefix`
+create no mounts. Mounts are derived from the same runtime state the sharing API uses and are created, updated and
+removed on startup hydration, `refresh_state` and `refresh_config` commands; they add no authoritative state.
 
 The FUSE view is read-only and has no per-share Replica permissions. Access is governed by OS mount permissions:
 by default only the OS user running the storage node can access a mount, and `sharing.fuse.allow_other` widens
 this. Files are reported as mode `0444` and synthetic directories as `0555`. Directory structure is derived from
 file `relative_uri` segments, and file content is served through the same storage readers as the sharing API, using
-ranged reads for S3-backed files. See [FUSE configuration](config.md#fuse-enabled-flag).
+ranged reads for S3-backed files. See [FUSE configuration](config.md#fuse-path-prefix).
 
 ### Users, ownership and permissions
 Users can be authenticated or anonymous. Inventory and share can have one or more users and each user can have a list 
@@ -183,7 +184,8 @@ name - if not specified, will use inventory name
 status - active, deleted  
 link_hash - optional link hash  
 share_expiration - optional share expiration  
-properties - JSON object containing optional share UI defaults (`view`, `page_size`, `thumbnail_size`, `theme`)
+properties - JSON object containing optional share UI defaults (`view`, `page_size`, `thumbnail_size`, `theme`) and the
+optional `fuse_enabled` flag for exposing the share as a read-only FUSE mount
 
 #### share_users
 user_id - nullable only when anonymous is true
