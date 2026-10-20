@@ -493,7 +493,8 @@ Absolute directory under which share mounts are created. Shares are exposed as r
 `fuse_enabled` share property is true and sharing is enabled for the node; both are managed on the coordinator. When
 not set, no FUSE mounts are created. Each share is mounted at
 `<path_prefix>/<sanitized-share-name>`; colliding or empty names fall back to a share-id suffix. The storage node
-must be able to create this directory and mount FUSE on it.
+must be able to create this directory and mount FUSE on it. FUSE mounts are supported on Linux except 32-bit ARM;
+on other platforms `sharing.fuse.*` settings are validated but not used.
 
 ## FUSE allow other flag
 

@@ -1,3 +1,5 @@
+//go:build linux && !arm
+
 package storage
 
 import (
@@ -40,6 +42,13 @@ type desiredMount struct {
 	share      apiclient.Share
 	replica    apiclient.Replica
 	mountPoint string
+}
+
+func newStorageFuseManager(cfg config.Config) *fuseManager {
+	if !cfg.App.Storage {
+		return nil
+	}
+	return &fuseManager{cfg: cfg.Sharing.Fuse, mounts: make(map[uint]*fuseMount)}
 }
 
 func newFuseManager(r *Runtime) *fuseManager {

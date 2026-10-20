@@ -124,13 +124,6 @@ func NewRuntime(cfg config.Config) (*Runtime, error) {
 	return r, nil
 }
 
-func newStorageFuseManager(cfg config.Config) *fuseManager {
-	if !cfg.App.Storage {
-		return nil
-	}
-	return &fuseManager{cfg: cfg.Sharing.Fuse, mounts: make(map[uint]*fuseMount)}
-}
-
 func (r *Runtime) Start(ctx context.Context) {
 	go r.run(ctx)
 }

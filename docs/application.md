@@ -71,6 +71,8 @@ A storage node can expose individual shares as read-only FUSE mounts. FUSE expos
 node is mounted at `<sharing.fuse.path_prefix>/<sanitized-share-name>`; nodes without `sharing.fuse.path_prefix`
 create no mounts. Mounts are derived from the same runtime state the sharing API uses and are created, updated and
 removed on startup hydration, `refresh_state` and `refresh_config` commands; they add no authoritative state.
+FUSE mounts are supported on Linux storage nodes, except 32-bit ARM (`linux-armv7`). Storage nodes on other platforms do not create mounts and do
+not use `fuse_enabled` or `sharing.fuse.*`; a coordinator on any platform still manages `fuse_enabled` for Linux nodes.
 
 The FUSE view is read-only and has no per-share Replica permissions. Access is governed by OS mount permissions:
 by default only the OS user running the storage node can access a mount, and `sharing.fuse.allow_other` widens
