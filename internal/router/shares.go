@@ -141,6 +141,64 @@ func registerShareRoutes(api huma.API, svc services) {
 	})
 }
 
+func registerShareFileRoutes(api huma.API, svc services) {
+	huma.Get(api, "/shares/{id}/files", func(ctx context.Context, input *listShareFilesInput) (*inventoryFileListResponse, error) {
+		accessToken, err := bearerToken(input.Authorization)
+		if err != nil {
+			return nil, huma.Error401Unauthorized("missing authenticated user")
+		}
+		if err := AuthorizeShareAction(svc, accessToken, input.ID, model.PermissionActionRead); err != nil {
+			return nil, mapPermissionError(err)
+		}
+
+		page, count, err := resolvePagination(input.Page, input.Count)
+		if err != nil {
+			return nil, err
+		}
+		files, err := svc.shares.ListFiles(input.ID, page, count, service.InventoryFileListFilter{
+			Status: input.Status,
+			Path:   input.Path,
+			Sort:   input.Sort,
+			Order:  input.Order,
+		})
+		if err != nil {
+			return nil, mapShareError(err, svc.shares)
+		}
+		return &inventoryFileListResponse{Body: *files}, nil
+	})
+
+	huma.Post(api, "/shares/{id}/files", func(ctx context.Context, input *addShareFilesInput) (*shareResponse, error) {
+		accessToken, err := bearerToken(input.Authorization)
+		if err != nil {
+			return nil, huma.Error401Unauthorized("missing authenticated user")
+		}
+		if err := AuthorizeShareAction(svc, accessToken, input.ID, model.PermissionActionUpdate); err != nil {
+			return nil, mapPermissionError(err)
+		}
+
+		share, err := svc.shares.AddFiles(input.ID, input.Body.FileIDs)
+		if err != nil {
+			return nil, mapShareError(err, svc.shares)
+		}
+		return &shareResponse{Body: *share}, nil
+	})
+
+	huma.Delete(api, "/shares/{id}/files/{file_id}", func(ctx context.Context, input *removeShareFileInput) (*deleteShareResponse, error) {
+		accessToken, err := bearerToken(input.Authorization)
+		if err != nil {
+			return nil, huma.Error401Unauthorized("missing authenticated user")
+		}
+		if err := AuthorizeShareAction(svc, accessToken, input.ID, model.PermissionActionUpdate); err != nil {
+			return nil, mapPermissionError(err)
+		}
+
+		if err := svc.shares.RemoveFile(input.ID, input.FileID); err != nil {
+			return nil, mapShareError(err, svc.shares)
+		}
+		return &deleteShareResponse{Status: 204}, nil
+	})
+}
+
 func AuthorizeShareAction(svc services, accessToken string, shareID uint, action model.PermissionAction) error {
 	user, err := svc.auth.Authorize(accessToken, model.PermissionResourceShares, action)
 	if err != nil {
@@ -208,6 +266,34 @@ type deleteShareInput struct {
 	versionHeader
 	Authorization string `header:"Authorization"`
 	ID            uint   `path:"id"`
+}
+
+type listShareFilesInput struct {
+	versionHeader
+	Authorization string `header:"Authorization"`
+	ID            uint   `path:"id"`
+	Page          int    `query:"page" default:"1"`
+	Count         int    `query:"count" default:"20"`
+	Status        string `query:"status"`
+	Path          string `query:"path"`
+	Sort          string `query:"sort" default:"id"`
+	Order         string `query:"order" default:"asc"`
+}
+
+type addShareFilesInput struct {
+	versionHeader
+	Authorization string `header:"Authorization"`
+	ID            uint   `path:"id"`
+	Body          struct {
+		FileIDs []uint `json:"file_ids"`
+	}
+}
+
+type removeShareFileInput struct {
+	versionHeader
+	Authorization string `header:"Authorization"`
+	ID            uint   `path:"id"`
+	FileID        uint   `path:"file_id"`
 }
 
 type shareResponse struct {

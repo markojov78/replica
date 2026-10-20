@@ -11,6 +11,7 @@ import (
 	"replica/internal/model"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type ReplicaRepository struct {
@@ -29,6 +30,8 @@ type ReplicaFileUpdate struct {
 	FileHash     string
 	CreatedTime  time.Time
 	ModifiedTime time.Time
+	// ShareID adds a created file to a subset share after it becomes authoritative.
+	ShareID *uint
 }
 
 var (
@@ -322,15 +325,14 @@ func (r *ReplicaRepository) FindByID(id uint) (*model.Replica, error) {
 	return &replica, nil
 }
 
-func (r *ReplicaRepository) FindActiveByLocationExcludingID(nodeID, uri string, excludedID uint) (*model.Replica, error) {
-	var replica model.Replica
-	if err := r.db.
-		Where("node_id = ? AND uri = ? AND status = ? AND id <> ?", nodeID, uri, model.ReplicaStatusActive, excludedID).
-		Order("id asc").
-		First(&replica).Error; err != nil {
-		return nil, err
-	}
-	return &replica, nil
+func (r *ReplicaRepository) ListActive() ([]model.Replica, error) {
+	return listActiveReplicas(r.db)
+}
+
+func listActiveReplicas(db *gorm.DB) ([]model.Replica, error) {
+	var replicas []model.Replica
+	err := db.Where("status = ?", model.ReplicaStatusActive).Order("id asc").Find(&replicas).Error
+	return replicas, err
 }
 
 func (r *ReplicaRepository) HasActiveShares(replicaID uint) (bool, error) {
@@ -632,7 +634,23 @@ func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaF
 		}
 
 		affectedReplicaIDs := make(map[uint]struct{})
+		shareFilesAdded := false
+		addShareFile := func(update ReplicaFileUpdate) error {
+			if update.ShareID == nil {
+				return nil
+			}
+			if err := addReportedShareFile(tx, replica, update); err != nil {
+				return err
+			}
+			shareFilesAdded = true
+			return nil
+		}
 		for _, update := range updates {
+			if update.ShareID != nil {
+				if err := validateReportedShare(tx, replica, *update.ShareID); err != nil {
+					return err
+				}
+			}
 			if update.Action == model.ReplicaFileActionDeleted {
 				affected, err := r.handleDeletedReportedFile(tx, replica, update)
 				if err != nil {
@@ -649,6 +667,9 @@ func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaF
 				return err
 			}
 			if handled {
+				if err := addShareFile(update); err != nil {
+					return err
+				}
 				continue
 			}
 
@@ -662,6 +683,9 @@ func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaF
 					return err
 				}
 				if !authoritative {
+					if err := addShareFile(update); err != nil {
+						return err
+					}
 					continue
 				}
 			}
@@ -753,6 +777,21 @@ func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaF
 				}
 				affectedReplicaIDs[destinationReplica.ID] = struct{}{}
 			}
+			if err := addShareFile(update); err != nil {
+				return err
+			}
+		}
+
+		if shareFilesAdded {
+			command := model.Command{
+				NodeID: replica.NodeID,
+				Type:   model.NodeCommandTypeRefreshState,
+				Status: model.NodeCommandStatusPending,
+			}
+			if err := createShareRefreshCommand(tx, &command); err != nil {
+				return err
+			}
+			commands = append(commands, command)
 		}
 
 		if len(payloadBuilders) > 0 && len(affectedReplicaIDs) > 0 {
@@ -780,6 +819,47 @@ func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaF
 		return nil
 	})
 	return commands, err
+}
+
+// validateReportedShare accepts only active subset shares of the reporting replica. Adding a file to a share without
+// share files would turn a whole-replica share into a subset share.
+func validateReportedShare(tx *gorm.DB, replica model.Replica, shareID uint) error {
+	var share model.Share
+	if err := tx.First(&share, shareID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrInvalidReplicaFileUpdate
+		}
+		return err
+	}
+	if share.ReplicaID != replica.ID || share.Status != model.ShareStatusActive {
+		return ErrInvalidReplicaFileUpdate
+	}
+	var count int64
+	if err := tx.Model(&model.ShareFile{}).Where("share_id = ?", shareID).Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrInvalidReplicaFileUpdate
+	}
+	return nil
+}
+
+// addReportedShareFile adds the authoritative file matching the reported content to the share.
+func addReportedShareFile(tx *gorm.DB, replica model.Replica, update ReplicaFileUpdate) error {
+	var file model.InventoryFile
+	err := tx.Where("inventory_id = ? AND relative_uri = ? AND status = ?", replica.InventoryID, update.RelativeURI, model.InventoryFileStatusActive).
+		First(&file).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return ErrInvalidReplicaFileUpdate
+	}
+	if err != nil {
+		return err
+	}
+	if !sameReportedFileContent(file, update) {
+		return ErrInvalidReplicaFileUpdate
+	}
+	return tx.Clauses(clause.OnConflict{DoNothing: true}).
+		Create(&model.ShareFile{ShareID: *update.ShareID, FileID: file.ID}).Error
 }
 
 func (r *ReplicaRepository) ReportDownstreamFileChanges(replicaID uint, updates []ReplicaFileUpdate, payloadBuilder ReconcilePayloadBuilder) ([]model.Command, error) {

@@ -134,7 +134,7 @@ func TestPublicReplicaMutationsRejectDeletedInventory(t *testing.T) {
 		t.Fatalf("replicaCount = %d, want 3", replicaCount)
 	}
 
-	wantMessage := "Active replica " + strconv.FormatUint(uint64(activeReplica.ID), 10) + " on node-a is already using location /data/shared"
+	wantMessage := "Active replica " + strconv.FormatUint(uint64(activeReplica.ID), 10) + " on node-a is already using overlapping location /data/shared"
 	assertConflict(t, handler, pair.AccessToken, http.MethodPatch, "/api/admin/replicas/"+strconv.FormatUint(uint64(deletedReplica.ID), 10), `{"status":"active"}`, wantMessage)
 }
 

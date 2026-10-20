@@ -1435,7 +1435,7 @@ func TestThumbnailHandlerReleasesProtectionAfterStreaming(t *testing.T) {
 					t.Fatalf("evicted during response: %v", err)
 				}
 			}
-			runtime.serveShareFileThumbnail(writer, httptest.NewRequest(http.MethodGet, "/thumbnail", nil), replica, 10)
+			runtime.serveShareFileThumbnail(writer, httptest.NewRequest(http.MethodGet, "/thumbnail", nil), apiclient.Share{ID: 1, ReplicaID: 3, InventoryID: 1}, replica, 10)
 			if writes == 0 || writer.Code != http.StatusOK {
 				t.Fatalf("thumbnail not streamed: writes=%d status=%d", writes, writer.Code)
 			}

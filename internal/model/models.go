@@ -163,6 +163,17 @@ func (Share) TableName() string {
 	return "shares"
 }
 
+type ShareFile struct {
+	ShareID uint          `gorm:"primaryKey;autoIncrement:false;column:share_id" json:"share_id"`
+	FileID  uint          `gorm:"primaryKey;autoIncrement:false;column:file_id;index" json:"file_id"`
+	Share   Share         `gorm:"foreignKey:ShareID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
+	File    InventoryFile `gorm:"foreignKey:FileID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
+}
+
+func (ShareFile) TableName() string {
+	return "share_files"
+}
+
 type User struct {
 	ID       uint        `gorm:"primaryKey" json:"id"`
 	Username string      `gorm:"size:255;uniqueIndex;not null" json:"username"`
@@ -281,6 +292,7 @@ func AllModels() []any {
 		&Replica{},
 		&ReplicaFile{},
 		&Share{},
+		&ShareFile{},
 		&User{},
 		&UserRole{},
 		&Role{},

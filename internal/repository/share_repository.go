@@ -9,6 +9,7 @@ import (
 	"replica/internal/model"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type ShareRepository struct {
@@ -123,18 +124,89 @@ func (r *ShareRepository) FindReplicaByID(id uint) (*model.Replica, error) {
 	return &replica, nil
 }
 
-func (r *ShareRepository) HasActiveShareForReplica(replicaID uint, excludeShareID uint) (bool, error) {
-	query := r.db.Model(&model.Share{}).
-		Where("replica_id = ? AND status = ?", replicaID, model.ShareStatusActive)
-	if excludeShareID > 0 {
-		query = query.Where("id <> ?", excludeShareID)
-	}
+func (r *ShareRepository) ListFilesPage(shareID uint, page, perPage int, filter InventoryFileListFilter) ([]model.InventoryFile, int64, error) {
+	query := r.db.Model(&model.InventoryFile{}).
+		Joins("JOIN share_files ON share_files.file_id = inventory_files.id").
+		Where("share_files.share_id = ?", shareID)
+	return listInventoryFilesPage(query, page, perPage, filter)
+}
 
-	var count int64
-	if err := query.Count(&count).Error; err != nil {
-		return false, err
+// FileIDs returns share file ids grouped by share id.
+func (r *ShareRepository) FileIDs(shareIDs []uint) (map[uint][]uint, error) {
+	result := make(map[uint][]uint)
+	if len(shareIDs) == 0 {
+		return result, nil
 	}
-	return count > 0, nil
+	var rows []model.ShareFile
+	if err := r.db.Where("share_id IN ?", shareIDs).Order("share_id asc, file_id asc").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		result[row.ShareID] = append(result[row.ShareID], row.FileID)
+	}
+	return result, nil
+}
+
+// FileCounts returns the number of share files grouped by share id.
+func (r *ShareRepository) FileCounts(shareIDs []uint) (map[uint]int64, error) {
+	result := make(map[uint]int64)
+	if len(shareIDs) == 0 {
+		return result, nil
+	}
+	type countRow struct {
+		ShareID uint
+		Count   int64
+	}
+	var rows []countRow
+	if err := r.db.Model(&model.ShareFile{}).
+		Select("share_id, COUNT(*) AS count").
+		Where("share_id IN ?", shareIDs).
+		Group("share_id").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		result[row.ShareID] = row.Count
+	}
+	return result, nil
+}
+
+func (r *ShareRepository) FindInventoryFiles(fileIDs []uint) ([]model.InventoryFile, error) {
+	var files []model.InventoryFile
+	if len(fileIDs) == 0 {
+		return files, nil
+	}
+	err := r.db.Where("id IN ?", fileIDs).Find(&files).Error
+	return files, err
+}
+
+func (r *ShareRepository) AddFiles(shareID uint, fileIDs []uint, command *model.Command) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		rows := make([]model.ShareFile, 0, len(fileIDs))
+		for _, fileID := range fileIDs {
+			rows = append(rows, model.ShareFile{ShareID: shareID, FileID: fileID})
+		}
+		if len(rows) > 0 {
+			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&rows).Error; err != nil {
+				return err
+			}
+		}
+		return createShareRefreshCommand(tx, command)
+	})
+}
+
+// RemoveFile removes one share file and returns gorm.ErrRecordNotFound when it is not a member.
+func (r *ShareRepository) RemoveFile(shareID, fileID uint, command *model.Command) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("share_id = ? AND file_id = ?", shareID, fileID).Delete(&model.ShareFile{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return createShareRefreshCommand(tx, command)
+	})
 }
 
 func (r *ShareRepository) Create(share *model.Share) error {

@@ -140,7 +140,7 @@ func (m *fuseManager) mount(ctx context.Context, want desiredMount) {
 		return
 	}
 
-	shareFS := newShareFS(m.runtime, want.replica.ID, want.replica.URI, profile)
+	shareFS := newShareFS(m.runtime, want.share.ID, want.replica.ID, want.replica.URI, profile)
 	root := &shareDirNode{prefix: "", s: shareFS}
 
 	entryTimeout := m.cfg.EntryTimeout

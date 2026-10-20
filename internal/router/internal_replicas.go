@@ -76,6 +76,7 @@ func registerInternalReplicaRoutes(api huma.API, svc services) {
 				FileHashSet:     file.FileHash != nil,
 				CreatedTimeSet:  file.CreatedTime != nil,
 				ModifiedTimeSet: file.ModifiedTime != nil,
+				ShareID:         file.ShareID,
 			}
 			if file.FileSize != nil {
 				change.FileSize = *file.FileSize
@@ -161,6 +162,7 @@ type reportReplicaFilesInput struct {
 			FileHash     *string    `json:"file_hash,omitempty"`
 			CreatedTime  *time.Time `json:"created_time,omitempty"`
 			ModifiedTime *time.Time `json:"modified_time,omitempty"`
+			ShareID      *uint      `json:"share_id,omitempty"`
 		} `json:"files"`
 	}
 }

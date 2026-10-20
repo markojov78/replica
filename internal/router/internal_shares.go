@@ -35,5 +35,5 @@ type listOwnSharesInput struct {
 }
 
 type listOwnSharesResponse struct {
-	Body []service.ShareDetails
+	Body []service.NodeShareDetails
 }

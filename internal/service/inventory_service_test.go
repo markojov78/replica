@@ -731,7 +731,7 @@ func TestReplicaServiceRejectsUndeleteWhenActiveReplicaUsesLocation(t *testing.T
 	if !errors.As(err, &conflict) {
 		t.Fatalf("Update(conflict) error = %v, want ActiveReplicaLocationError", err)
 	}
-	wantMessage := "Active replica 1 on node-a is already using location /data/shared"
+	wantMessage := "Active replica 1 on node-a is already using overlapping location /data/shared"
 	if conflict.Error() != wantMessage {
 		t.Fatalf("conflict.Error() = %q, want %q", conflict.Error(), wantMessage)
 	}

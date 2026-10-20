@@ -3,11 +3,14 @@ package storage
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +18,8 @@ import (
 
 	"replica/internal/apiclient"
 	"replica/internal/config"
+
+	"github.com/zeebo/blake3"
 )
 
 type ShareListFilter struct {
@@ -164,7 +169,7 @@ func (r *Runtime) ListUserShares(userID uint, page, count int, filter ShareListF
 		items = append(items, ShareWithPermissions{
 			Share:                share,
 			EffectivePermissions: userSharePermissions(share, userID),
-			FileCount:            int64(len(r.availableShareFiles(share.ReplicaID))),
+			FileCount:            int64(len(r.availableFilesInShare(share))),
 		})
 	}
 	total := int64(len(items))
@@ -311,12 +316,50 @@ func (r *Runtime) shareFileList(share apiclient.Share, replicaID uint, permissio
 	}
 }
 
+// shareFileScope is the set of file ids exposed by a subset share; nil means the whole replica.
+type shareFileScope map[uint]struct{}
+
+func newShareFileScope(share apiclient.Share) shareFileScope {
+	if len(share.FileIDs) == 0 {
+		return nil
+	}
+	scope := make(shareFileScope, len(share.FileIDs))
+	for _, fileID := range share.FileIDs {
+		scope[fileID] = struct{}{}
+	}
+	return scope
+}
+
+func (s shareFileScope) includes(fileID uint) bool {
+	if s == nil {
+		return true
+	}
+	_, ok := s[fileID]
+	return ok
+}
+
+// shareIncludesFile reports whether a replica file belongs to the share inventory and, for subset shares, to its files.
+func shareIncludesFile(share apiclient.Share, file apiclient.ReplicaInventoryFile) bool {
+	if share.InventoryID != 0 && file.InventoryID != share.InventoryID {
+		return false
+	}
+	return len(share.FileIDs) == 0 || slices.Contains(share.FileIDs, file.FileID)
+}
+
+func (r *Runtime) availableFilesInShare(share apiclient.Share) []apiclient.ReplicaInventoryFile {
+	return filterShareFiles(share, r.availableShareFiles(share.ReplicaID), ShareFileListFilter{})
+}
+
 func filterShareFiles(share apiclient.Share, files []apiclient.ReplicaInventoryFile, filter ShareFileListFilter) []apiclient.ReplicaInventoryFile {
 	name := strings.ToLower(strings.TrimSpace(filter.Name))
 	pathFilter := strings.ToLower(strings.TrimSpace(filter.Path))
+	scope := newShareFileScope(share)
 	result := make([]apiclient.ReplicaInventoryFile, 0, len(files))
 	for _, file := range files {
 		if share.InventoryID != 0 && file.InventoryID != share.InventoryID {
+			continue
+		}
+		if !scope.includes(file.FileID) {
 			continue
 		}
 		filename := strings.ToLower(path.Base(file.RelativeURI))
@@ -398,10 +441,60 @@ func (r *Runtime) createShareFileOperation(ctx context.Context, share apiclient.
 	if err != nil {
 		return err
 	}
-	if err := writer.Save(ctx, replica.URI, cleanRelativeURI, file, size); err != nil {
+	if len(share.FileIDs) == 0 {
+		if err := writer.Save(ctx, replica.URI, cleanRelativeURI, file, size); err != nil {
+			return errShareLocalStorageFailed
+		}
+		return nil
+	}
+	return r.createSubsetShareFile(ctx, share, replica, writer, cleanRelativeURI, file, size)
+}
+
+// createSubsetShareFile writes an upload to a subset share and reports it to the coordinator, which adds it to
+// the share. The write is rolled back when the coordinator does not accept the report.
+func (r *Runtime) createSubsetShareFile(ctx context.Context, share apiclient.Share, replica apiclient.Replica, writer Writer, relativeURI string, file io.Reader, size int64) error {
+	if !r.wsConnected.Load() {
+		return errShareCoordinatorOffline
+	}
+	hasher := blake3.New()
+	var written int64
+	content := io.TeeReader(file, io.MultiWriter(hasher, writeCounter{&written}))
+	if err := writer.Save(ctx, replica.URI, relativeURI, content, size); err != nil {
 		return errShareLocalStorageFailed
 	}
+
+	hash := hex.EncodeToString(hasher.Sum(nil))
+	now := time.Now().UTC()
+	shareID := share.ID
+	report := apiclient.ReplicaFileReport{
+		Action:       "created",
+		RelativeURI:  relativeURI,
+		FileSize:     &written,
+		FileHash:     &hash,
+		CreatedTime:  &now,
+		ModifiedTime: &now,
+		ShareID:      &shareID,
+	}
+	if err := r.client.ReportReplicaFiles(ctx, replica.ID, []apiclient.ReplicaFileReport{report}); err != nil {
+		log.Printf("storage runtime share upload not registered share_id=%d replica_id=%d relative_uri=%s: %v", share.ID, replica.ID, relativeURI, err)
+		if deleteErr := writer.Delete(ctx, replica.URI, relativeURI); deleteErr != nil {
+			log.Printf("storage runtime share upload rollback failed share_id=%d replica_id=%d relative_uri=%s: %v", share.ID, replica.ID, relativeURI, deleteErr)
+		}
+		return errShareFileNotRegistered
+	}
+	if _, err := r.refreshReplicaFiles(ctx, replica.ID); err != nil {
+		log.Printf("storage runtime refresh after share upload failed replica_id=%d: %v", replica.ID, err)
+	}
 	return nil
+}
+
+type writeCounter struct {
+	count *int64
+}
+
+func (w writeCounter) Write(p []byte) (int, error) {
+	*w.count += int64(len(p))
+	return len(p), nil
 }
 
 func (r *Runtime) replaceShareFileContentOperation(ctx context.Context, share apiclient.Share, replica apiclient.Replica, fileID uint, ifMatch string, content io.Reader, size int64) error {
@@ -469,7 +562,7 @@ func validateShareIfMatchValue(raw string, expectedVersion uint) error {
 
 func (r *Runtime) shareFileForReadInShare(share apiclient.Share, replicaID, fileID uint) (apiclient.ReplicaInventoryFile, error) {
 	_, file, ok := r.findReplicaFile(replicaID, fileID)
-	if !ok || file.InventoryID != share.InventoryID || file.InventoryStatus != "active" {
+	if !ok || !shareIncludesFile(share, file) || file.InventoryID != share.InventoryID || file.InventoryStatus != "active" {
 		return apiclient.ReplicaInventoryFile{}, errShareFileNotFound
 	}
 	if file.ReplicaStatus != "synchronized" {

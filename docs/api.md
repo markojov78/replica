@@ -948,6 +948,7 @@ Returns a single inventory with its replicas.
 #### POST /inventories
 Creates an inventory together with its default replica.
 Creating the default replica creates durable `scan_replica` and `refresh_state` commands for its storage node.
+The default replica location must not overlap an active replica (see [/replicas endpoint](#replicas-endpoint)).
 
 Request body:
 - `name` required
@@ -1042,6 +1043,7 @@ Query parameters:
 - `page` optional, default `1`
 - `count` optional, default `20`
 - `status` optional, filter by inventory file status: `active`, `deleted`
+- `path` optional, case-insensitive substring match on `relative_uri`
 - `sort` optional, can be `id`, `name`, `size`, `created`, `modified`, default `id`
 - `order` optional, `asc` or `desc`, default `asc`
 
@@ -1137,6 +1139,12 @@ Replica topology:
 - upstream replicas must be active, belong to the same inventory and a replica cannot reference itself as upstream.
 - `sync_status` is computed from replica file statuses. Priority is `error`, then `conflict`, then `pending`, then `changed`; otherwise it is `synchronized` when all files are synchronized.
 
+Replica locations must not overlap. Creating a replica, creating an inventory default replica or changing a deleted
+replica to `active` is rejected with `409` when another active replica, of any inventory, uses the same location or one
+inside or containing it. Filesystem locations are compared per node; `s3://` locations by bucket and key prefix and
+`sftp://` locations by host, port and path, across all nodes. The error message identifies the conflicting replica,
+node and URI, for example `Active replica 2 on node-a is already using overlapping location /data/photos`.
+
 #### GET /replicas
 Returns a paginated list of replicas filtered by optional query parameters.
 
@@ -1222,8 +1230,8 @@ linked to the replica has a status other than `deleted`.
 Changing a deleted replica to a non-deleted status is rejected with `409 inventory is deleted` when its inventory is
 deleted. Updates that leave the replica deleted remain allowed.
 
-Changing a deleted replica to `active` is rejected with `409` when another active replica already has the same
-`node_id` and exact `uri`. The error message identifies the conflicting replica, node and URI.
+Changing a deleted replica to `active` is rejected with `409` when its location overlaps another active replica (see
+[/replicas endpoint](#replicas-endpoint)).
 
 Request body fields are optional:
 - `type`
@@ -1335,6 +1343,10 @@ Possible errors:
 ### /shares endpoint
 All `/shares` endpoints require the matching `shares` permission for the requested action.
 
+A share exposes files of one replica. A replica can have multiple active shares. `file_count` is the number of
+share files: `0` means the whole replica is shared, otherwise only the selected files are shared (see
+[/shares/{id}/files](#sharesidfiles-endpoint)).
+
 #### GET /shares
 Returns a paginated list of shares.
 
@@ -1366,6 +1378,7 @@ Example response:
         "theme": "dark",
         "fuse_enabled": true
       },
+      "file_count": 2,
       "user_permissions": [
         {
           "user_id": 15,
@@ -1405,6 +1418,7 @@ Example response:
     "theme": null,
     "fuse_enabled": null
   },
+  "file_count": 0,
   "user_permissions": [
     {
       "user_id": 15,
@@ -1485,6 +1499,7 @@ Example response:
     "theme": "dark",
     "fuse_enabled": true
   },
+  "file_count": 0,
   "user_permissions": [
     {
       "user_id": 15,
@@ -1561,6 +1576,7 @@ Example response:
     "theme": "light",
     "fuse_enabled": true
   },
+  "file_count": 0,
   "user_permissions": [
     {
       "user_id": 15,
@@ -1588,9 +1604,55 @@ Possible errors:
 * `400` invalid permissions
 * `404` replica not found
 * `409` replica is deleted
-* `409` share already exists
 
+### /shares/{id}/files endpoint
+Manages the files of a subset share. A share without files exposes the whole replica; adding files limits the share
+to those files. Files are identified by inventory file ID, so a renamed or moved file drops out of the share, while a
+file deleted and restored at the same path stays in it. Changes create a `refresh_state` command for the share node.
 
+#### GET /shares/{id}/files
+Requires share permission `read`. Returns a paginated list of share files, including deleted inventory files that are
+still share members.
+
+Query parameters are the same as for [GET /inventories/{id}/files](#get-inventoriesidfiles): `page`, `count`,
+`status`, `path`, `sort`, `order`.
+
+The response has the same shape as `GET /inventories/{id}/files`.
+
+#### POST /shares/{id}/files
+Requires share permission `update`. Adds files to the share. Files already in the share are kept.
+
+Request body:
+```json
+{
+  "file_ids": [10, 11]
+}
+```
+
+Validation rules:
+- `file_ids` must not be empty
+- every file must exist, be `active` and belong to the inventory of the share replica
+
+Successful response: the updated share, as returned by `GET /shares/{id}`.
+
+Possible errors:
+* `400` invalid share files
+* `401` missing authenticated user
+* `403` missing required permission
+* `404` share not found
+
+#### DELETE /shares/{id}/files/{file_id}
+Requires share permission `update`. Removes one file from the share. Removing the last file makes the share expose
+the whole replica again.
+
+Successful response:
+* `204 No Content`
+
+Possible errors:
+* `401` missing authenticated user
+* `403` missing required permission
+* `404` share not found
+* `404` share file not found
 
 ## Storage Sharing API
 This API is exposed on the storage node and used to access private aand public shares.  
@@ -1693,6 +1755,10 @@ The response shape intentionally matches coordinator `GET /api/admin/shares`. St
 
 The `properties` object contains the same `view`, `page_size`, `thumbnail_size`, `theme`, and `fuse_enabled` fields as the Coordinator Admin API. Unset fields are returned as `null`.
 
+`file_count` has the same meaning as in the Coordinator Admin API: `0` for a whole-replica share, otherwise the
+number of selected share files. File listings, content, previews, thumbnails, updates and deletes of a subset share
+only include its selected files; other replica files return `404`.
+
 Example response:
 ```json
 {
@@ -1712,6 +1778,7 @@ Example response:
         "theme": "dark",
         "fuse_enabled": true
       },
+      "file_count": 2,
       "user_permissions": [
         {
           "user_id": 15,
@@ -1823,8 +1890,11 @@ Behavior:
 - Requires create permission.
 - Allowed only for folder inventories.
 - relative_uri must be relative, normalized, non-empty, and must not escape replica root.
-- File must not already exist as active inventory file.
+- File must not already exist as active inventory file, including files of the replica outside a subset share.
 - Storage node writes file to local replica.  
+- For a subset share, the storage node immediately reports the file to the coordinator with `share_id`, which adds it
+  to the share. If the coordinator is unavailable, the upload is refused; if the report fails, the written file is
+  removed.
 
 Response:  
 `202` Accepted for processing  
@@ -1834,7 +1904,8 @@ Errors:
 - `401` missing, invalid or expired user access token
 - `403` missing required share permission
 - `409` create not allowed for inventory of type file  / active file already exists under the same relative_uri
-- `503` coordinator unavailable for uncached token validation  
+- `503` coordinator unavailable for uncached token validation or subset share upload  
+- `502` coordinator did not register the uploaded file  
 - `500` local storage write/delete failed  
 
 #### DELETE /shares/{id}/files/{file_id}
@@ -2190,8 +2261,9 @@ Behavior:
 - Requires anonymous create permission.
 - Allowed only for folder inventories.
 - relative_uri must be relative, normalized, non-empty, and must not escape replica root.
-- File must not already exist as active inventory file.
+- File must not already exist as active inventory file, including files of the replica outside a subset share.
 - Storage node writes file to local replica.
+- Subset share uploads behave as for `POST /api/share/shares/{id}/files`.
 
 Response:  
 `202` Accepted for processing  
@@ -2201,6 +2273,8 @@ Errors:
 - `403` missing required share permission
 - `404` share or link_hash not found / unavailable / inactive / expired on this storage node
 - `409` create not allowed for inventory of type file / active file already exists under the same relative_uri
+- `502` coordinator did not register the uploaded file
+- `503` coordinator unavailable for subset share upload
 - `500` local storage write/delete failed
 
 ##### DELETE /s/{link_hash}/files/{file_id}
@@ -2855,6 +2929,7 @@ Behavior:
 - includes per-user and anonymous share permissions
 - includes the share `properties` object; unset property fields are returned as `null`
 - `properties.fuse_enabled` tells the storage node whether to expose the share as a read-only FUSE mount
+- includes `file_ids`, the inventory file IDs of a subset share; an empty list means the whole replica is shared
 - does not support user-style filtering or pagination
 
 Example request:
@@ -2884,6 +2959,8 @@ Example response:
       "theme": "dark",
       "fuse_enabled": true
     },
+    "file_count": 2,
+    "file_ids": [10, 11],
     "user_permissions": [
       {
         "user_id": 15,
@@ -2999,6 +3076,9 @@ Behavior:
 - for downstream reports affecting known active inventory files, marks only the reporting `replica_files` rows `pending` and creates a `reconcile_replica` command sourced from the configured upstream
 - for downstream reports affecting unknown paths or paths matching deleted inventory files, includes those paths in the `reconcile_replica` command for deletion from the downstream replica
 - rejects invalid or inconsistent explicit actions
+- for a `created` entry with `share_id`, adds the resulting active file to that share, also when the file was already
+  reported with the same content; the share must be active, belong to the reporting replica and already have share
+  files, and the replica must be a base replica
 
 Request body:
 - `files` required
@@ -3010,6 +3090,7 @@ Request body:
   - `file_hash` required for `created` and `updated`, omitted for `deleted`
   - `created_time` required for `created` and `updated`, omitted for `deleted`
   - `modified_time` required for `created` and `updated`, omitted for `deleted`
+  - `share_id` optional, only for `created`; used by subset share uploads
 
 Validation rules:
 - `action = "created"` requires omitted `file_id` and requires `relative_uri`, `file_size`, `file_hash`, `created_time`, and `modified_time`

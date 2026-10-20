@@ -81,6 +81,10 @@ func (r *InventoryRepository) CreateWithDefaultReplica(inventory *model.Inventor
 	})
 }
 
+func (r *InventoryRepository) ListActiveReplicas() ([]model.Replica, error) {
+	return listActiveReplicas(r.db)
+}
+
 func (r *InventoryRepository) FindByID(id uint) (*model.Inventory, error) {
 	var inventory model.Inventory
 	if err := r.preloadDetails(r.db).First(&inventory, id).Error; err != nil {
@@ -95,6 +99,7 @@ type InventoryListFilter struct {
 
 type InventoryFileListFilter struct {
 	Status string
+	Path   string
 	Sort   string
 	Order  string
 }
@@ -175,9 +180,17 @@ func (r *InventoryRepository) FindFileByID(inventoryID, fileID uint) (*model.Inv
 }
 
 func (r *InventoryRepository) ListFiles(inventoryID uint, page, perPage int, filter InventoryFileListFilter) ([]model.InventoryFile, int64, error) {
-	query := r.db.Model(&model.InventoryFile{}).Where("inventory_id = ?", inventoryID)
+	query := r.db.Model(&model.InventoryFile{}).Where("inventory_files.inventory_id = ?", inventoryID)
+	return listInventoryFilesPage(query, page, perPage, filter)
+}
+
+// listInventoryFilesPage applies status/path filters, sorting and pagination to an inventory_files query.
+func listInventoryFilesPage(query *gorm.DB, page, perPage int, filter InventoryFileListFilter) ([]model.InventoryFile, int64, error) {
 	if strings.TrimSpace(filter.Status) != "" {
-		query = query.Where("status = ?", strings.TrimSpace(filter.Status))
+		query = query.Where("inventory_files.status = ?", strings.TrimSpace(filter.Status))
+	}
+	if path := strings.ToLower(strings.TrimSpace(filter.Path)); path != "" {
+		query = query.Where("LOWER(inventory_files.relative_uri) LIKE ?", "%"+path+"%")
 	}
 
 	var total int64
@@ -191,7 +204,7 @@ func (r *InventoryRepository) ListFiles(inventoryID uint, page, perPage int, fil
 		sortColumn = "relative_uri"
 	}
 	err := query.
-		Order(sortColumn + " " + filter.Order).
+		Order("inventory_files." + sortColumn + " " + filter.Order).
 		Limit(perPage).
 		Offset((page - 1) * perPage).
 		Find(&files).Error

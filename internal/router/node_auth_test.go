@@ -732,6 +732,13 @@ func TestInternalSharesReturnsOnlyAuthenticatedNodeShares(t *testing.T) {
 	if err := database.Create(shareB).Error; err != nil {
 		t.Fatalf("Create(shareB) error = %v", err)
 	}
+	sharedFile := &model.InventoryFile{InventoryID: inventory.ID, RelativeURI: "album/a.jpg", Status: model.InventoryFileStatusActive, Version: 1}
+	if err := database.Create(sharedFile).Error; err != nil {
+		t.Fatalf("Create(inventory file) error = %v", err)
+	}
+	if err := database.Create(&model.ShareFile{ShareID: shareA.ID, FileID: sharedFile.ID}).Error; err != nil {
+		t.Fatalf("Create(share file) error = %v", err)
+	}
 	userID := user.ID
 	shareUser := &model.ShareUser{UserID: &userID, ShareID: shareA.ID}
 	if err := database.Create(shareUser).Error; err != nil {
@@ -783,12 +790,15 @@ func TestInternalSharesReturnsOnlyAuthenticatedNodeShares(t *testing.T) {
 		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
 	}
 
-	var body []service.ShareDetails
+	var body []service.NodeShareDetails
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
 	if len(body) != 1 {
 		t.Fatalf("len(body) = %d, want 1; body=%+v", len(body), body)
+	}
+	if len(body[0].FileIDs) != 1 || body[0].FileIDs[0] != sharedFile.ID || body[0].FileCount != 1 {
+		t.Fatalf("body[0] file_ids=%v file_count=%d, want [%d] and 1", body[0].FileIDs, body[0].FileCount, sharedFile.ID)
 	}
 	if body[0].ID != shareA.ID || body[0].InventoryID != inventory.ID || body[0].ReplicaID != replicaA.ID {
 		t.Fatalf("body[0] = %+v, want share=%d inventory=%d replica=%d", body[0], shareA.ID, inventory.ID, replicaA.ID)

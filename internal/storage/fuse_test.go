@@ -65,6 +65,7 @@ func TestFuseMountPointEmptyNameFallsBackToID(t *testing.T) {
 func newFuseTestRuntime() *Runtime {
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	return &Runtime{
+		shares: []apiclient.Share{{ID: 1, ReplicaID: 7}},
 		replicaFiles: map[uint][]apiclient.ReplicaInventoryFile{
 			7: {
 				{FileID: 1, ReplicaID: 7, RelativeURI: "top.txt", Size: 4, InventoryStatus: "active", ReplicaStatus: "synchronized", Modified: now, Created: now},
@@ -77,7 +78,7 @@ func newFuseTestRuntime() *Runtime {
 }
 
 func TestShareFSTreeChildren(t *testing.T) {
-	s := newShareFS(newFuseTestRuntime(), 7, "file:///replica", nil)
+	s := newShareFS(newFuseTestRuntime(), 1, 7, "file:///replica", nil)
 
 	root := s.children("")
 	if !hasChild(root, "top.txt", false) || !hasChild(root, "album", true) {
@@ -94,7 +95,7 @@ func TestShareFSTreeChildren(t *testing.T) {
 }
 
 func TestShareFSLookupAndHasUnder(t *testing.T) {
-	s := newShareFS(newFuseTestRuntime(), 7, "file:///replica", nil)
+	s := newShareFS(newFuseTestRuntime(), 1, 7, "file:///replica", nil)
 
 	if _, ok := s.lookupFile("album/photo.jpg"); !ok {
 		t.Fatal("expected album/photo.jpg to resolve as a file")
@@ -111,7 +112,7 @@ func TestShareFSLookupAndHasUnder(t *testing.T) {
 }
 
 func TestShareFSInoStableAndUnique(t *testing.T) {
-	s := newShareFS(newFuseTestRuntime(), 7, "file:///replica", nil)
+	s := newShareFS(newFuseTestRuntime(), 1, 7, "file:///replica", nil)
 	a := s.ino("album/photo.jpg")
 	b := s.ino("album/photo.jpg")
 	c := s.ino("top.txt")
@@ -127,13 +128,13 @@ func TestShareFSInoStableAndUnique(t *testing.T) {
 }
 
 func TestShareFSFileAndDirNameCollision(t *testing.T) {
-	r := &Runtime{replicaFiles: map[uint][]apiclient.ReplicaInventoryFile{
+	r := &Runtime{shares: []apiclient.Share{{ID: 1, ReplicaID: 7}}, replicaFiles: map[uint][]apiclient.ReplicaInventoryFile{
 		7: {
 			{FileID: 1, RelativeURI: "album", InventoryStatus: "active", ReplicaStatus: "synchronized"},
 			{FileID: 2, RelativeURI: "album/photo.jpg", InventoryStatus: "active", ReplicaStatus: "synchronized"},
 		},
 	}}
-	s := newShareFS(r, 7, "file:///replica", nil)
+	s := newShareFS(r, 1, 7, "file:///replica", nil)
 	children := s.children("")
 	if !hasChild(children, "album", false) {
 		t.Fatalf("exact file should win over directory for name collision: %+v", children)
@@ -226,13 +227,13 @@ func TestShareFSFuseMountIntegration(t *testing.T) {
 	}
 
 	now := time.Now()
-	r := &Runtime{replicaFiles: map[uint][]apiclient.ReplicaInventoryFile{
+	r := &Runtime{shares: []apiclient.Share{{ID: 1, ReplicaID: 7}}, replicaFiles: map[uint][]apiclient.ReplicaInventoryFile{
 		7: {
 			{FileID: 1, ReplicaID: 7, RelativeURI: "top.txt", Size: 3, InventoryStatus: "active", ReplicaStatus: "synchronized", Modified: now, Created: now},
 			{FileID: 2, ReplicaID: 7, RelativeURI: "album/photo.jpg", Size: int64(len("hello world")), InventoryStatus: "active", ReplicaStatus: "synchronized", Modified: now, Created: now},
 		},
 	}}
-	s := newShareFS(r, 7, backing, nil)
+	s := newShareFS(r, 1, 7, backing, nil)
 
 	mountPoint := t.TempDir()
 	root := &shareDirNode{prefix: "", s: s}
@@ -332,5 +333,24 @@ func TestFuseReconcileSkipsSharesNotEnabledForFuse(t *testing.T) {
 				t.Fatalf("mount point entries = %d, want none", len(entries))
 			}
 		})
+	}
+}
+
+func TestShareFSShowsOnlySubsetShareFiles(t *testing.T) {
+	r := newFuseTestRuntime()
+	r.shares = []apiclient.Share{{ID: 1, ReplicaID: 7, FileIDs: []uint{2}}}
+	s := newShareFS(r, 1, 7, "file:///replica", nil)
+
+	files := s.files()
+	if len(files) != 1 || files[0].RelativeURI != "album/photo.jpg" {
+		t.Fatalf("files = %+v, want only album/photo.jpg", files)
+	}
+	if _, ok := s.lookupFile("top.txt"); ok {
+		t.Fatal("top.txt is outside the subset share but was found")
+	}
+
+	r.shares = []apiclient.Share{{ID: 1, ReplicaID: 7, FileIDs: []uint{1}}}
+	if _, ok := s.lookupFile("top.txt"); !ok {
+		t.Fatal("membership change was not applied to the existing share view")
 	}
 }

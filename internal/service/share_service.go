@@ -31,7 +31,8 @@ var (
 	ErrInvalidShareExpiration = errors.New("invalid share expiration")
 	ErrInvalidShareProperties = errors.New("invalid share properties")
 	ErrShareNotFound          = errors.New("share not found")
-	ErrShareAlreadyExists     = errors.New("share already exists")
+	ErrInvalidShareFiles      = errors.New("invalid share files")
+	ErrShareFileNotFound      = errors.New("share file not found")
 )
 
 type ShareDetails struct {
@@ -43,8 +44,15 @@ type ShareDetails struct {
 	LinkHash             *string                 `json:"link_hash"`
 	ShareExpiration      *time.Time              `json:"share_expiration"`
 	Properties           model.ShareProperties   `json:"properties"`
+	FileCount            int64                   `json:"file_count"`
 	UserPermissions      []UserPermissionDetails `json:"user_permissions"`
 	AnonymousPermissions []string                `json:"anonymous_permissions"`
+}
+
+// NodeShareDetails is the storage-node view of a share. An empty FileIDs list means the whole replica is shared.
+type NodeShareDetails struct {
+	ShareDetails
+	FileIDs []uint `json:"file_ids"`
 }
 
 type ShareList struct {
@@ -138,9 +146,14 @@ func (s *ShareService) ListPage(page, perPage int, filter ShareListFilter) (*Sha
 		return nil, err
 	}
 
+	fileCounts, err := s.repo.FileCounts(shareIDs(shares))
+	if err != nil {
+		return nil, err
+	}
 	items := make([]ShareDetails, 0, len(shares))
 	for _, share := range shares {
 		details := toShareDetails(&share)
+		details.FileCount = fileCounts[share.ID]
 		if err := s.loadShareUserPermissions(details); err != nil {
 			return nil, err
 		}
@@ -155,19 +168,28 @@ func (s *ShareService) ListPage(page, perPage int, filter ShareListFilter) (*Sha
 	}, nil
 }
 
-func (s *ShareService) ListForNode(nodeID string) ([]ShareDetails, error) {
+func (s *ShareService) ListForNode(nodeID string) ([]NodeShareDetails, error) {
 	shares, err := s.repo.ListForNode(strings.TrimSpace(nodeID))
 	if err != nil {
 		return nil, err
 	}
+	fileIDs, err := s.repo.FileIDs(shareIDs(shares))
+	if err != nil {
+		return nil, err
+	}
 
-	items := make([]ShareDetails, 0, len(shares))
+	items := make([]NodeShareDetails, 0, len(shares))
 	for _, share := range shares {
 		details := toShareDetails(&share)
+		ids := fileIDs[share.ID]
+		if ids == nil {
+			ids = []uint{}
+		}
+		details.FileCount = int64(len(ids))
 		if err := s.loadEffectiveSharePermissions(details); err != nil {
 			return nil, err
 		}
-		items = append(items, *details)
+		items = append(items, NodeShareDetails{ShareDetails: *details, FileIDs: ids})
 	}
 	return items, nil
 }
@@ -180,11 +202,7 @@ func (s *ShareService) Get(id uint) (*ShareDetails, error) {
 		}
 		return nil, err
 	}
-	details := toShareDetails(share)
-	if err := s.loadShareUserPermissions(details); err != nil {
-		return nil, err
-	}
-	return details, nil
+	return s.shareDetails(share)
 }
 
 func (s *ShareService) Create(input CreateShareInput) (*ShareDetails, error) {
@@ -216,16 +234,6 @@ func (s *ShareService) Create(input CreateShareInput) (*ShareDetails, error) {
 		name, err = resolveShareName(input.Name)
 		if err != nil {
 			return nil, err
-		}
-	}
-
-	if status == model.ShareStatusActive {
-		exists, err := s.repo.HasActiveShareForReplica(replica.ID, 0)
-		if err != nil {
-			return nil, err
-		}
-		if exists {
-			return nil, ErrShareAlreadyExists
 		}
 	}
 
@@ -298,15 +306,6 @@ func (s *ShareService) Update(id uint, input UpdateShareInput) (*ShareDetails, e
 		if err != nil {
 			return nil, err
 		}
-		if status == model.ShareStatusActive {
-			exists, err := s.repo.HasActiveShareForReplica(share.ReplicaID, share.ID)
-			if err != nil {
-				return nil, err
-			}
-			if exists {
-				return nil, ErrShareAlreadyExists
-			}
-		}
 		share.Status = status
 	}
 	if input.ShareExpirationSet {
@@ -337,11 +336,7 @@ func (s *ShareService) Update(id uint, input UpdateShareInput) (*ShareDetails, e
 		return nil, err
 	}
 	s.publishCommand(command)
-	details := toShareDetails(share)
-	if err := s.loadShareUserPermissions(details); err != nil {
-		return nil, err
-	}
-	return details, nil
+	return s.shareDetails(share)
 }
 
 func (s *ShareService) Delete(id uint) error {
@@ -361,8 +356,119 @@ func (s *ShareService) Delete(id uint) error {
 	return nil
 }
 
+func (s *ShareService) ListFiles(shareID uint, page, perPage int, filter InventoryFileListFilter) (*InventoryFileList, error) {
+	if _, err := s.findShare(shareID); err != nil {
+		return nil, err
+	}
+	repoFilter, err := resolveInventoryFileListFilter(filter)
+	if err != nil {
+		return nil, err
+	}
+	files, total, err := s.repo.ListFilesPage(shareID, page, perPage, repoFilter)
+	if err != nil {
+		return nil, err
+	}
+	return toInventoryFileList(files, page, perPage, total), nil
+}
+
+// AddFiles adds active files of the share replica inventory to the share. Existing members are kept.
+func (s *ShareService) AddFiles(shareID uint, fileIDs []uint) (*ShareDetails, error) {
+	share, err := s.findShare(shareID)
+	if err != nil {
+		return nil, err
+	}
+	ids := uniqueFileIDs(fileIDs)
+	if len(ids) == 0 {
+		return nil, ErrInvalidShareFiles
+	}
+	files, err := s.repo.FindInventoryFiles(ids)
+	if err != nil {
+		return nil, err
+	}
+	if len(files) != len(ids) {
+		return nil, ErrInvalidShareFiles
+	}
+	for _, file := range files {
+		if file.InventoryID != share.Replica.InventoryID || file.Status != model.InventoryFileStatusActive {
+			return nil, ErrInvalidShareFiles
+		}
+	}
+
+	command := newShareRefreshStateCommand(share.Replica.NodeID)
+	if err := s.repo.AddFiles(share.ID, ids, command); err != nil {
+		return nil, err
+	}
+	s.publishCommand(command)
+	return s.shareDetails(share)
+}
+
+// RemoveFile removes one file from the share. Removing the last file makes the share expose the whole replica again.
+func (s *ShareService) RemoveFile(shareID, fileID uint) error {
+	share, err := s.findShare(shareID)
+	if err != nil {
+		return err
+	}
+	command := newShareRefreshStateCommand(share.Replica.NodeID)
+	if err := s.repo.RemoveFile(share.ID, fileID, command); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrShareFileNotFound
+		}
+		return err
+	}
+	s.publishCommand(command)
+	return nil
+}
+
 func (s *ShareService) IsNotFound(err error) bool {
 	return errors.Is(err, ErrShareNotFound) || errors.Is(err, gorm.ErrRecordNotFound)
+}
+
+func (s *ShareService) findShare(id uint) (*model.Share, error) {
+	share, err := s.repo.FindByID(id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrShareNotFound
+		}
+		return nil, err
+	}
+	return share, nil
+}
+
+func (s *ShareService) shareDetails(share *model.Share) (*ShareDetails, error) {
+	details := toShareDetails(share)
+	fileCounts, err := s.repo.FileCounts([]uint{share.ID})
+	if err != nil {
+		return nil, err
+	}
+	details.FileCount = fileCounts[share.ID]
+	if err := s.loadShareUserPermissions(details); err != nil {
+		return nil, err
+	}
+	return details, nil
+}
+
+func shareIDs(shares []model.Share) []uint {
+	ids := make([]uint, 0, len(shares))
+	for _, share := range shares {
+		ids = append(ids, share.ID)
+	}
+	return ids
+}
+
+func uniqueFileIDs(fileIDs []uint) []uint {
+	seen := make(map[uint]struct{}, len(fileIDs))
+	ids := make([]uint, 0, len(fileIDs))
+	for _, id := range fileIDs {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 func newShareRefreshStateCommand(nodeID string) *model.Command {

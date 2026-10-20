@@ -22,6 +22,7 @@ import (
 // its directory tree on demand from the storage runtime state, so listings and
 // attributes always reflect the latest synchronized inventory.
 type shareFS struct {
+	shareID   uint
 	replicaID uint
 	uri       string
 	profile   *config.StorageProfileConfig
@@ -32,8 +33,9 @@ type shareFS struct {
 	inoSeq uint64
 }
 
-func newShareFS(r *Runtime, replicaID uint, uri string, profile *config.StorageProfileConfig) *shareFS {
+func newShareFS(r *Runtime, shareID, replicaID uint, uri string, profile *config.StorageProfileConfig) *shareFS {
 	return &shareFS{
+		shareID:   shareID,
 		replicaID: replicaID,
 		uri:       uri,
 		profile:   profile,
@@ -42,8 +44,15 @@ func newShareFS(r *Runtime, replicaID uint, uri string, profile *config.StorageP
 	}
 }
 
+// files returns the share's current files. The share is looked up on every call so membership changes from
+// refresh_state apply to an existing mount.
 func (s *shareFS) files() []apiclient.ReplicaInventoryFile {
-	return s.runtime.availableShareFiles(s.replicaID)
+	for _, share := range s.runtime.sharesSnapshot() {
+		if share.ID == s.shareID {
+			return s.runtime.availableFilesInShare(share)
+		}
+	}
+	return nil
 }
 
 func (s *shareFS) ino(rel string) uint64 {

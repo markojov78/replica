@@ -117,6 +117,7 @@ type ReplicaFileReport struct {
 	FileHash     *string    `json:"file_hash,omitempty"`
 	CreatedTime  *time.Time `json:"created_time,omitempty"`
 	ModifiedTime *time.Time `json:"modified_time,omitempty"`
+	ShareID      *uint      `json:"share_id,omitempty"`
 }
 
 type ReplicaFileList struct {
@@ -158,6 +159,8 @@ type Share struct {
 	LinkHash             *string          `json:"link_hash"`
 	ShareExpiration      *time.Time       `json:"share_expiration"`
 	Properties           ShareProperties  `json:"properties"`
+	FileCount            int64            `json:"file_count"`
+	FileIDs              []uint           `json:"file_ids,omitempty"`
 	UserPermissions      []UserPermission `json:"user_permissions"`
 	AnonymousPermissions []string         `json:"anonymous_permissions"`
 }

@@ -97,6 +97,7 @@ func New(
 		registerInventoryRoutes(adminGroup, svc)
 		registerReplicaRoutes(adminGroup, svc)
 		registerShareRoutes(adminGroup, svc)
+		registerShareFileRoutes(adminGroup, svc)
 		registerConfigRoutes(adminGroup, svc)
 		if err := dashboard.Register(mux, mux, cfg, authService); err != nil {
 			panic(err)
@@ -369,14 +370,27 @@ func mapShareError(err error, shareService *service.ShareService) error {
 		return huma.Error404NotFound("replica not found")
 	case errors.Is(err, service.ErrInvalidReplicaStatus):
 		return huma.Error409Conflict("replica is deleted")
-	case errors.Is(err, service.ErrShareAlreadyExists):
-		return huma.Error409Conflict("share already exists")
+	case errors.Is(err, service.ErrInvalidShareFiles):
+		return huma.Error400BadRequest("invalid share files")
+	case errors.Is(err, service.ErrShareFileNotFound):
+		return huma.Error404NotFound("share file not found")
+	case errors.Is(err, service.ErrInvalidInventoryFileStatus):
+		return huma.Error400BadRequest("invalid inventory file status")
+	case errors.Is(err, service.ErrInvalidInventoryFileSort):
+		return huma.Error400BadRequest("invalid sort")
+	case errors.Is(err, service.ErrInvalidListOrder):
+		return huma.Error400BadRequest("invalid order")
 	default:
 		return huma.Error500InternalServerError("share request failed", err)
 	}
 }
 
 func mapPermissionError(err error) error {
+	// Errors from AuthorizeShareAction/AuthorizeInventoryAction are already mapped.
+	var statusErr huma.StatusError
+	if errors.As(err, &statusErr) {
+		return err
+	}
 	switch {
 	case errors.Is(err, service.ErrInvalidToken), errors.Is(err, service.ErrExpiredToken):
 		return huma.Error401Unauthorized("missing authenticated user")

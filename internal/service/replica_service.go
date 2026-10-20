@@ -84,6 +84,13 @@ func (s *ReplicaService) Create(input CreateReplicaInput) (*InventoryReplicaDeta
 	if err := s.validateUpstreamReplica(input.InventoryID, 0, input.UpstreamReplicaID); err != nil {
 		return nil, err
 	}
+	activeReplicas, err := s.repo.ListActive()
+	if err != nil {
+		return nil, err
+	}
+	if err := overlappingReplicaError(activeReplicas, nodeID, uri, 0); err != nil {
+		return nil, err
+	}
 
 	replica := &model.Replica{
 		InventoryID:       input.InventoryID,
@@ -471,15 +478,11 @@ func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput) (*Inve
 			if inventory.Status == model.InventoryStatusDeleted {
 				return nil, ErrInventoryDeleted
 			}
-			activeReplica, err := s.repo.FindActiveByLocationExcludingID(replica.NodeID, replica.URI, replica.ID)
-			if err == nil {
-				return nil, &ActiveReplicaLocationError{
-					ReplicaID: activeReplica.ID,
-					NodeID:    activeReplica.NodeID,
-					URI:       activeReplica.URI,
-				}
+			activeReplicas, err := s.repo.ListActive()
+			if err != nil {
+				return nil, err
 			}
-			if !errors.Is(err, gorm.ErrRecordNotFound) {
+			if err := overlappingReplicaError(activeReplicas, replica.NodeID, replica.URI, replica.ID); err != nil {
 				return nil, err
 			}
 		}
@@ -575,6 +578,10 @@ func (s *ReplicaService) ReportFileChanges(replicaID uint, nodeID string, change
 		if err != nil {
 			return err
 		}
+		// Share uploads are only accepted on base replicas; downstream replicas are not authoritative.
+		if update.ShareID != nil && replica.UpstreamReplicaID != nil {
+			return ErrInvalidReplicaFileUpdate
+		}
 		updates = append(updates, update)
 	}
 
@@ -614,6 +621,9 @@ func replicaFileUpdateFromChange(change ReplicaFileChangeInput) (repository.Repl
 	if relativeURI == "" || (change.FileID != nil && *change.FileID == 0) {
 		return repository.ReplicaFileUpdate{}, ErrInvalidReplicaFileUpdate
 	}
+	if change.ShareID != nil && (*change.ShareID == 0 || action != model.ReplicaFileActionCreated) {
+		return repository.ReplicaFileUpdate{}, ErrInvalidReplicaFileUpdate
+	}
 	if action != "" {
 		switch action {
 		case model.ReplicaFileActionCreated:
@@ -643,6 +653,7 @@ func replicaFileUpdateFromChange(change ReplicaFileChangeInput) (repository.Repl
 		FileHash:     fileHash,
 		CreatedTime:  change.CreatedTime,
 		ModifiedTime: change.ModifiedTime,
+		ShareID:      change.ShareID,
 	}, nil
 }
 

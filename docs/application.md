@@ -19,8 +19,10 @@ Inventory can have replication rules, sharing rules, ownership and permissions.
 
 Inventory can be created either for replication and/or for sharing but neither is mandatory on an inventory.
 
-Inventories can overlap: a file or folder can be part of multiple inventories with different replication rules, 
-shares and permissions.
+Inventories do not overlap: a file belongs to one inventory. The coordinator rejects a replica whose location equals,
+contains or is inside the location of another active replica; filesystem locations are compared per node, S3 and SFTP
+locations across all nodes. To share only part of an inventory, possibly with different permissions per subset, use
+shares with selected files (see [Share](#share)).
 
 ### Replica
 Each inventory has at least one replica which points to the physical location of data.  
@@ -39,10 +41,22 @@ An inventory can have multiple replicas with the following replication rules:
 * One-way replication replicas can form a tree structure where any downstream replica can have only one source.
 
 ### Share
-It's a replica accessible through the API and web interface with special permissions allowing 
-authenticated or anonymous users to read or update files based on per-share permissions.  
+It's a replica, or a selected subset of its files, accessible through the API and web interface with special
+permissions allowing authenticated or anonymous users to read or update files based on per-share permissions.  
 
 Share API and web interface are exposed on the same node on which replica exists.  
+
+A replica can have multiple shares. A share without share files exposes the whole replica; a share with share files
+(a subset share) exposes only those files. Share files reference inventory files by ID:
+* editing a file keeps it in the share
+* deleting and restoring a file at the same path keeps it in the share
+* renaming or moving a file removes it from the share, because it becomes a new inventory file
+* deleting a file through a subset share keeps its share file entry, so a share user can't empty the share and expose
+  the whole replica; only an administrator removing the last share file makes it a whole-replica share again
+
+An upload to a writable subset share is reported to the coordinator immediately with the share ID, and the coordinator
+adds the new file to the share. Uploads are refused while the coordinator is unavailable, and an upload the
+coordinator doesn't accept is removed from the replica.  
 
 In case of conflicting permissions and rules (i.e. writeable share for read-only replica) it's up to the API to
 detect conflicting settings and display an error.
@@ -189,12 +203,17 @@ share_expiration - optional share expiration
 properties - JSON object containing optional share UI defaults (`view`, `page_size`, `thumbnail_size`, `theme`) and the
 optional `fuse_enabled` flag for exposing the share as a read-only FUSE mount
 
+#### share_files
+share_id - share whose exposed files are limited to the listed files; a share without share files exposes the whole replica  
+file_id - shared inventory file; it must belong to the inventory of the share replica  
+
 #### share_users
 user_id - nullable only when anonymous is true
 anonymous - true for anonymous share permissions, false for authenticated user permissions
 
 #### users
-name - username or email    
+username - unique login name, for example username or email  
+name - display name  
 status - active, deleted  
 
 #### roles

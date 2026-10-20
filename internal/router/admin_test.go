@@ -731,6 +731,47 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		t.Fatalf("updatedShare.Properties = %+v, want edited appearance with unset page size and theme", updatedShare.Properties)
 	}
 
+	if err := database.Preload("Replica").First(&updatedShare, 1).Error; err != nil {
+		t.Fatalf("First(updated share with replica) error = %v", err)
+	}
+	sharedFile := &model.InventoryFile{InventoryID: updatedShare.Replica.InventoryID, RelativeURI: "reports/q1.pdf", Status: model.InventoryFileStatusActive, Version: 1, Size: 2048}
+	if err := database.Create(sharedFile).Error; err != nil {
+		t.Fatalf("Create(shared file) error = %v", err)
+	}
+	fileID := strconv.FormatUint(uint64(sharedFile.ID), 10)
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/shares/1/edit?path=q1", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "The whole replica") ||
+		!strings.Contains(response.Body.String(), `name="file_ids" value="`+fileID+`"`) {
+		t.Fatalf("edit share files response = %d body=%q", response.Code, response.Body.String())
+	}
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/shares/1/files", url.Values{"file_ids": {fileID}}, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/shares/1/edit#files" {
+		t.Fatalf("add share files response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	response = adminRequest(t, handler, http.MethodGet, "/dashboard/shares/1/edit", nil, accessToken)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "1 selected files") ||
+		!strings.Contains(response.Body.String(), `action="/dashboard/shares/1/files/`+fileID+`/remove"`) ||
+		!strings.Contains(response.Body.String(), `name="confirm_whole_replica"`) {
+		t.Fatalf("edit subset share response = %d body=%q", response.Code, response.Body.String())
+	}
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/shares/1/files/"+fileID+"/remove", url.Values{}, accessToken)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Removing the last file shares the whole replica") {
+		t.Fatalf("unconfirmed remove response = %d body=%q", response.Code, response.Body.String())
+	}
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/shares/1/files/"+fileID+"/remove", url.Values{"confirm_whole_replica": {"1"}}, accessToken)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("confirmed remove response = %d body=%q", response.Code, response.Body.String())
+	}
+	var shareFileCount int64
+	if err := database.Model(&model.ShareFile{}).Where("share_id = ?", 1).Count(&shareFileCount).Error; err != nil {
+		t.Fatalf("Count(share files) error = %v", err)
+	}
+	if shareFileCount != 0 {
+		t.Fatalf("shareFileCount = %d, want 0", shareFileCount)
+	}
+
 	response = adminRequest(t, handler, http.MethodPost, "/dashboard/shares/1/delete", nil, accessToken)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/shares" {
 		t.Fatalf("delete share response = %d location=%q body=%q", response.Code, response.Header().Get("Location"), response.Body.String())

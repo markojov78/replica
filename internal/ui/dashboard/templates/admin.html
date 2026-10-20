@@ -180,7 +180,7 @@
     <div>
       <span class="inventory-title">{{.Name}}</span>
       <p>Share #{{.ID}} · Inventory #{{.InventoryID}}{{if .InventoryName}} · {{.InventoryName}}{{end}} · Replica #{{.ReplicaID}}</p>
-      <div class="chips"><span>node: {{if .NodeID}}{{.NodeID}}{{else}}unknown{{end}}</span>{{if .HasAnonymous}}<span class="anon-label">anonymous access enabled{{if .LinkHash}} at {{.LinkHash}}{{end}}</span>{{end}}</div>
+      <div class="chips"><span>node: {{if .NodeID}}{{.NodeID}}{{else}}unknown{{end}}</span><span>files: {{if .FileCount}}{{.FileCount}} selected{{else}}whole replica{{end}}</span>{{if .HasAnonymous}}<span class="anon-label">anonymous access enabled{{if .LinkHash}} at {{.LinkHash}}{{end}}</span>{{end}}</div>
     </div>
     <div class="inventory-actions">
       <span class="pill {{statusClass .Status}}">{{.Status}}</span>
@@ -436,7 +436,73 @@
     <div class="footer-actions full"><a class="btn" href="/dashboard/shares">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save share{{else}}Create share{{end}}</button></div>
   </form>
 </section>
+{{if and .IsEdit .ShareFiles}}{{template "share_files" .}}{{end}}
 {{template "layout_end" .}}
+{{end}}
+
+{{define "share_files"}}
+{{$share := .Share}}
+{{$files := .ShareFiles}}
+<section class="card" id="files">
+  <div class="section-head"><div><h2>Files</h2><p>{{if $share.FileCount}}{{$share.FileCount}} selected files of replica #{{$share.ReplicaID}} are shared. Renamed or moved files drop out of the share.{{else}}The whole replica #{{$share.ReplicaID}} is shared. Add files to share only a subset.{{end}}</p></div></div>
+  {{if $share.FileCount}}
+  <table>
+    <thead><tr><th>ID</th><th>Relative URI</th><th>Status</th><th>Size</th><th>Actions</th></tr></thead>
+    <tbody>
+    {{range $files.Members.Items}}
+      <tr>
+        <td class="mono">{{.ID}}</td>
+        <td class="mono">{{.RelativeURI}}</td>
+        <td><span class="pill {{statusClass .Status}}">{{.Status}}</span></td>
+        <td>{{formatBytes .Size}}</td>
+        <td class="row-actions">
+          <form action="/dashboard/shares/{{$share.ID}}/files/{{.ID}}/remove" method="post">
+            {{if eq $share.FileCount 1}}<label class="filter-toggle"><input type="checkbox" name="confirm_whole_replica" value="1" required> Share whole replica</label>{{end}}
+            <button class="danger" type="submit">{{if eq .Status "deleted"}}Purge{{else}}Remove{{end}}</button>
+          </form>
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  <nav class="pagination" aria-label="Share files pagination">
+    <span>page {{$files.Members.Page}} of {{$files.Members.TotalPages}}</span>
+    <a class="btn {{if not $files.Members.HasPrev}}disabled{{end}}" {{if $files.Members.HasPrev}}href="/dashboard/shares/{{$share.ID}}/edit?members_page={{$files.Members.PrevPage}}&amp;available_page={{$files.Available.Page}}&amp;path={{$files.Path}}#files"{{end}}>Previous</a>
+    <a class="btn {{if not $files.Members.HasNext}}disabled{{end}}" {{if $files.Members.HasNext}}href="/dashboard/shares/{{$share.ID}}/edit?members_page={{$files.Members.NextPage}}&amp;available_page={{$files.Available.Page}}&amp;path={{$files.Path}}#files"{{end}}>Next</a>
+  </nav>
+  {{end}}
+  <div class="section-head"><div><h2>Add files</h2><p>Active files of inventory #{{$share.InventoryID}}. Files already in the share are kept.</p></div></div>
+  {{if $files.AvailableError}}
+    <div class="callout">Inventory files can't be listed: {{$files.AvailableError}}</div>
+  {{else}}
+  <form action="/dashboard/shares/{{$share.ID}}/edit" method="get" class="actions">
+    <input type="hidden" name="members_page" value="{{$files.Members.Page}}">
+    <label class="filter-select">Path<input name="path" value="{{$files.Path}}" placeholder="Filter by path"></label>
+    <button type="submit">Filter</button>
+  </form>
+  <form action="/dashboard/shares/{{$share.ID}}/files" method="post">
+    <table>
+      <thead><tr><th></th><th>ID</th><th>Relative URI</th><th>Size</th></tr></thead>
+      <tbody>
+      {{range $files.Available.Items}}
+        <tr>
+          <td><input type="checkbox" name="file_ids" value="{{.ID}}" aria-label="Select {{.RelativeURI}}"></td>
+          <td class="mono">{{.ID}}</td>
+          <td class="mono">{{.RelativeURI}}</td>
+          <td>{{formatBytes .Size}}</td>
+        </tr>
+      {{else}}<tr><td colspan="4" class="empty">No active files found.</td></tr>{{end}}
+      </tbody>
+    </table>
+    <div class="footer-actions"><button class="primary" type="submit">Add selected files</button></div>
+  </form>
+  <nav class="pagination" aria-label="Inventory files pagination">
+    <span>page {{$files.Available.Page}} of {{$files.Available.TotalPages}}</span>
+    <a class="btn {{if not $files.Available.HasPrev}}disabled{{end}}" {{if $files.Available.HasPrev}}href="/dashboard/shares/{{$share.ID}}/edit?members_page={{$files.Members.Page}}&amp;available_page={{$files.Available.PrevPage}}&amp;path={{$files.Path}}#files"{{end}}>Previous</a>
+    <a class="btn {{if not $files.Available.HasNext}}disabled{{end}}" {{if $files.Available.HasNext}}href="/dashboard/shares/{{$share.ID}}/edit?members_page={{$files.Members.Page}}&amp;available_page={{$files.Available.NextPage}}&amp;path={{$files.Path}}#files"{{end}}>Next</a>
+  </nav>
+  {{end}}
+</section>
 {{end}}
 
 {{define "inventory"}}

@@ -40,6 +40,7 @@ var (
 	errShareCreateNotAllowed   = errors.New("create not allowed for inventory of type file")
 	errShareFileAlreadyExists  = errors.New("active file already exists under the same relative_uri")
 	errShareLocalStorageFailed = errors.New("local storage write/delete failed")
+	errShareFileNotRegistered  = errors.New("coordinator did not register the uploaded file")
 )
 
 type shareFileListBody struct {
@@ -143,7 +144,7 @@ func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Requ
 			writeStorageShareError(w, storageShareStatus(err), err.Error())
 			return
 		}
-		writeStorageShareJSON(w, http.StatusOK, share)
+		writeStorageShareJSON(w, http.StatusOK, sharingAPIShare(share))
 	case req.Method == http.MethodGet && req.PathValue("id") != "" && strings.HasSuffix(req.URL.Path, "/files"):
 		shareID, ok := parseSharePathUint(w, req, "id")
 		if !ok {
@@ -187,12 +188,12 @@ func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Requ
 		if !ok {
 			return
 		}
-		_, replica, _, err := r.GetUserShare(userID, shareID)
+		share, replica, _, err := r.GetUserShare(userID, shareID)
 		if err != nil {
 			writeStorageShareError(w, storageShareStatus(err), err.Error())
 			return
 		}
-		r.serveShareFileThumbnail(w, req, replica, fileID)
+		r.serveShareFileThumbnail(w, req, share, replica, fileID)
 	case req.Method == http.MethodGet && req.PathValue("id") != "" && req.PathValue("file_id") != "" && strings.HasSuffix(req.URL.Path, "/content"):
 		shareID, ok := parseSharePathUint(w, req, "id")
 		if !ok {
@@ -266,7 +267,7 @@ func (r *Runtime) ServePublicShares(w http.ResponseWriter, req *http.Request) {
 			writeStorageShareError(w, storageShareStatus(err), err.Error())
 			return
 		}
-		writeStorageShareJSON(w, http.StatusOK, share)
+		writeStorageShareJSON(w, http.StatusOK, sharingAPIShare(share))
 	case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/files"):
 		list, err := r.apiPublicShareFileList(req, linkHash)
 		if err != nil {
@@ -294,12 +295,12 @@ func (r *Runtime) ServePublicShares(w http.ResponseWriter, req *http.Request) {
 		if !ok {
 			return
 		}
-		_, replica, _, err := r.GetPublicShare(linkHash)
+		share, replica, _, err := r.GetPublicShare(linkHash)
 		if err != nil {
 			writeStorageShareError(w, storageShareStatus(err), err.Error())
 			return
 		}
-		r.serveShareFileThumbnail(w, req, replica, fileID)
+		r.serveShareFileThumbnail(w, req, share, replica, fileID)
 	case req.Method == http.MethodGet && req.PathValue("file_id") != "" && strings.HasSuffix(req.URL.Path, "/content"):
 		fileID, ok := parseSharePathUint(w, req, "file_id")
 		if !ok {
@@ -375,7 +376,7 @@ func (r *Runtime) apiShareListForUser(req *http.Request, userID uint) (shareList
 	}
 	items := make([]apiclient.Share, 0, len(result.Items))
 	for _, item := range result.Items {
-		items = append(items, item.Share)
+		items = append(items, sharingAPIShare(item.Share))
 	}
 
 	return shareListBody{
@@ -659,13 +660,19 @@ func (r *Runtime) activeShareFileExists(share apiclient.Share, replicaID uint, r
 
 func (r *Runtime) shareFileForMutation(share apiclient.Share, replicaID, fileID uint) (apiclient.ReplicaInventoryFile, error) {
 	_, file, ok := r.findReplicaFile(replicaID, fileID)
-	if !ok || file.InventoryID != share.InventoryID || file.InventoryStatus != "active" {
+	if !ok || !shareIncludesFile(share, file) || file.InventoryID != share.InventoryID || file.InventoryStatus != "active" {
 		return apiclient.ReplicaInventoryFile{}, errShareFileNotFound
 	}
 	if file.ReplicaStatus != "synchronized" {
 		return apiclient.ReplicaInventoryFile{}, errShareFileUnsynchronized
 	}
 	return file, nil
+}
+
+// sharingAPIShare hides internal share membership from sharing API clients; file_count is kept.
+func sharingAPIShare(share apiclient.Share) apiclient.Share {
+	share.FileIDs = nil
+	return share
 }
 
 func (r *Runtime) serveShareFileContent(w http.ResponseWriter, req *http.Request, share apiclient.Share, replica apiclient.Replica, fileID uint) {
@@ -780,14 +787,17 @@ func validateShareRangeHeader(header string) error {
 	return nil
 }
 
-func (r *Runtime) serveShareFileThumbnail(w http.ResponseWriter, req *http.Request, replica apiclient.Replica, fileID uint) {
+func (r *Runtime) serveShareFileThumbnail(w http.ResponseWriter, req *http.Request, share apiclient.Share, replica apiclient.Replica, fileID uint) {
 	thumbnail, cfg := r.thumbnailSnapshot()
 	if thumbnail == nil {
 		writeStorageShareError(w, http.StatusInternalServerError, "thumbnail service unavailable")
 		return
 	}
 
-	file, err := r.shareFileForRead(replica.ID, fileID)
+	file, err := r.shareFileForReadInShare(share, replica.ID, fileID)
+	if err == nil && file.InventoryVersion == 0 {
+		err = errShareFileNotFound
+	}
 	if err != nil {
 		writeStorageShareError(w, storageShareStatus(err), err.Error())
 		return
@@ -838,20 +848,6 @@ func (r *Runtime) serveShareFileThumbnail(w http.ResponseWriter, req *http.Reque
 	w.Header().Set("ETag", fmt.Sprintf(`"file-%d-v%d-s%d"`, file.FileID, file.InventoryVersion, size))
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, thumbnailFile)
-}
-
-func (r *Runtime) shareFileForRead(replicaID, fileID uint) (apiclient.ReplicaInventoryFile, error) {
-	_, file, ok := r.findReplicaFile(replicaID, fileID)
-	if !ok || file.InventoryStatus != "active" {
-		return apiclient.ReplicaInventoryFile{}, errShareFileNotFound
-	}
-	if file.ReplicaStatus != "synchronized" {
-		return apiclient.ReplicaInventoryFile{}, errShareFileUnsynchronized
-	}
-	if file.InventoryVersion == 0 {
-		return apiclient.ReplicaInventoryFile{}, errShareFileNotFound
-	}
-	return file, nil
 }
 
 func (r *Runtime) thumbnailSource(ctx context.Context, replica apiclient.Replica, file apiclient.ReplicaInventoryFile) (service.ThumbnailSource, error) {
@@ -981,6 +977,10 @@ func storageShareStatus(err error) int {
 		return http.StatusBadRequest
 	case errors.Is(err, errTransferUnsupportedURI):
 		return http.StatusNotImplemented
+	case errors.Is(err, errShareCoordinatorOffline):
+		return http.StatusServiceUnavailable
+	case errors.Is(err, errShareFileNotRegistered):
+		return http.StatusBadGateway
 	default:
 		return http.StatusInternalServerError
 	}

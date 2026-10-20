@@ -54,7 +54,7 @@ type ActiveReplicaLocationError struct {
 }
 
 func (e *ActiveReplicaLocationError) Error() string {
-	return fmt.Sprintf("Active replica %d on %s is already using location %s", e.ReplicaID, e.NodeID, e.URI)
+	return fmt.Sprintf("Active replica %d on %s is already using overlapping location %s", e.ReplicaID, e.NodeID, e.URI)
 }
 
 type InventoryReplicaDetails struct {
@@ -158,6 +158,7 @@ type InventoryListFilter struct {
 
 type InventoryFileListFilter struct {
 	Status string
+	Path   string
 	Sort   string
 	Order  string
 }
@@ -241,6 +242,7 @@ type ReplicaFileChangeInput struct {
 	CreatedTimeSet  bool
 	ModifiedTime    time.Time
 	ModifiedTimeSet bool
+	ShareID         *uint
 }
 
 func NewInventoryService(repo *repository.InventoryRepository, nodeServices ...*NodeService) *InventoryService {
@@ -338,6 +340,13 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 
 	permissions, err := validateUserPermissions(input.UserPermissions)
 	if err != nil {
+		return nil, err
+	}
+	activeReplicas, err := s.repo.ListActiveReplicas()
+	if err != nil {
+		return nil, err
+	}
+	if err := overlappingReplicaError(activeReplicas, nodeID, replicaURI, 0); err != nil {
 		return nil, err
 	}
 	if err := s.repo.CreateWithDefaultReplica(inventory, replica, inventoryFiles, command, refreshCommand, permissions); err != nil {
@@ -606,10 +615,23 @@ func (s *InventoryService) ListFiles(inventoryID uint, page, perPage int, filter
 		return nil, err
 	}
 
+	repoFilter, err := resolveInventoryFileListFilter(filter)
+	if err != nil {
+		return nil, err
+	}
+
+	files, total, err := s.repo.ListFiles(inventoryID, page, perPage, repoFilter)
+	if err != nil {
+		return nil, err
+	}
+	return toInventoryFileList(files, page, perPage, total), nil
+}
+
+func resolveInventoryFileListFilter(filter InventoryFileListFilter) (repository.InventoryFileListFilter, error) {
 	if filter.Status != "" {
 		status := model.InventoryFileStatus(strings.TrimSpace(filter.Status))
 		if !status.Valid() {
-			return nil, ErrInvalidInventoryFileStatus
+			return repository.InventoryFileListFilter{}, ErrInvalidInventoryFileStatus
 		}
 		filter.Status = string(status)
 	}
@@ -619,35 +641,33 @@ func (s *InventoryService) ListFiles(inventoryID uint, page, perPage int, filter
 	switch filter.Sort {
 	case "id", "name", "size", "created", "modified":
 	default:
-		return nil, ErrInvalidInventoryFileSort
+		return repository.InventoryFileListFilter{}, ErrInvalidInventoryFileSort
 	}
 	if filter.Order == "" {
 		filter.Order = "asc"
 	}
 	if filter.Order != "asc" && filter.Order != "desc" {
-		return nil, ErrInvalidListOrder
+		return repository.InventoryFileListFilter{}, ErrInvalidListOrder
 	}
-
-	files, total, err := s.repo.ListFiles(inventoryID, page, perPage, repository.InventoryFileListFilter{
+	return repository.InventoryFileListFilter{
 		Status: filter.Status,
+		Path:   filter.Path,
 		Sort:   filter.Sort,
 		Order:  filter.Order,
-	})
-	if err != nil {
-		return nil, err
-	}
+	}, nil
+}
 
+func toInventoryFileList(files []model.InventoryFile, page, perPage int, total int64) *InventoryFileList {
 	items := make([]InventoryFileDetails, 0, len(files))
 	for _, file := range files {
 		items = append(items, *toInventoryFileDetails(&file))
 	}
-
 	return &InventoryFileList{
 		Items: items,
 		Page:  page,
 		Count: perPage,
 		Total: total,
-	}, nil
+	}
 }
 
 func (s *InventoryService) ListFileJournal(inventoryID, fileID uint, page, perPage int, order string) (*FileJournalList, error) {
