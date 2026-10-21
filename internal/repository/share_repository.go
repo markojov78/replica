@@ -9,7 +9,6 @@ import (
 	"replica/internal/model"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 type ShareRepository struct {
@@ -180,35 +179,6 @@ func (r *ShareRepository) FindInventoryFiles(fileIDs []uint) ([]model.InventoryF
 	return files, err
 }
 
-func (r *ShareRepository) AddFiles(shareID uint, fileIDs []uint, command *model.Command) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
-		rows := make([]model.ShareFile, 0, len(fileIDs))
-		for _, fileID := range fileIDs {
-			rows = append(rows, model.ShareFile{ShareID: shareID, FileID: fileID})
-		}
-		if len(rows) > 0 {
-			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&rows).Error; err != nil {
-				return err
-			}
-		}
-		return createShareRefreshCommand(tx, command)
-	})
-}
-
-// RemoveFile removes one share file and returns gorm.ErrRecordNotFound when it is not a member.
-func (r *ShareRepository) RemoveFile(shareID, fileID uint, command *model.Command) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
-		result := tx.Where("share_id = ? AND file_id = ?", shareID, fileID).Delete(&model.ShareFile{})
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected == 0 {
-			return gorm.ErrRecordNotFound
-		}
-		return createShareRefreshCommand(tx, command)
-	})
-}
-
 func (r *ShareRepository) Create(share *model.Share) error {
 	return r.db.Create(share).Error
 }
@@ -222,7 +192,7 @@ func (r *ShareRepository) CreateWithUserPermissions(share *model.Share, permissi
 	})
 }
 
-func (r *ShareRepository) CreateWithPermissions(share *model.Share, userPermissions []UserPermissionDetails, anonymousPermissions []string, command *model.Command) error {
+func (r *ShareRepository) CreateWithPermissions(share *model.Share, userPermissions []UserPermissionDetails, anonymousPermissions []string, fileIDs []uint, command *model.Command) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(share).Error; err != nil {
 			return err
@@ -231,6 +201,9 @@ func (r *ShareRepository) CreateWithPermissions(share *model.Share, userPermissi
 			return err
 		}
 		if err := replaceShareAnonymousPermissions(tx, share.ID, anonymousPermissions); err != nil {
+			return err
+		}
+		if err := replaceShareFiles(tx, share.ID, fileIDs); err != nil {
 			return err
 		}
 		return createShareRefreshCommand(tx, command)
@@ -253,7 +226,7 @@ func (r *ShareRepository) UpdateWithUserPermissions(share *model.Share, permissi
 	})
 }
 
-func (r *ShareRepository) UpdateWithPermissions(share *model.Share, userPermissions []UserPermissionDetails, replaceUserPermissions bool, anonymousPermissions []string, replaceAnonymousPermissions bool, command *model.Command) error {
+func (r *ShareRepository) UpdateWithPermissions(share *model.Share, userPermissions []UserPermissionDetails, replaceUserPermissions bool, anonymousPermissions []string, replaceAnonymousPermissions bool, fileIDs []uint, replaceFiles bool, command *model.Command) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(share).Error; err != nil {
 			return err
@@ -265,6 +238,11 @@ func (r *ShareRepository) UpdateWithPermissions(share *model.Share, userPermissi
 		}
 		if replaceAnonymousPermissions {
 			if err := replaceShareAnonymousPermissions(tx, share.ID, anonymousPermissions); err != nil {
+				return err
+			}
+		}
+		if replaceFiles {
+			if err := replaceShareFiles(tx, share.ID, fileIDs); err != nil {
 				return err
 			}
 		}
@@ -454,6 +432,21 @@ func replaceShareUserPermissions(tx *gorm.DB, shareID uint, permissions []UserPe
 		}
 	}
 	return nil
+}
+
+// replaceShareFiles sets the share files to fileIDs; an empty list shares the whole replica.
+func replaceShareFiles(tx *gorm.DB, shareID uint, fileIDs []uint) error {
+	if err := tx.Where("share_id = ?", shareID).Delete(&model.ShareFile{}).Error; err != nil {
+		return err
+	}
+	if len(fileIDs) == 0 {
+		return nil
+	}
+	rows := make([]model.ShareFile, 0, len(fileIDs))
+	for _, fileID := range fileIDs {
+		rows = append(rows, model.ShareFile{ShareID: shareID, FileID: fileID})
+	}
+	return tx.Create(&rows).Error
 }
 
 func replaceShareAnonymousPermissions(tx *gorm.DB, shareID uint, permissions []string) error {

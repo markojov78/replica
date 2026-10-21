@@ -790,14 +790,14 @@ func TestInternalSharesReturnsOnlyAuthenticatedNodeShares(t *testing.T) {
 		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
 	}
 
-	var body []service.NodeShareDetails
+	var body []service.ShareDetails
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
 	if len(body) != 1 {
 		t.Fatalf("len(body) = %d, want 1; body=%+v", len(body), body)
 	}
-	if len(body[0].FileIDs) != 1 || body[0].FileIDs[0] != sharedFile.ID || body[0].FileCount != 1 {
+	if body[0].FileIDs == nil || len(*body[0].FileIDs) != 1 || (*body[0].FileIDs)[0] != sharedFile.ID || body[0].FileCount != 1 {
 		t.Fatalf("body[0] file_ids=%v file_count=%d, want [%d] and 1", body[0].FileIDs, body[0].FileCount, sharedFile.ID)
 	}
 	if body[0].ID != shareA.ID || body[0].InventoryID != inventory.ID || body[0].ReplicaID != replicaA.ID {

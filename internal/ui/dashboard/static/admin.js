@@ -127,7 +127,210 @@
       syncExpiration();
       syncAnonymous();
       syncReplicas();
+      bindShareFilePicker(form, replicaSelect);
     }
+  }
+
+  function formatBytes(size) {
+    if (size < 1024) {
+      return `${size} B`;
+    }
+    let div = 1024;
+    let exp = 0;
+    for (let value = Math.floor(size / 1024); value >= 1024 && exp < 4; value = Math.floor(value / 1024)) {
+      div *= 1024;
+      exp++;
+    }
+    return `${(size / div).toFixed(1)} ${"KMGTPE"[exp]}iB`;
+  }
+
+  // bindShareFilePicker keeps the selected share files in a set across pages and filters and writes them to the
+  // hidden file_ids input. Files are listed through the dashboard API proxy for the selected replica's inventory.
+  function bindShareFilePicker(form, replicaSelect) {
+    const panel = form.querySelector("[data-share-files]");
+    if (!panel) {
+      return;
+    }
+    const scopeInputs = [...panel.querySelectorAll("[data-file-scope]")];
+    const idsInput = panel.querySelector("[data-file-ids]");
+    const picker = panel.querySelector("[data-file-picker]");
+    const filterInput = panel.querySelector("[data-file-filter]");
+    const countSelect = panel.querySelector("[data-file-count]");
+    const sortSelect = panel.querySelector("[data-file-sort]");
+    const orderButton = panel.querySelector("[data-file-order]");
+    const rows = panel.querySelector("[data-file-rows]");
+    const message = panel.querySelector("[data-file-message]");
+    const summary = panel.querySelector("[data-file-summary]");
+    const countLabel = panel.querySelector("[data-file-selected-count]");
+    const firstButton = panel.querySelector("[data-file-first]");
+    const prevButton = panel.querySelector("[data-file-prev]");
+    const nextButton = panel.querySelector("[data-file-next]");
+    const lastButton = panel.querySelector("[data-file-last]");
+    const deletedBox = panel.querySelector("[data-file-deleted]");
+    const deletedRows = panel.querySelector("[data-file-deleted-rows]");
+    const selected = new Set(idsInput.value.split(",").filter(Boolean));
+    let inventoryID = panel.dataset.inventoryId || replicaSelect?.selectedOptions[0]?.dataset.inventory || "";
+    let page = 1;
+    let totalPages = 1;
+    let order = "asc";
+    let filterTimer;
+    let loadSequence = 0;
+
+    const writeSelection = () => {
+      idsInput.value = [...selected].join(",");
+      countLabel.textContent = `${selected.size} file${selected.size === 1 ? "" : "s"} selected`;
+    };
+    const showMessage = (text) => {
+      message.textContent = text;
+      message.hidden = text === "";
+    };
+    const fileCheckbox = (file) => {
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = selected.has(String(file.id));
+      checkbox.setAttribute("aria-label", `Select ${file.relative_uri}`);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) {
+          selected.add(String(file.id));
+        } else {
+          selected.delete(String(file.id));
+        }
+        writeSelection();
+      });
+      return checkbox;
+    };
+    const fileRow = (file) => {
+      const row = document.createElement("tr");
+      const select = document.createElement("td");
+      select.append(fileCheckbox(file));
+      const uri = document.createElement("td");
+      uri.className = "mono";
+      uri.textContent = file.relative_uri;
+      const size = document.createElement("td");
+      size.textContent = formatBytes(file.size);
+      row.append(select, uri, size);
+      return row;
+    };
+
+    const load = async () => {
+      const sequence = ++loadSequence;
+      picker.hidden = scopeInputs.find((input) => input.checked)?.value !== "selected";
+      if (picker.hidden) {
+        return;
+      }
+      rows.replaceChildren();
+      if (!inventoryID) {
+        summary.textContent = "";
+        firstButton.disabled = true;
+        prevButton.disabled = true;
+        nextButton.disabled = true;
+        lastButton.disabled = true;
+        showMessage("Select a replica first.");
+        return;
+      }
+      const query = new URLSearchParams({status: "active", sort: sortSelect.value, order, count: countSelect.value, page: String(page)});
+      if (filterInput.value.trim() !== "") {
+        query.set("path", filterInput.value.trim());
+      }
+      const response = await requestWithRefresh(`/dashboard/api/inventories/${encodeURIComponent(inventoryID)}/files?${query}`);
+      if (!response || sequence !== loadSequence) {
+        return;
+      }
+      if (!response.ok) {
+        showMessage("Inventory files can't be listed.");
+        return;
+      }
+      const body = await response.json();
+      totalPages = Math.max(1, Math.ceil(body.total / body.count));
+      rows.replaceChildren(...body.items.map(fileRow));
+      showMessage(body.items.length === 0 ? "No active files found." : "");
+      summary.textContent = `${body.items.length} of ${body.total} files, page ${body.page} of ${totalPages}`;
+      firstButton.disabled = page <= 1;
+      prevButton.disabled = page <= 1;
+      nextButton.disabled = page >= totalPages;
+      lastButton.disabled = page >= totalPages;
+    };
+
+    // Deleted files stay in the share until unchecked; they never appear in the active file list.
+    const loadDeleted = async () => {
+      const shareID = panel.dataset.shareId;
+      if (!shareID || selected.size === 0) {
+        return;
+      }
+      const response = await requestWithRefresh(`/dashboard/api/shares/${encodeURIComponent(shareID)}/files?status=deleted&count=100&sort=name`);
+      if (!response?.ok) {
+        return;
+      }
+      const body = await response.json();
+      const files = body.items.filter((file) => selected.has(String(file.id)));
+      deletedRows.replaceChildren(...files.map((file) => {
+        const label = document.createElement("label");
+        label.className = "filter-toggle";
+        label.append(fileCheckbox(file), ` ${file.relative_uri}`);
+        return label;
+      }));
+      deletedBox.hidden = files.length === 0;
+    };
+
+    for (const input of scopeInputs) {
+      input.addEventListener("change", load);
+    }
+    filterInput.addEventListener("input", () => {
+      clearTimeout(filterTimer);
+      filterTimer = setTimeout(() => {
+        page = 1;
+        load();
+      }, 300);
+    });
+    countSelect.addEventListener("change", () => {
+      page = 1;
+      load();
+    });
+    sortSelect.addEventListener("change", () => {
+      page = 1;
+      load();
+    });
+    orderButton.addEventListener("click", () => {
+      order = order === "asc" ? "desc" : "asc";
+      orderButton.textContent = order === "asc" ? "Ascending ↑" : "Descending ↓";
+      page = 1;
+      load();
+    });
+    firstButton.addEventListener("click", () => {
+      page = 1;
+      load();
+    });
+    lastButton.addEventListener("click", () => {
+      page = totalPages;
+      load();
+    });
+    prevButton.addEventListener("click", () => {
+      page = Math.max(1, page - 1);
+      load();
+    });
+    nextButton.addEventListener("click", () => {
+      page++;
+      load();
+    });
+    if (!panel.dataset.inventoryId && replicaSelect) {
+      // The node select resets the replica select without a change event, so both trigger a recheck.
+      const syncInventory = () => {
+        const next = replicaSelect.selectedOptions[0]?.dataset.inventory || "";
+        if (next === inventoryID) {
+          return;
+        }
+        inventoryID = next;
+        selected.clear();
+        page = 1;
+        writeSelection();
+        load();
+      };
+      replicaSelect.addEventListener("change", syncInventory);
+      form.querySelector("[data-share-node-select]")?.addEventListener("change", syncInventory);
+    }
+    writeSelection();
+    load();
+    loadDeleted();
   }
 
   function bindReplicaForms() {

@@ -1343,9 +1343,15 @@ Possible errors:
 ### /shares endpoint
 All `/shares` endpoints require the matching `shares` permission for the requested action.
 
-A share exposes files of one replica. A replica can have multiple active shares. `file_count` is the number of
-share files: `0` means the whole replica is shared, otherwise only the selected files are shared (see
-[/shares/{id}/files](#sharesidfiles-endpoint)).
+A share exposes files of one replica. A replica can have multiple active shares. Share files limit a share to selected
+files of its replica and are set with `file_ids` on `POST /shares` and `PATCH /shares/{id}`. `file_count` is the
+number of share files: `0` means the whole replica is shared. Single-share responses (`GET /shares/{id}`, `POST` and
+`PATCH`) also return `file_ids`; `GET /shares` returns only `file_count`.
+
+Share files are inventory file IDs: a renamed or moved file drops out of the share, while a file deleted and restored
+at the same path stays in it. Deleted files stay in the share until they are left out of a `file_ids` list. Uploads
+to a share with selected files are added to the share by the storage node, so a `PATCH` built from an older file list
+can remove them (last write wins).
 
 #### GET /shares
 Returns a paginated list of shares.
@@ -1418,7 +1424,8 @@ Example response:
     "theme": null,
     "fuse_enabled": null
   },
-  "file_count": 0,
+  "file_count": 2,
+  "file_ids": [10, 11],
   "user_permissions": [
     {
       "user_id": 15,
@@ -1441,6 +1448,7 @@ Request body:
 - `generate_hash` optional boolean to generate new `link_hash`
 - `user_permissions` optional, per-user permissions for the share
 - `anonymous_permissions` optional permissions for anonymous users
+- `file_ids` optional list of inventory file IDs; every file must be an active file of the replica's inventory
 - `properties` optional share properties:
   - `view` optional, `grid` or `list`
   - `page_size` optional integer greater than `0`
@@ -1462,6 +1470,7 @@ Example request:
     "theme": "dark",
     "fuse_enabled": true
   },
+  "file_ids": [10, 11],
   "user_permissions": [
     {
       "user_id": 15,
@@ -1481,6 +1490,8 @@ anonymous_permissions omitted or `[]`: do not set anonymous permissions
 anonymous_permissions provided with permissions: create share with those anonymous permissions
 properties omitted: create all property values as unset
 properties provided: validate and store the provided property values; omitted property fields remain unset
+file_ids omitted or `[]`: share the whole replica
+file_ids provided with IDs: share only those files
 
 Example response:
 ```json
@@ -1499,7 +1510,8 @@ Example response:
     "theme": "dark",
     "fuse_enabled": true
   },
-  "file_count": 0,
+  "file_count": 2,
+  "file_ids": [10, 11],
   "user_permissions": [
     {
       "user_id": 15,
@@ -1525,6 +1537,7 @@ Request body fields are optional:
 * `user_permissions`
 * `anonymous_permissions`
 * `properties`
+* `file_ids`
 
 Behavior:   
 share_expiration omitted: leave existing share expiration unchanged  
@@ -1543,6 +1556,10 @@ properties omitted: leave all existing property values unchanged
 properties provided: merge the provided fields with the existing properties
 properties field omitted: leave that property unchanged
 properties field provided as `null`: clear that property
+file_ids omitted: leave existing share files unchanged
+file_ids provided: replace share files with provided files; files already in the share may be deleted, new files must
+be active files of the replica's inventory
+file_ids: []: remove all share files, so the share exposes the whole replica
 
 Example request:
 ```json
@@ -1576,7 +1593,8 @@ Example response:
     "theme": "light",
     "fuse_enabled": true
   },
-  "file_count": 0,
+  "file_count": 2,
+  "file_ids": [10, 11],
   "user_permissions": [
     {
       "user_id": 15,
@@ -1601,58 +1619,23 @@ Possible errors:
 * `400` invalid share name
 * `400` invalid share expiration
 * `400` invalid share properties
+* `400` invalid share files
 * `400` invalid permissions
 * `404` replica not found
 * `409` replica is deleted
 
 ### /shares/{id}/files endpoint
-Manages the files of a subset share. A share without files exposes the whole replica; adding files limits the share
-to those files. Files are identified by inventory file ID, so a renamed or moved file drops out of the share, while a
-file deleted and restored at the same path stays in it. Changes create a `refresh_state` command for the share node.
+Lists the share files with their inventory file metadata. Share files are set with `file_ids` on `POST /shares` and
+`PATCH /shares/{id}`.
 
 #### GET /shares/{id}/files
 Requires share permission `read`. Returns a paginated list of share files, including deleted inventory files that are
-still share members.
+still in the share. A share without share files returns an empty list.
 
 Query parameters are the same as for [GET /inventories/{id}/files](#get-inventoriesidfiles): `page`, `count`,
 `status`, `path`, `sort`, `order`.
 
 The response has the same shape as `GET /inventories/{id}/files`.
-
-#### POST /shares/{id}/files
-Requires share permission `update`. Adds files to the share. Files already in the share are kept.
-
-Request body:
-```json
-{
-  "file_ids": [10, 11]
-}
-```
-
-Validation rules:
-- `file_ids` must not be empty
-- every file must exist, be `active` and belong to the inventory of the share replica
-
-Successful response: the updated share, as returned by `GET /shares/{id}`.
-
-Possible errors:
-* `400` invalid share files
-* `401` missing authenticated user
-* `403` missing required permission
-* `404` share not found
-
-#### DELETE /shares/{id}/files/{file_id}
-Requires share permission `update`. Removes one file from the share. Removing the last file makes the share expose
-the whole replica again.
-
-Successful response:
-* `204 No Content`
-
-Possible errors:
-* `401` missing authenticated user
-* `403` missing required permission
-* `404` share not found
-* `404` share file not found
 
 ## Storage Sharing API
 This API is exposed on the storage node and used to access private aand public shares.  

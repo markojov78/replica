@@ -60,7 +60,7 @@ func TestExpireAnonymousAccess(t *testing.T) {
 				if tc.anonymous {
 					anonymous = []string{"read", "delete"}
 				}
-				if err := repo.CreateWithPermissions(&share, userPermissions, anonymous, nil); err != nil {
+				if err := repo.CreateWithPermissions(&share, userPermissions, anonymous, nil, nil); err != nil {
 					t.Fatal(err)
 				}
 				shares[i] = share

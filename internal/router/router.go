@@ -97,7 +97,6 @@ func New(
 		registerInventoryRoutes(adminGroup, svc)
 		registerReplicaRoutes(adminGroup, svc)
 		registerShareRoutes(adminGroup, svc)
-		registerShareFileRoutes(adminGroup, svc)
 		registerConfigRoutes(adminGroup, svc)
 		if err := dashboard.Register(mux, mux, cfg, authService); err != nil {
 			panic(err)
@@ -372,8 +371,6 @@ func mapShareError(err error, shareService *service.ShareService) error {
 		return huma.Error409Conflict("replica is deleted")
 	case errors.Is(err, service.ErrInvalidShareFiles):
 		return huma.Error400BadRequest("invalid share files")
-	case errors.Is(err, service.ErrShareFileNotFound):
-		return huma.Error404NotFound("share file not found")
 	case errors.Is(err, service.ErrInvalidInventoryFileStatus):
 		return huma.Error400BadRequest("invalid inventory file status")
 	case errors.Is(err, service.ErrInvalidInventoryFileSort):

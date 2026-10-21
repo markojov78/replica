@@ -47,12 +47,13 @@ permissions allowing authenticated or anonymous users to read or update files ba
 Share API and web interface are exposed on the same node on which replica exists.  
 
 A replica can have multiple shares. A share without share files exposes the whole replica; a share with share files
-(a subset share) exposes only those files. Share files reference inventory files by ID:
+(a subset share) exposes only those files. Share files are set as a list of file IDs when a share is created or
+updated. Share files reference inventory files by ID:
 * editing a file keeps it in the share
 * deleting and restoring a file at the same path keeps it in the share
 * renaming or moving a file removes it from the share, because it becomes a new inventory file
 * deleting a file through a subset share keeps its share file entry, so a share user can't empty the share and expose
-  the whole replica; only an administrator removing the last share file makes it a whole-replica share again
+  the whole replica; only an administrator setting an empty file list makes it a whole-replica share again
 
 An upload to a writable subset share is reported to the coordinator immediately with the share ID, and the coordinator
 adds the new file to the share. Uploads are refused while the coordinator is unavailable, and an upload the

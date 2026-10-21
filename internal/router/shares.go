@@ -88,6 +88,7 @@ func registerShareRoutes(api huma.API, svc services) {
 			UserPermissions:      input.Body.UserPermissions,
 			AnonymousPermissions: input.Body.AnonymousPermissions,
 			Properties:           input.Body.Properties,
+			FileIDs:              input.Body.FileIDs,
 		})
 		if err != nil {
 			return nil, mapShareError(err, svc.shares)
@@ -118,6 +119,7 @@ func registerShareRoutes(api huma.API, svc services) {
 			UserPermissions:      input.Body.UserPermissions,
 			AnonymousPermissions: input.Body.AnonymousPermissions,
 			Properties:           input.Body.Properties,
+			FileIDs:              input.Body.FileIDs,
 		})
 		if err != nil {
 			return nil, mapShareError(err, svc.shares)
@@ -125,23 +127,6 @@ func registerShareRoutes(api huma.API, svc services) {
 		return &shareResponse{Body: *share}, nil
 	})
 
-	huma.Delete(api, "/shares/{id}", func(ctx context.Context, input *deleteShareInput) (*deleteShareResponse, error) {
-		accessToken, err := bearerToken(input.Authorization)
-		if err != nil {
-			return nil, huma.Error401Unauthorized("missing authenticated user")
-		}
-		if err := AuthorizeShareAction(svc, accessToken, input.ID, model.PermissionActionDelete); err != nil {
-			return nil, mapPermissionError(err)
-		}
-
-		if err := svc.shares.Delete(input.ID); err != nil {
-			return nil, mapShareError(err, svc.shares)
-		}
-		return &deleteShareResponse{Status: 204}, nil
-	})
-}
-
-func registerShareFileRoutes(api huma.API, svc services) {
 	huma.Get(api, "/shares/{id}/files", func(ctx context.Context, input *listShareFilesInput) (*inventoryFileListResponse, error) {
 		accessToken, err := bearerToken(input.Authorization)
 		if err != nil {
@@ -167,32 +152,16 @@ func registerShareFileRoutes(api huma.API, svc services) {
 		return &inventoryFileListResponse{Body: *files}, nil
 	})
 
-	huma.Post(api, "/shares/{id}/files", func(ctx context.Context, input *addShareFilesInput) (*shareResponse, error) {
+	huma.Delete(api, "/shares/{id}", func(ctx context.Context, input *deleteShareInput) (*deleteShareResponse, error) {
 		accessToken, err := bearerToken(input.Authorization)
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if err := AuthorizeShareAction(svc, accessToken, input.ID, model.PermissionActionUpdate); err != nil {
+		if err := AuthorizeShareAction(svc, accessToken, input.ID, model.PermissionActionDelete); err != nil {
 			return nil, mapPermissionError(err)
 		}
 
-		share, err := svc.shares.AddFiles(input.ID, input.Body.FileIDs)
-		if err != nil {
-			return nil, mapShareError(err, svc.shares)
-		}
-		return &shareResponse{Body: *share}, nil
-	})
-
-	huma.Delete(api, "/shares/{id}/files/{file_id}", func(ctx context.Context, input *removeShareFileInput) (*deleteShareResponse, error) {
-		accessToken, err := bearerToken(input.Authorization)
-		if err != nil {
-			return nil, huma.Error401Unauthorized("missing authenticated user")
-		}
-		if err := AuthorizeShareAction(svc, accessToken, input.ID, model.PermissionActionUpdate); err != nil {
-			return nil, mapPermissionError(err)
-		}
-
-		if err := svc.shares.RemoveFile(input.ID, input.FileID); err != nil {
+		if err := svc.shares.Delete(input.ID); err != nil {
 			return nil, mapShareError(err, svc.shares)
 		}
 		return &deleteShareResponse{Status: 204}, nil
@@ -244,6 +213,7 @@ type createShareInput struct {
 		UserPermissions      *[]service.UserPermissionInput `json:"user_permissions,omitempty"`
 		AnonymousPermissions *[]string                      `json:"anonymous_permissions,omitempty"`
 		Properties           map[string]json.RawMessage     `json:"properties,omitempty"`
+		FileIDs              *[]uint                        `json:"file_ids,omitempty"`
 	}
 }
 
@@ -259,6 +229,7 @@ type updateShareInput struct {
 		UserPermissions      *[]service.UserPermissionInput `json:"user_permissions,omitempty"`
 		AnonymousPermissions *[]string                      `json:"anonymous_permissions,omitempty"`
 		Properties           map[string]json.RawMessage     `json:"properties,omitempty"`
+		FileIDs              *[]uint                        `json:"file_ids,omitempty"`
 	}
 }
 
@@ -278,22 +249,6 @@ type listShareFilesInput struct {
 	Path          string `query:"path"`
 	Sort          string `query:"sort" default:"id"`
 	Order         string `query:"order" default:"asc"`
-}
-
-type addShareFilesInput struct {
-	versionHeader
-	Authorization string `header:"Authorization"`
-	ID            uint   `path:"id"`
-	Body          struct {
-		FileIDs []uint `json:"file_ids"`
-	}
-}
-
-type removeShareFileInput struct {
-	versionHeader
-	Authorization string `header:"Authorization"`
-	ID            uint   `path:"id"`
-	FileID        uint   `path:"file_id"`
 }
 
 type shareResponse struct {

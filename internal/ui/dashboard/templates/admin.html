@@ -362,13 +362,63 @@
           {{range .Inventories}}
             {{$inventory := .}}
             {{range .Replicas}}
-              <option value="{{.ID}}" data-node="{{.NodeID}}" {{if eq .ID $.Share.ReplicaID}}selected{{end}}>#{{$inventory.ID}} {{$inventory.Name}} - Replica #{{.ID}}{{if .UpstreamReplicaID}} (read only){{end}}</option>
+              <option value="{{.ID}}" data-node="{{.NodeID}}" data-inventory="{{$inventory.ID}}" {{if eq .ID $.Share.ReplicaID}}selected{{end}}>#{{$inventory.ID}} {{$inventory.Name}} - Replica #{{.ID}}{{if .UpstreamReplicaID}} (read only){{end}}</option>
             {{end}}
           {{end}}
         </select>
       </label>
       <label class="full">Name<input name="name" value="{{.Share.Name}}" placeholder="Leave empty to use inventory name"><small>If omitted, the share name is taken from the selected inventory.</small></label>
     {{end}}
+    <div class="full permission-panel share-files" data-share-files data-inventory-id="{{if .IsEdit}}{{.Share.InventoryID}}{{end}}" data-share-id="{{if .IsEdit}}{{.Share.ID}}{{end}}">
+      <div class="section-head"><div><h2>Files</h2><p>Share the whole replica or only selected files. Renamed or moved files drop out of a share with selected files.</p></div></div>
+      <div class="permission-row">
+        <label class="filter-toggle"><input type="radio" name="file_scope" value="whole" data-file-scope {{if not (shareFilesSelected .Share)}}checked{{end}}> Whole replica</label>
+        <label class="filter-toggle"><input type="radio" name="file_scope" value="selected" data-file-scope {{if shareFilesSelected .Share}}checked{{end}}> Selected files</label>
+      </div>
+      <input type="hidden" name="file_ids" value="{{shareFileIDsValue .Share}}" data-file-ids>
+      <div data-file-picker hidden>
+        <div class="table-controls">
+          <label>Path<input type="search" placeholder="Filter by path" data-file-filter></label>
+          <span data-file-selected-count></span>
+        </div>
+        <div data-file-deleted hidden>
+          <p>Deleted files in this share. They stay in the share unless unchecked.</p>
+          <div data-file-deleted-rows></div>
+        </div>
+        <div class="table-controls">
+          <span data-file-summary></span>
+          <label>Files per page
+            <select data-file-count>
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="50" selected>50</option>
+              <option value="100">100</option>
+            </select>
+          </label>
+          <label>Order by
+            <select data-file-sort>
+              <option value="id">ID</option>
+              <option value="name" selected>Name</option>
+              <option value="size">Size</option>
+              <option value="created">Created</option>
+              <option value="modified">Modified</option>
+            </select>
+          </label>
+          <button type="button" title="Switch file ordering" data-file-order>Ascending ↑</button>
+          <nav class="pagination" aria-label="Share files pagination">
+            <button type="button" class="btn" data-file-first>First</button>
+            <button type="button" class="btn" data-file-prev>Previous</button>
+            <button type="button" class="btn" data-file-next>Next</button>
+            <button type="button" class="btn" data-file-last>Last</button>
+          </nav>
+        </div>
+        <table>
+          <thead><tr><th></th><th>Relative URI</th><th>Size</th></tr></thead>
+          <tbody data-file-rows></tbody>
+        </table>
+        <p class="empty" data-file-message hidden></p>
+      </div>
+    </div>
     <label class="checkbox-field full"><input name="property_fuse_enabled" type="checkbox" {{if enabledBool .Share.Properties.FuseEnabled}}checked{{end}}> Expose as read-only FUSE mount on the storage node</label>
     <div class="full permission-panel">
       <div class="section-head"><div><h2>Appearance</h2><p>Optional defaults for the share interface. Unset values use the interface defaults.</p></div></div>
@@ -436,73 +486,7 @@
     <div class="footer-actions full"><a class="btn" href="/dashboard/shares">Cancel</a><button class="primary" type="submit">{{if .IsEdit}}Save share{{else}}Create share{{end}}</button></div>
   </form>
 </section>
-{{if and .IsEdit .ShareFiles}}{{template "share_files" .}}{{end}}
 {{template "layout_end" .}}
-{{end}}
-
-{{define "share_files"}}
-{{$share := .Share}}
-{{$files := .ShareFiles}}
-<section class="card" id="files">
-  <div class="section-head"><div><h2>Files</h2><p>{{if $share.FileCount}}{{$share.FileCount}} selected files of replica #{{$share.ReplicaID}} are shared. Renamed or moved files drop out of the share.{{else}}The whole replica #{{$share.ReplicaID}} is shared. Add files to share only a subset.{{end}}</p></div></div>
-  {{if $share.FileCount}}
-  <table>
-    <thead><tr><th>ID</th><th>Relative URI</th><th>Status</th><th>Size</th><th>Actions</th></tr></thead>
-    <tbody>
-    {{range $files.Members.Items}}
-      <tr>
-        <td class="mono">{{.ID}}</td>
-        <td class="mono">{{.RelativeURI}}</td>
-        <td><span class="pill {{statusClass .Status}}">{{.Status}}</span></td>
-        <td>{{formatBytes .Size}}</td>
-        <td class="row-actions">
-          <form action="/dashboard/shares/{{$share.ID}}/files/{{.ID}}/remove" method="post">
-            {{if eq $share.FileCount 1}}<label class="filter-toggle"><input type="checkbox" name="confirm_whole_replica" value="1" required> Share whole replica</label>{{end}}
-            <button class="danger" type="submit">{{if eq .Status "deleted"}}Purge{{else}}Remove{{end}}</button>
-          </form>
-        </td>
-      </tr>
-    {{end}}
-    </tbody>
-  </table>
-  <nav class="pagination" aria-label="Share files pagination">
-    <span>page {{$files.Members.Page}} of {{$files.Members.TotalPages}}</span>
-    <a class="btn {{if not $files.Members.HasPrev}}disabled{{end}}" {{if $files.Members.HasPrev}}href="/dashboard/shares/{{$share.ID}}/edit?members_page={{$files.Members.PrevPage}}&amp;available_page={{$files.Available.Page}}&amp;path={{$files.Path}}#files"{{end}}>Previous</a>
-    <a class="btn {{if not $files.Members.HasNext}}disabled{{end}}" {{if $files.Members.HasNext}}href="/dashboard/shares/{{$share.ID}}/edit?members_page={{$files.Members.NextPage}}&amp;available_page={{$files.Available.Page}}&amp;path={{$files.Path}}#files"{{end}}>Next</a>
-  </nav>
-  {{end}}
-  <div class="section-head"><div><h2>Add files</h2><p>Active files of inventory #{{$share.InventoryID}}. Files already in the share are kept.</p></div></div>
-  {{if $files.AvailableError}}
-    <div class="callout">Inventory files can't be listed: {{$files.AvailableError}}</div>
-  {{else}}
-  <form action="/dashboard/shares/{{$share.ID}}/edit" method="get" class="actions">
-    <input type="hidden" name="members_page" value="{{$files.Members.Page}}">
-    <label class="filter-select">Path<input name="path" value="{{$files.Path}}" placeholder="Filter by path"></label>
-    <button type="submit">Filter</button>
-  </form>
-  <form action="/dashboard/shares/{{$share.ID}}/files" method="post">
-    <table>
-      <thead><tr><th></th><th>ID</th><th>Relative URI</th><th>Size</th></tr></thead>
-      <tbody>
-      {{range $files.Available.Items}}
-        <tr>
-          <td><input type="checkbox" name="file_ids" value="{{.ID}}" aria-label="Select {{.RelativeURI}}"></td>
-          <td class="mono">{{.ID}}</td>
-          <td class="mono">{{.RelativeURI}}</td>
-          <td>{{formatBytes .Size}}</td>
-        </tr>
-      {{else}}<tr><td colspan="4" class="empty">No active files found.</td></tr>{{end}}
-      </tbody>
-    </table>
-    <div class="footer-actions"><button class="primary" type="submit">Add selected files</button></div>
-  </form>
-  <nav class="pagination" aria-label="Inventory files pagination">
-    <span>page {{$files.Available.Page}} of {{$files.Available.TotalPages}}</span>
-    <a class="btn {{if not $files.Available.HasPrev}}disabled{{end}}" {{if $files.Available.HasPrev}}href="/dashboard/shares/{{$share.ID}}/edit?members_page={{$files.Members.Page}}&amp;available_page={{$files.Available.PrevPage}}&amp;path={{$files.Path}}#files"{{end}}>Previous</a>
-    <a class="btn {{if not $files.Available.HasNext}}disabled{{end}}" {{if $files.Available.HasNext}}href="/dashboard/shares/{{$share.ID}}/edit?members_page={{$files.Members.Page}}&amp;available_page={{$files.Available.NextPage}}&amp;path={{$files.Path}}#files"{{end}}>Next</a>
-  </nav>
-  {{end}}
-</section>
 {{end}}
 
 {{define "inventory"}}

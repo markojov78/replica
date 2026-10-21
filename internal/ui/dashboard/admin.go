@@ -89,15 +89,18 @@ type replicaList struct {
 }
 
 type share struct {
-	ID                   uint                  `json:"id"`
-	InventoryID          uint                  `json:"inventory_id"`
-	ReplicaID            uint                  `json:"replica_id"`
-	Name                 string                `json:"name"`
-	Status               string                `json:"status"`
-	LinkHash             *string               `json:"link_hash"`
-	ShareExpiration      *string               `json:"share_expiration"`
-	Properties           shareProperties       `json:"properties"`
-	FileCount            int64                 `json:"file_count"`
+	ID              uint            `json:"id"`
+	InventoryID     uint            `json:"inventory_id"`
+	ReplicaID       uint            `json:"replica_id"`
+	Name            string          `json:"name"`
+	Status          string          `json:"status"`
+	LinkHash        *string         `json:"link_hash"`
+	ShareExpiration *string         `json:"share_expiration"`
+	Properties      shareProperties `json:"properties"`
+	FileCount       int64           `json:"file_count"`
+	FileIDs         []uint          `json:"file_ids"`
+	// FileScope keeps the submitted "whole"/"selected" choice when a form is re-rendered after an error.
+	FileScope            string                `json:"-"`
 	UserPermissions      []shareUserPermission `json:"user_permissions"`
 	AnonymousPermissions []string              `json:"anonymous_permissions"`
 }
@@ -133,14 +136,6 @@ type shareView struct {
 	HasAnonymous  bool
 	LinkHash      string
 	FileCount     int64
-}
-
-// shareFilesView holds the share edit page "Files" section: current members and the add-files picker.
-type shareFilesView struct {
-	Members        filePage
-	Available      filePage
-	Path           string
-	AvailableError string
 }
 
 type inventory struct {
@@ -284,7 +279,6 @@ type pageData struct {
 	FileURIs            string
 	CanViewShares       bool
 	InventoryFilter     uint
-	ShareFiles          *shareFilesView
 }
 
 func Register(mux *http.ServeMux, api http.Handler, cfg config.Config, authServices ...*service.AuthService) error {
@@ -307,6 +301,8 @@ func Register(mux *http.ServeMux, api http.Handler, cfg config.Config, authServi
 		"selectedInt":            selectedInt,
 		"optionalIntValue":       optionalIntValue,
 		"enabledBool":            enabledBool,
+		"shareFilesSelected":     shareFilesSelected,
+		"shareFileIDsValue":      shareFileIDsValue,
 		"shareNodeIDs":           shareNodeIDs,
 		"shareFilterNodes":       shareFilterNodes,
 		"shareFilterInventories": shareFilterInventories,
@@ -367,8 +363,6 @@ func Register(mux *http.ServeMux, api http.Handler, cfg config.Config, authServi
 	mux.HandleFunc("GET /dashboard/shares/{id}/edit", handler.protected(handler.editSharePage))
 	mux.HandleFunc("POST /dashboard/shares/{id}", handler.protected(handler.updateShare))
 	mux.HandleFunc("POST /dashboard/shares/{id}/delete", handler.protected(handler.deleteShare))
-	mux.HandleFunc("POST /dashboard/shares/{id}/files", handler.protected(handler.addShareFiles))
-	mux.HandleFunc("POST /dashboard/shares/{id}/files/{file_id}/remove", handler.protected(handler.removeShareFile))
 	mux.HandleFunc("GET /dashboard/users", handler.protected(handler.usersPage))
 	mux.HandleFunc("GET /dashboard/users/new", handler.protected(handler.newUserPage))
 	mux.HandleFunc("POST /dashboard/users", handler.protected(handler.createUser))
@@ -993,12 +987,20 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request, sess authC
 		return
 	}
 	item.Properties = properties
+	fileIDs, err := shareFilesFromForm(r.Form, &item)
+	if err != nil {
+		h.shareFormError(w, r, sess, false, item, err.Error())
+		return
+	}
 	input := map[string]any{
 		"replica_id":            item.ReplicaID,
 		"user_permissions":      item.UserPermissions,
 		"anonymous_permissions": item.AnonymousPermissions,
 		"generate_hash":         len(item.AnonymousPermissions) > 0,
 		"properties":            properties,
+	}
+	if fileIDs != nil {
+		input["file_ids"] = fileIDs
 	}
 	if name := strings.TrimSpace(item.Name); name != "" {
 		input["name"] = name
@@ -1025,10 +1027,6 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request, sess authC
 }
 
 func (h *Handler) editSharePage(w http.ResponseWriter, r *http.Request, sess authContext) {
-	h.renderShareEditPage(w, r, sess, "")
-}
-
-func (h *Handler) renderShareEditPage(w http.ResponseWriter, r *http.Request, sess authContext, message string) {
 	var item share
 	if !h.load(w, r, sess, "/api/admin/shares/"+r.PathValue("id"), &item) {
 		return
@@ -1042,121 +1040,10 @@ func (h *Handler) renderShareEditPage(w http.ResponseWriter, r *http.Request, se
 	if !ok {
 		return
 	}
-	files, err := h.loadShareFiles(r, &sess, item)
-	if err != nil {
-		h.renderError(w, r, sess, err)
-		return
-	}
 	h.render(w, "share_form", pageData{
-		Title: "Edit share", Subtitle: fmt.Sprintf("Update share #%d.", item.ID), Error: message,
-		Active: "shares", Share: item, Users: users, ThumbnailSizes: thumbnailSizes, IsEdit: true, ShareFiles: files,
+		Title: "Edit share", Subtitle: fmt.Sprintf("Update share #%d.", item.ID),
+		Active: "shares", Share: item, Users: users, ThumbnailSizes: thumbnailSizes, IsEdit: true,
 	})
-}
-
-// loadShareFiles loads the share members and a page of the inventory's active files for the add-files picker.
-// Listing inventory files needs inventory read permission, so a failure there only hides the picker.
-func (h *Handler) loadShareFiles(r *http.Request, sess *authContext, item share) (*shareFilesView, error) {
-	query := r.URL.Query()
-	count := filePageSize(query.Get("count"))
-	view := &shareFilesView{Path: strings.TrimSpace(query.Get("path"))}
-
-	var members inventoryFileList
-	membersPath := shareFilesAPIPath(item.ID, positiveInt(query.Get("members_page"), 1), count)
-	if err := h.apiAuthJSON(r.Context(), sess, http.MethodGet, membersPath, nil, &members); err != nil {
-		return nil, err
-	}
-	view.Members = newFilePage(members, "name", "asc")
-
-	var available inventoryFileList
-	availablePath := shareAvailableFilesAPIPath(item.InventoryID, positiveInt(query.Get("available_page"), 1), count, view.Path)
-	if err := h.apiAuthJSON(r.Context(), sess, http.MethodGet, availablePath, nil, &available); err != nil {
-		if errors.Is(err, errUnauthorized) {
-			return nil, err
-		}
-		view.AvailableError = apiMessage(err)
-		return view, nil
-	}
-	view.Available = newFilePage(available, "name", "asc")
-	return view, nil
-}
-
-func shareFilesAPIPath(shareID uint, page, count int) string {
-	query := url.Values{}
-	query.Set("page", strconv.Itoa(page))
-	query.Set("count", strconv.Itoa(count))
-	query.Set("sort", "name")
-	query.Set("order", "asc")
-	return fmt.Sprintf("/api/admin/shares/%d/files?%s", shareID, query.Encode())
-}
-
-func shareAvailableFilesAPIPath(inventoryID uint, page, count int, path string) string {
-	query := url.Values{}
-	query.Set("page", strconv.Itoa(page))
-	query.Set("count", strconv.Itoa(count))
-	query.Set("status", "active")
-	query.Set("sort", "name")
-	query.Set("order", "asc")
-	if path != "" {
-		query.Set("path", path)
-	}
-	return fmt.Sprintf("/api/admin/inventories/%d/files?%s", inventoryID, query.Encode())
-}
-
-func (h *Handler) addShareFiles(w http.ResponseWriter, r *http.Request, sess authContext) {
-	if err := r.ParseForm(); err != nil {
-		h.renderShareEditPage(w, r, sess, "Invalid form submission.")
-		return
-	}
-	fileIDs := make([]uint, 0, len(r.Form["file_ids"]))
-	for _, value := range r.Form["file_ids"] {
-		id, err := strconv.ParseUint(value, 10, 64)
-		if err != nil || id == 0 {
-			h.renderShareEditPage(w, r, sess, "Invalid file selection.")
-			return
-		}
-		fileIDs = append(fileIDs, uint(id))
-	}
-	if len(fileIDs) == 0 {
-		h.renderShareEditPage(w, r, sess, "Select at least one file to add.")
-		return
-	}
-	path := "/api/admin/shares/" + url.PathEscape(r.PathValue("id")) + "/files"
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, path, map[string]any{"file_ids": fileIDs}, nil); err != nil {
-		if errors.Is(err, errUnauthorized) {
-			h.renderError(w, r, sess, err)
-			return
-		}
-		h.renderShareEditPage(w, r, sess, apiMessage(err))
-		return
-	}
-	http.Redirect(w, r, "/dashboard/shares/"+url.PathEscape(r.PathValue("id"))+"/edit#files", http.StatusSeeOther)
-}
-
-func (h *Handler) removeShareFile(w http.ResponseWriter, r *http.Request, sess authContext) {
-	if err := r.ParseForm(); err != nil {
-		h.renderShareEditPage(w, r, sess, "Invalid form submission.")
-		return
-	}
-	var item share
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodGet, "/api/admin/shares/"+url.PathEscape(r.PathValue("id")), nil, &item); err != nil {
-		h.renderError(w, r, sess, err)
-		return
-	}
-	// Removing the last file turns the subset share back into a whole-replica share.
-	if item.FileCount == 1 && r.FormValue("confirm_whole_replica") == "" {
-		h.renderShareEditPage(w, r, sess, "Removing the last file shares the whole replica. Confirm to continue.")
-		return
-	}
-	path := "/api/admin/shares/" + url.PathEscape(r.PathValue("id")) + "/files/" + url.PathEscape(r.PathValue("file_id"))
-	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodDelete, path, nil, nil); err != nil {
-		if errors.Is(err, errUnauthorized) {
-			h.renderError(w, r, sess, err)
-			return
-		}
-		h.renderShareEditPage(w, r, sess, apiMessage(err))
-		return
-	}
-	http.Redirect(w, r, "/dashboard/shares/"+url.PathEscape(r.PathValue("id"))+"/edit#files", http.StatusSeeOther)
 }
 
 func (h *Handler) updateShare(w http.ResponseWriter, r *http.Request, sess authContext) {
@@ -1191,12 +1078,20 @@ func (h *Handler) updateShare(w http.ResponseWriter, r *http.Request, sess authC
 		return
 	}
 	item.Properties = properties
+	fileIDs, err := shareFilesFromForm(r.Form, &item)
+	if err != nil {
+		h.shareFormError(w, r, sess, true, item, err.Error())
+		return
+	}
 	input := map[string]any{
 		"name":                  strings.TrimSpace(item.Name),
 		"status":                item.Status,
 		"user_permissions":      item.UserPermissions,
 		"anonymous_permissions": item.AnonymousPermissions,
 		"properties":            properties,
+	}
+	if fileIDs != nil {
+		input["file_ids"] = fileIDs
 	}
 	if len(item.AnonymousPermissions) > 0 {
 		if current.LinkHash == nil || *current.LinkHash == "" {
@@ -1814,6 +1709,56 @@ func sharePropertiesFromForm(values url.Values) (shareProperties, error) {
 		properties.FuseEnabled = &fuseEnabled
 	}
 	return properties, nil
+}
+
+// shareFilesFromForm reads the share file choice. It returns nil when the form has no file section, an empty list for
+// "whole replica" and the selected ids otherwise. The choice is kept on item for re-rendering after an error.
+func shareFilesFromForm(values url.Values, item *share) ([]uint, error) {
+	scope := values.Get("file_scope")
+	if scope == "" {
+		return nil, nil
+	}
+	fileIDs := []uint{}
+	for _, value := range strings.Split(values.Get("file_ids"), ",") {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		id, err := strconv.ParseUint(value, 10, 64)
+		if err != nil || id == 0 {
+			return nil, errors.New("Invalid file selection.")
+		}
+		fileIDs = append(fileIDs, uint(id))
+	}
+	item.FileScope = scope
+	switch scope {
+	case "whole":
+		item.FileIDs = nil
+		return []uint{}, nil
+	case "selected":
+		item.FileIDs = fileIDs
+		if len(fileIDs) == 0 {
+			return nil, errors.New("Select at least one file.")
+		}
+		return fileIDs, nil
+	default:
+		return nil, errors.New("Invalid file selection.")
+	}
+}
+
+func shareFilesSelected(item share) bool {
+	if item.FileScope != "" {
+		return item.FileScope == "selected"
+	}
+	return len(item.FileIDs) > 0
+}
+
+func shareFileIDsValue(item share) string {
+	values := make([]string, 0, len(item.FileIDs))
+	for _, id := range item.FileIDs {
+		values = append(values, strconv.FormatUint(uint64(id), 10))
+	}
+	return strings.Join(values, ",")
 }
 
 func optionalPositiveFormInt(value string) (*int, error) {

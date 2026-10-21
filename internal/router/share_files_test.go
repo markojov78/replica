@@ -14,7 +14,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestShareFileRoutesManageSubsetMembership(t *testing.T) {
+func TestShareRoutesManageFileIDs(t *testing.T) {
 	database := openRouterTestDB(t)
 	_, accessToken := createShareRouteUser(t, database, []model.Permission{
 		{Resource: model.PermissionResourceShares, Action: model.PermissionActionCreate},
@@ -33,11 +33,10 @@ func TestShareFileRoutesManageSubsetMembership(t *testing.T) {
 		handler.ServeHTTP(recorder, req)
 		return recorder
 	}
-	createShare := func(name string) service.ShareDetails {
+	decodeShare := func(recorder *httptest.ResponseRecorder) service.ShareDetails {
 		t.Helper()
-		recorder := request(http.MethodPost, "/api/admin/shares", `{"replica_id":`+strconv.FormatUint(uint64(replica.ID), 10)+`,"name":"`+name+`"}`)
 		if recorder.Code != http.StatusOK {
-			t.Fatalf("create %s status = %d; body=%s", name, recorder.Code, recorder.Body.String())
+			t.Fatalf("status = %d; body=%s", recorder.Code, recorder.Body.String())
 		}
 		var share service.ShareDetails
 		if err := json.Unmarshal(recorder.Body.Bytes(), &share); err != nil {
@@ -45,11 +44,20 @@ func TestShareFileRoutesManageSubsetMembership(t *testing.T) {
 		}
 		return share
 	}
-
-	first := createShare("Highlights")
-	second := createShare("Family")
-	if first.FileCount != 0 || second.FileCount != 0 {
-		t.Fatalf("file counts = %d/%d, want new shares to expose the whole replica", first.FileCount, second.FileCount)
+	assertFileIDs := func(share service.ShareDetails, want ...uint) {
+		t.Helper()
+		if share.FileIDs == nil {
+			t.Fatalf("share.FileIDs = nil, want %v", want)
+		}
+		got := *share.FileIDs
+		if len(got) != len(want) || share.FileCount != int64(len(want)) {
+			t.Fatalf("file_ids = %v file_count = %d, want %v", got, share.FileCount, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("file_ids = %v, want %v", got, want)
+			}
+		}
 	}
 
 	cover := createShareRouteFile(t, database, replica.InventoryID, "album/cover.jpg", model.InventoryFileStatusActive)
@@ -57,34 +65,39 @@ func TestShareFileRoutesManageSubsetMembership(t *testing.T) {
 	deleted := createShareRouteFile(t, database, replica.InventoryID, "album/old.jpg", model.InventoryFileStatusDeleted)
 	other := createShareRouteReplica(t, database, model.ReplicaStatusActive)
 	foreign := createShareRouteFile(t, database, other.InventoryID, "album/foreign.jpg", model.InventoryFileStatusActive)
+	replicaID := id(replica.ID)
 
-	sharePath := "/api/admin/shares/" + strconv.FormatUint(uint64(first.ID), 10)
-	for _, ids := range []string{`[]`, `[` + id(deleted.ID) + `]`, `[` + id(foreign.ID) + `]`, `[999999]`} {
-		if recorder := request(http.MethodPost, sharePath+"/files", `{"file_ids":`+ids+`}`); recorder.Code != http.StatusBadRequest {
+	for _, ids := range []string{`[` + id(deleted.ID) + `]`, `[` + id(foreign.ID) + `]`, `[999999]`, `[0]`} {
+		if recorder := request(http.MethodPost, "/api/admin/shares", `{"replica_id":`+replicaID+`,"file_ids":`+ids+`}`); recorder.Code != http.StatusBadRequest {
 			t.Errorf("POST file_ids %s status = %d, want %d; body=%s", ids, recorder.Code, http.StatusBadRequest, recorder.Body.String())
 		}
 	}
 
+	whole := decodeShare(request(http.MethodPost, "/api/admin/shares", `{"replica_id":`+replicaID+`,"name":"Everything"}`))
+	assertFileIDs(whole)
+
 	refreshBefore := countShareRouteRefreshCommands(t, database, replica.NodeID)
-	recorder := request(http.MethodPost, sharePath+"/files", `{"file_ids":[`+id(cover.ID)+`,`+id(beach.ID)+`,`+id(cover.ID)+`]}`)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("POST files status = %d; body=%s", recorder.Code, recorder.Body.String())
-	}
-	var updated service.ShareDetails
-	if err := json.Unmarshal(recorder.Body.Bytes(), &updated); err != nil {
-		t.Fatalf("Unmarshal(updated) error = %v", err)
-	}
-	if updated.FileCount != 2 {
-		t.Fatalf("file_count = %d, want 2", updated.FileCount)
-	}
+	subset := decodeShare(request(http.MethodPost, "/api/admin/shares", `{"replica_id":`+replicaID+`,"name":"Highlights","file_ids":[`+id(cover.ID)+`,`+id(cover.ID)+`]}`))
+	assertFileIDs(subset, cover.ID)
 	if got := countShareRouteRefreshCommands(t, database, replica.NodeID); got != refreshBefore+1 {
 		t.Fatalf("refresh_state commands = %d, want %d", got, refreshBefore+1)
 	}
-	if recorder := request(http.MethodPost, sharePath+"/files", `{"file_ids":[`+id(cover.ID)+`]}`); recorder.Code != http.StatusOK {
-		t.Fatalf("POST existing member status = %d; body=%s", recorder.Code, recorder.Body.String())
+	sharePath := "/api/admin/shares/" + id(subset.ID)
+
+	assertFileIDs(decodeShare(request(http.MethodPatch, sharePath, `{"file_ids":[`+id(cover.ID)+`,`+id(beach.ID)+`]}`)), cover.ID, beach.ID)
+	assertFileIDs(decodeShare(request(http.MethodPatch, sharePath, `{"name":"Renamed"}`)), cover.ID, beach.ID)
+	assertFileIDs(decodeShare(request(http.MethodGet, sharePath, "")), cover.ID, beach.ID)
+
+	// A file deleted while in the share can be resubmitted; it can't be added as a new file.
+	if err := database.Model(&model.InventoryFile{}).Where("id = ?", beach.ID).Update("status", model.InventoryFileStatusDeleted).Error; err != nil {
+		t.Fatalf("Update(beach deleted) error = %v", err)
+	}
+	assertFileIDs(decodeShare(request(http.MethodPatch, sharePath, `{"file_ids":[`+id(cover.ID)+`,`+id(beach.ID)+`]}`)), cover.ID, beach.ID)
+	if recorder := request(http.MethodPatch, sharePath, `{"file_ids":[`+id(cover.ID)+`,`+id(deleted.ID)+`]}`); recorder.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH new deleted file status = %d, want %d; body=%s", recorder.Code, http.StatusBadRequest, recorder.Body.String())
 	}
 
-	recorder = request(http.MethodGet, sharePath+"/files?sort=name&path=beach", "")
+	recorder := request(http.MethodGet, sharePath+"/files?sort=name&status=active", "")
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("GET files status = %d; body=%s", recorder.Code, recorder.Body.String())
 	}
@@ -92,25 +105,16 @@ func TestShareFileRoutesManageSubsetMembership(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &files); err != nil {
 		t.Fatalf("Unmarshal(files) error = %v", err)
 	}
-	if files.Total != 1 || len(files.Items) != 1 || files.Items[0].ID != beach.ID {
-		t.Fatalf("files = %+v, want only beach.jpg", files)
+	if files.Total != 1 || len(files.Items) != 1 || files.Items[0].ID != cover.ID {
+		t.Fatalf("files = %+v, want only active cover.jpg", files)
 	}
 
-	recorder = request(http.MethodGet, "/api/admin/shares/"+strconv.FormatUint(uint64(second.ID), 10), "")
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"file_count":0`) {
-		t.Fatalf("GET second share status = %d body=%s, want file_count 0", recorder.Code, recorder.Body.String())
+	recorder = request(http.MethodGet, "/api/admin/shares", "")
+	if recorder.Code != http.StatusOK || strings.Contains(recorder.Body.String(), "file_ids") || !strings.Contains(recorder.Body.String(), `"file_count":2`) {
+		t.Fatalf("GET shares body = %s, want file_count without file_ids", recorder.Body.String())
 	}
 
-	if recorder := request(http.MethodDelete, sharePath+"/files/"+id(deleted.ID), ""); recorder.Code != http.StatusNotFound {
-		t.Fatalf("DELETE non-member status = %d, want %d; body=%s", recorder.Code, http.StatusNotFound, recorder.Body.String())
-	}
-	if recorder := request(http.MethodDelete, sharePath+"/files/"+id(beach.ID), ""); recorder.Code != http.StatusNoContent {
-		t.Fatalf("DELETE member status = %d, want %d; body=%s", recorder.Code, http.StatusNoContent, recorder.Body.String())
-	}
-	recorder = request(http.MethodGet, sharePath, "")
-	if !strings.Contains(recorder.Body.String(), `"file_count":1`) {
-		t.Fatalf("GET share body=%s, want file_count 1", recorder.Body.String())
-	}
+	assertFileIDs(decodeShare(request(http.MethodPatch, sharePath, `{"file_ids":[]}`)))
 }
 
 func TestShareFileRoutesRequireSharePermissions(t *testing.T) {
@@ -127,8 +131,7 @@ func TestShareFileRoutesRequireSharePermissions(t *testing.T) {
 	for _, tt := range []struct{ method, path, body string }{
 		{http.MethodGet, sharePath, ""},
 		{http.MethodGet, sharePath + "/files", ""},
-		{http.MethodPost, sharePath + "/files", `{"file_ids":[1]}`},
-		{http.MethodDelete, sharePath + "/files/1", ""},
+		{http.MethodPatch, sharePath, `{"file_ids":[]}`},
 	} {
 		req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
 		req.Header.Set("Authorization", "Bearer "+accessToken)
