@@ -26,3 +26,5 @@ func newStorageFuseManager(cfg config.Config) *fuseManager {
 func (m *fuseManager) Start(_ context.Context) {}
 
 func (m *fuseManager) reconcile(_ context.Context) {}
+
+func (m *fuseManager) Stop(_ context.Context) error { return nil }

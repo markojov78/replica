@@ -124,6 +124,15 @@ func NewRuntime(cfg config.Config) (*Runtime, error) {
 	return r, nil
 }
 
+// Stop waits for FUSE cleanup, including when startup has not finished yet.
+// The caller cancels the runtime context before calling Stop.
+func (r *Runtime) Stop(ctx context.Context) error {
+	if r.fuseManager != nil {
+		return r.fuseManager.Stop(ctx)
+	}
+	return nil
+}
+
 func (r *Runtime) Start(ctx context.Context) {
 	go r.run(ctx)
 }

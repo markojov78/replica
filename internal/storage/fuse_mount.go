@@ -4,6 +4,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"replica/internal/apiclient"
 	"replica/internal/config"
@@ -28,14 +30,19 @@ type fuseManager struct {
 	runtime *Runtime
 	cfg     config.FuseConfig
 
-	mu     sync.Mutex
-	mounts map[uint]*fuseMount
+	mu         sync.Mutex
+	mounts     map[uint]*fuseMount
+	stopped    bool
+	prefixLock *os.File
+	stopOnce   sync.Once
+	stopDone   chan struct{}
+	stopErr    error
 }
 
 type fuseMount struct {
 	shareID    uint
 	mountPoint string
-	server     *fuse.Server
+	server     interface{ Unmount() error }
 }
 
 type desiredMount struct {
@@ -56,16 +63,26 @@ func newFuseManager(r *Runtime) *fuseManager {
 }
 
 func (m *fuseManager) Start(ctx context.Context) {
+	m.mu.Lock()
+	if !m.stopped && ctx.Err() == nil && m.cfg.PathPrefix != "" {
+		if err := m.preparePrefix(ctx); err != nil {
+			log.Printf("storage runtime fuse prepare failed: %v", err)
+		}
+	}
+	m.mu.Unlock()
 	m.reconcile(ctx)
 	go func() {
 		<-ctx.Done()
-		m.unmountAll()
+		_ = m.Stop(context.Background())
 	}()
 }
 
 func (m *fuseManager) reconcile(ctx context.Context) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.stopped || ctx.Err() != nil {
+		return
+	}
 
 	replicas := make(map[uint]apiclient.Replica)
 	for _, replica := range m.runtime.replicasSnapshot() {
@@ -96,11 +113,24 @@ func (m *fuseManager) reconcile(ctx context.Context) {
 		desired[share.ID] = desiredMount{share: share, replica: replica, mountPoint: mountPoint}
 	}
 
+	if len(desired) > 0 {
+		if err := m.preparePrefix(ctx); err != nil {
+			log.Printf("storage runtime fuse prepare failed: %v", err)
+			return
+		}
+		// The prefix may only have become resolvable after creating it.
+		for id, want := range desired {
+			want.mountPoint = filepath.Join(filepath.Dir(m.prefixLock.Name()), filepath.Base(want.mountPoint))
+			desired[id] = want
+		}
+	}
+
 	for shareID, existing := range m.mounts {
 		want, ok := desired[shareID]
 		if !ok || want.mountPoint != existing.mountPoint {
-			m.unmount(existing)
-			delete(m.mounts, shareID)
+			if err := m.unmount(existing); err == nil {
+				delete(m.mounts, shareID)
+			}
 		}
 	}
 
@@ -108,7 +138,16 @@ func (m *fuseManager) reconcile(ctx context.Context) {
 		if _, ok := m.mounts[shareID]; ok {
 			continue
 		}
-		m.mount(ctx, want)
+		occupied := false
+		for _, existing := range m.mounts {
+			if existing.mountPoint == want.mountPoint {
+				occupied = true
+				break
+			}
+		}
+		if !occupied && ctx.Err() == nil {
+			m.mount(ctx, want)
+		}
 	}
 }
 
@@ -121,16 +160,36 @@ func (m *fuseManager) mountPoint(share apiclient.Share, used map[string]uint) st
 	if base == "" {
 		base = fmt.Sprintf("share-%d", share.ID)
 	}
-	candidate := filepath.Join(m.cfg.PathPrefix, base)
+	prefix := m.cfg.PathPrefix
+	if resolved, err := filepath.EvalSymlinks(prefix); err == nil {
+		prefix = resolved
+	}
+	candidate := filepath.Join(prefix, base)
 	if other, ok := used[candidate]; ok && other != share.ID {
-		candidate = filepath.Join(m.cfg.PathPrefix, base+"-"+strconv.FormatUint(uint64(share.ID), 10))
+		candidate = filepath.Join(prefix, base+"-"+strconv.FormatUint(uint64(share.ID), 10))
 	}
 	return candidate
 }
 
 func (m *fuseManager) mount(ctx context.Context, want desiredMount) {
+	if err := m.recoverMountPoint(ctx, want.mountPoint); err != nil {
+		log.Printf("storage runtime fuse mount point unavailable share_id=%d path=%s: %v", want.share.ID, want.mountPoint, err)
+		return
+	}
+	m.mountAttempt(ctx, want, true)
+}
+
+func (m *fuseManager) mountAttempt(ctx context.Context, want desiredMount, retry bool) {
+	if ctx.Err() != nil {
+		return
+	}
+	if info, err := os.Lstat(want.mountPoint); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		log.Printf("storage runtime fuse mount refused symlink path=%s", want.mountPoint)
+		return
+	}
 	if err := os.MkdirAll(want.mountPoint, 0o755); err != nil {
 		log.Printf("storage runtime fuse mkdir failed share_id=%d path=%s: %v", want.share.ID, want.mountPoint, err)
+		m.retryMount(ctx, want, retry)
 		return
 	}
 
@@ -159,6 +218,7 @@ func (m *fuseManager) mount(ctx context.Context, want desiredMount) {
 	server, err := fs.Mount(want.mountPoint, root, options)
 	if err != nil {
 		log.Printf("storage runtime fuse mount failed share_id=%d name=%q path=%s: %v", want.share.ID, want.share.Name, want.mountPoint, err)
+		m.retryMount(ctx, want, retry)
 		return
 	}
 
@@ -166,22 +226,71 @@ func (m *fuseManager) mount(ctx context.Context, want desiredMount) {
 	log.Printf("storage runtime fuse mounted share_id=%d name=%q path=%s", want.share.ID, want.share.Name, want.mountPoint)
 }
 
-func (m *fuseManager) unmount(existing *fuseMount) {
+func (m *fuseManager) retryMount(ctx context.Context, want desiredMount, retry bool) {
+	if !retry || ctx.Err() != nil {
+		return
+	}
+	mounts, err := readFuseMounts()
+	if err != nil {
+		return
+	}
+	if _, ok := mounts[want.mountPoint]; !ok {
+		return
+	}
+	if err := m.recoverMountPoint(ctx, want.mountPoint); err != nil {
+		log.Printf("storage runtime fuse recovery failed path=%s: %v", want.mountPoint, err)
+		return
+	}
+	m.mountAttempt(ctx, want, false)
+}
+
+func (m *fuseManager) unmount(existing *fuseMount) error {
 	if existing.server != nil {
 		if err := existing.server.Unmount(); err != nil {
 			log.Printf("storage runtime fuse unmount failed share_id=%d path=%s: %v", existing.shareID, existing.mountPoint, err)
-			return
+			return err
 		}
 	}
 	log.Printf("storage runtime fuse unmounted share_id=%d path=%s", existing.shareID, existing.mountPoint)
+	return nil
 }
 
-func (m *fuseManager) unmountAll() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for shareID, existing := range m.mounts {
-		m.unmount(existing)
-		delete(m.mounts, shareID)
+func (m *fuseManager) Stop(ctx context.Context) error {
+	m.stopOnce.Do(func() {
+		m.stopDone = make(chan struct{})
+		go func() {
+			defer close(m.stopDone)
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			m.stopped = true
+			for attempt := 0; attempt < 3; attempt++ {
+				var errs []error
+				for shareID, existing := range m.mounts {
+					if err := m.unmount(existing); err != nil {
+						errs = append(errs, fmt.Errorf("unmount %s: %w", existing.mountPoint, err))
+					} else {
+						delete(m.mounts, shareID)
+					}
+				}
+				m.stopErr = errors.Join(errs...)
+				if m.stopErr == nil {
+					break
+				}
+				if attempt < 2 {
+					time.Sleep(100 * time.Millisecond)
+				}
+			}
+			if m.prefixLock != nil {
+				m.stopErr = errors.Join(m.stopErr, m.prefixLock.Close())
+				m.prefixLock = nil
+			}
+		}()
+	})
+	select {
+	case <-m.stopDone:
+		return m.stopErr
+	case <-ctx.Done():
+		return fmt.Errorf("FUSE shutdown: %w", ctx.Err())
 	}
 }
 

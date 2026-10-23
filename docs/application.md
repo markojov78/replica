@@ -89,6 +89,21 @@ removed on startup hydration, `refresh_state` and `refresh_config` commands; the
 FUSE mounts are supported on Linux storage nodes, except 32-bit ARM (`linux-armv7`). Storage nodes on other platforms do not create mounts and do
 not use `fuse_enabled` or `sharing.fuse.*`; a coordinator on any platform still manages `fuse_enabled` for Linux nodes.
 
+On SIGINT or SIGTERM, the process cancels storage work and waits for FUSE unmount cleanup before exiting.
+Cleanup retries failed unmounts; failures remain tracked and are reported rather than treated as successful removal.
+HTTP shutdown and the final wait for FUSE cleanup each have a ten-second limit. Forced termination can still leave
+mounts behind.
+
+On startup, the node locks `.replica-fuse.lock` under the configured prefix for exclusive mount management. This
+file contains no authoritative state and is not removed on shutdown. Before mounting shares, it inspects the kernel
+mount table and attempts to unmount disconnected `replica-share` FUSE mounts owned by the current OS user directly
+under that prefix, including mounts for renamed or deleted shares. A disconnected mount is identified by
+`ENOTCONN` when inspecting its root. Live, foreign, stacked or otherwise ambiguous mounts are left untouched and
+block reuse of their paths. Recovery uses normal unmounting, not automatic lazy or forced unmounting; busy mounts
+may require manual cleanup. Mount failures get at most one recovery-and-retry attempt, and only when a confirmed
+disconnected Replica mount exists. Failed tracked unmounts are retried on subsequent reconciliation, and a replacement
+is not mounted over them.
+
 The FUSE view is read-only and has no per-share Replica permissions. Access is governed by OS mount permissions:
 by default only the OS user running the storage node can access a mount, and `sharing.fuse.allow_other` widens
 this. Files are reported as mode `0444` and synthetic directories as `0555`. Directory structure is derived from

@@ -2,9 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"replica/internal/buildinfo"
 	"replica/internal/config"
@@ -16,16 +21,24 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Print(err)
+		os.Exit(1)
+	}
+}
+
+func run() (runErr error) {
 	if buildinfo.PrintVersion(os.Args[1:], os.Stdout) {
-		return
+		return nil
 	}
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("load config: %v", err)
+		return fmt.Errorf("load config: %w", err)
 	}
 
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 
 	var authService *service.AuthService
 	var userService *service.UserService
@@ -39,12 +52,12 @@ func main() {
 	if cfg.App.Coordinator {
 		database, err := db.Open(cfg.Database)
 		if err != nil {
-			log.Fatalf("open database: %v", err)
+			return fmt.Errorf("open database: %w", err)
 		}
 
 		if cfg.Database.AutoMigrate {
 			if err := db.AutoMigrate(database); err != nil {
-				log.Fatalf("migrate database: %v", err)
+				return fmt.Errorf("migrate database: %w", err)
 			}
 		}
 
@@ -63,7 +76,7 @@ func main() {
 
 		configService = service.NewConfigService(configRepo, cfg)
 		if err := configService.Load(log.Printf); err != nil {
-			log.Fatalf("load database config settings: %v", err)
+			return fmt.Errorf("load database config settings: %w", err)
 		}
 		cfg = configService.EffectiveConfig()
 
@@ -93,9 +106,15 @@ func main() {
 	if cfg.App.Storage {
 		storageRuntime, err = storage.NewRuntime(cfg)
 		if err != nil {
-			log.Fatalf("init storage runtime: %v", err)
+			return fmt.Errorf("init storage runtime: %w", err)
 		}
 		storageRuntime.Start(ctx)
+		defer func() {
+			cancel()
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cleanupCancel()
+			runErr = errors.Join(runErr, storageRuntime.Stop(cleanupCtx))
+		}()
 	}
 
 	handler := router.New(
@@ -127,7 +146,20 @@ func main() {
 		cfg.HTTP.Address,
 	)
 
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("run api: %v", err)
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- server.ListenAndServe() }()
+	select {
+	case err := <-serveErr:
+		if !errors.Is(err, http.ErrServerClosed) {
+			runErr = fmt.Errorf("run api: %w", err)
+		}
+	case <-ctx.Done():
 	}
+	cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		runErr = errors.Join(runErr, fmt.Errorf("shutdown HTTP: %w", err), server.Close())
+	}
+	return runErr
 }
