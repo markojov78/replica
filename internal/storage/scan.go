@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"replica/internal/config"
+	"replica/internal/metadata"
 	"sort"
 	"time"
 )
@@ -24,6 +25,9 @@ type FileState struct {
 	Hash        string
 	Created     time.Time
 	Modified    time.Time
+	// Metadata is file-type specific metadata extracted while the hash was calculated. It is not part of the file
+	// identity and never causes a file change.
+	Metadata []metadata.Entry
 }
 
 type FileChange struct {

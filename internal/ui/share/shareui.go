@@ -814,7 +814,7 @@ func selectedShareFileFilter(r *http.Request) storage.ShareFileListFilter {
 
 func selectedSort(r *http.Request) string {
 	switch strings.TrimSpace(requestValue(r, "sort")) {
-	case "id", "name", "size", "created", "modified":
+	case "id", "name", "size", "created", "modified", "taken", "duration":
 		return strings.TrimSpace(requestValue(r, "sort"))
 	default:
 		return "name"
@@ -1035,7 +1035,7 @@ func orderURL(base string, page, count, thumb int, viewMode string, browseMode s
 
 func selectedSortValue(sortBy string) string {
 	switch sortBy {
-	case "id", "size", "created", "modified":
+	case "id", "size", "created", "modified", "taken", "duration":
 		return sortBy
 	default:
 		return "name"

@@ -5,9 +5,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"strings"
+
+	"replica/internal/metadata"
 
 	"github.com/pkg/sftp"
 	"github.com/zeebo/blake3"
@@ -183,7 +186,8 @@ func sftpFileState(ctx context.Context, c *sftp.Client, root, rel string, follow
 		return nil, err
 	}
 	hasher := blake3.New()
-	written, err := copyWithContext(ctx, hasher, f)
+	capture := metadata.NewCapture()
+	written, err := copyWithContext(ctx, io.MultiWriter(hasher, capture), f)
 	state.Hash = hex.EncodeToString(hasher.Sum(nil))
 	after, statErr := f.Stat()
 	closeErr := f.Close()
@@ -203,5 +207,6 @@ func sftpFileState(ctx context.Context, c *sftp.Client, root, rel string, follow
 	if written != info.Size() || after.Size() != info.Size() || !after.ModTime().Equal(info.ModTime()) || current.Size() != info.Size() || !current.ModTime().Equal(info.ModTime()) {
 		return nil, fmt.Errorf("SFTP file changed while hashing: %s", rel)
 	}
+	state.Metadata = metadata.Extract(rel, capture.ReaderAt(), capture.Size())
 	return state, nil
 }

@@ -1481,6 +1481,7 @@ func replicaFileReportsForStates(files []apiclient.ReplicaInventoryFile, states 
 			FileHash:     &fileHash,
 			CreatedTime:  &createdTime,
 			ModifiedTime: &modifiedTime,
+			Metadata:     state.Metadata,
 		}
 		reports = append(reports, report)
 	}

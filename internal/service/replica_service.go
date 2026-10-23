@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"replica/internal/metadata"
 	"replica/internal/model"
 	"replica/internal/repository"
 	"replica/internal/storageuri"
@@ -431,6 +432,7 @@ func (s *ReplicaService) ListInventoryFiles(replicaID uint, nodeID string, filte
 			ReplicaVersion:   file.ReplicaVersion,
 			Created:          file.Created,
 			Modified:         file.Modified,
+			Metadata:         file.Metadata,
 		})
 	}
 
@@ -654,6 +656,7 @@ func replicaFileUpdateFromChange(change ReplicaFileChangeInput) (repository.Repl
 		CreatedTime:  change.CreatedTime,
 		ModifiedTime: change.ModifiedTime,
 		ShareID:      change.ShareID,
+		Metadata:     metadata.Sanitize(change.Metadata),
 	}, nil
 }
 

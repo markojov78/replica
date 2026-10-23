@@ -1073,6 +1073,32 @@ Example response:
 #### GET /inventories/{id}/files/{file_id}
 Returns a single file belonging to the inventory.
 
+The response has the same fields as an item of `GET /inventories/{id}/files`, plus `metadata`: file-type specific
+viewer metadata by canonical key (see [file metadata](application.md#file-metadata)). `metadata` is omitted when the
+file has none.
+
+Example response:
+
+```json
+{
+  "id": 10,
+  "inventory_id": 1,
+  "relative_uri": "album/img002.jpg",
+  "status": "active",
+  "size": 256,
+  "hash": "d5bddda567cc62b99e5695704a399c6a",
+  "version": 1,
+  "created": "2026-05-19T12:00:00Z",
+  "modified": "2026-05-19T12:00:00Z",
+  "metadata": {
+    "capture_time": "2026-05-18T09:15:00",
+    "capture_offset": "+02:00",
+    "width": "6000",
+    "height": "4000"
+  }
+}
+```
+
 Possible errors:
 - `401` missing authenticated user
 - `400` invalid `sort`, `order`, `page`, or `count` value
@@ -1805,8 +1831,11 @@ Query parameters:
     matches:  
     `album/photo.jpg`  
     `other-album/photo2.png`
-- `sort` optional, can be `id`, `name`, `size`, `created`, `modified`, default `id`
-- `order` optional, `asc` or `desc`, default `asc` 
+- `sort` optional, can be `id`, `name`, `size`, `created`, `modified`, `taken`, `duration`, default `id`
+  - `taken` sorts by metadata `capture_time` (adjusted by `capture_offset` when present, otherwise treated as UTC) and
+    falls back to `created` for files without a capture time
+  - `duration` sorts by metadata `duration_ms`; files without a duration are listed last in both orders
+- `order` optional, `asc` or `desc`, default `asc`
 - `page` optional, default `1`
 - `count` optional, default `20`
 
@@ -1819,7 +1848,8 @@ Behavior:
   - local `replica_files` row exists for the share replica
   - `replica_files.status = synchronized`
 
-The response shape intentionally matches coordinator list endpoints.
+The response shape intentionally matches coordinator list endpoints. Items include `metadata` with file-type specific
+viewer metadata by canonical key (see [file metadata](application.md#file-metadata)); it is omitted for files without metadata.
 
 Example response:
 ```json
@@ -1837,7 +1867,12 @@ Example response:
       "replica_status": "synchronized",
       "replica_version": 4,
       "created": "2026-03-17T10:30:00Z",
-      "modified": "2026-03-17T10:30:00Z"
+      "modified": "2026-03-17T10:30:00Z",
+      "metadata": {
+        "capture_time": "2026-03-16T18:42:10",
+        "width": "4032",
+        "height": "3024"
+      }
     }
   ],
   "page": 1,
@@ -2180,7 +2215,10 @@ Query parameters:
   matches:  
   `album/photo.jpg`  
   `other-album/photo2.png`
-- `sort` optional, can be `id`, `name`, `size`, `created`, `modified`, default `id`
+- `sort` optional, can be `id`, `name`, `size`, `created`, `modified`, `taken`, `duration`, default `id`
+  - `taken` sorts by metadata `capture_time` (adjusted by `capture_offset` when present, otherwise treated as UTC) and
+    falls back to `created` for files without a capture time
+  - `duration` sorts by metadata `duration_ms`; files without a duration are listed last in both orders
 - `order` optional, `asc` or `desc`, default `asc`
 - `page` optional, default `1`
 - `count` optional, default `20`
@@ -2194,7 +2232,8 @@ Behavior:
   - local `replica_files` row exists for the share replica
   - `replica_files.status = synchronized`
 
-The response shape intentionally matches coordinator list endpoints.
+The response shape intentionally matches coordinator list endpoints. Items include `metadata` with file-type specific
+viewer metadata by canonical key (see [file metadata](application.md#file-metadata)); it is omitted for files without metadata.
 
 Example response:
 ```json
@@ -2212,7 +2251,12 @@ Example response:
       "replica_status": "synchronized",
       "replica_version": 4,
       "created": "2026-03-17T10:30:00Z",
-      "modified": "2026-03-17T10:30:00Z"
+      "modified": "2026-03-17T10:30:00Z",
+      "metadata": {
+        "capture_time": "2026-03-16T18:42:10",
+        "width": "4032",
+        "height": "3024"
+      }
     }
   ],
   "page": 1,
@@ -3013,11 +3057,17 @@ Example response:
       "replica_status": "pending",
       "replica_version": 4,
       "created": "2026-05-21T11:00:00Z",
-      "modified": "2026-05-21T12:00:00Z"
+      "modified": "2026-05-21T12:00:00Z",
+      "metadata": {
+        "duration_ms": "12500"
+      }
     }
   ]
 }
 ```
+
+`metadata` contains file-type specific viewer metadata by canonical key and is omitted for files without metadata. It
+is used by the storage-node share viewer for sorting and display and never by replication.
 
 Possible errors:
 - `400` invalid replica file status
@@ -3062,6 +3112,13 @@ Behavior:
 - for a `created` entry with `share_id`, adds the resulting active file to that share, also when the file was already
   reported with the same content; the share must be active, belong to the reporting replica and already have share
   files, and the replica must be a base replica
+- validates `metadata` entries and silently drops invalid ones: unknown keys, a `value_type` different from the key's
+  type, values not in canonical format, empty `source`; only the first entry per key and at most 32 entries are kept
+- when a report creates a new file version (created, updated, restored), replaces all `file_metadata` rows of the
+  file with the reported entries at the new version; a report without `metadata` removes the old metadata
+- when a `created` or `updated` entry has the same content identity as the authoritative file, stores its `metadata`
+  only if the file has no metadata yet, without changing the version
+- ignores `metadata` of `deleted` entries, of non-authoritative reports and of downstream replica reports
 
 Request body:
 - `files` required
@@ -3074,6 +3131,9 @@ Request body:
   - `created_time` required for `created` and `updated`, omitted for `deleted`
   - `modified_time` required for `created` and `updated`, omitted for `deleted`
   - `share_id` optional, only for `created`; used by subset share uploads
+  - `metadata` optional, only meaningful for `created` and `updated`; list of file-type specific viewer metadata
+    entries `{ "source", "key", "value_type", "value" }` extracted while the file hash was calculated
+    (see [file metadata](application.md#file-metadata))
 
 Validation rules:
 - `action = "created"` requires omitted `file_id` and requires `relative_uri`, `file_size`, `file_hash`, `created_time`, and `modified_time`
@@ -3094,6 +3154,29 @@ Example created request:
       "file_hash": "new-hash",
       "created_time": "2026-05-21T12:00:00Z",
       "modified_time": "2026-05-21T12:00:00Z"
+    }
+  ]
+}
+```
+
+Example created request with metadata:
+
+```json
+{
+  "files": [
+    {
+      "action": "created",
+      "relative_uri": "photos/image027.jpg",
+      "file_size": 200,
+      "file_hash": "new-hash",
+      "created_time": "2026-05-21T12:00:00Z",
+      "modified_time": "2026-05-21T12:00:00Z",
+      "metadata": [
+        { "source": "exif", "key": "capture_time", "value_type": "time", "value": "2026-05-20T17:03:12" },
+        { "source": "exif", "key": "capture_offset", "value_type": "text", "value": "+02:00" },
+        { "source": "image", "key": "width", "value_type": "int", "value": "4032" },
+        { "source": "image", "key": "height", "value_type": "int", "value": "3024" }
+      ]
     }
   ]
 }

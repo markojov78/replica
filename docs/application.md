@@ -172,6 +172,17 @@ relative_uri - file uri from the replica root. replica uri + relative_uri make f
 version - file version used for synchronization between replicas, if inventory version is above replica versions file in the replica needs to be synchronized  
 status - active, deleted  
 
+#### file_metadata
+File-type specific viewer metadata of an inventory file, stored as key/value rows. See [File metadata](#file-metadata).  
+file_id - inventory file the metadata belongs to; rows are deleted with the file  
+file_version - inventory file version the values were extracted from  
+extracted_time - time the coordinator stored the values  
+source - extractor that produced the value: exif, image, mp4, mp3, flac, tags  
+key - canonical metadata key, for example capture_time, width, duration_ms  
+value_type - text, int, float, time, bool; each key always has the same value type  
+value - value as a string in the canonical format of its value type  
+Primary key is (file_id, source, key).
+
 #### file_journal
 action - crud action: created, updated, modified, deleted, restored  
 replica_id - replica from which file changing action originates  
@@ -322,6 +333,7 @@ When local file changes are detected, the storage service reports:
 - BLAKE3 content hash
 - size
 - modification timestamp
+- optional file-type specific metadata extracted while the hash was calculated (see [File metadata](#file-metadata))
 to the coordinator.
 
 The coordinator validates the reported change, updates authoritative inventory state and determines whether 
@@ -341,6 +353,45 @@ match deleted inventory files, are included in the command for deletion from the
 replicas are also scanned on storage-service startup so local changes made while the service was stopped are repaired.
  
 Storage services do not independently decide global synchronization state.  
+
+#### File metadata
+Besides the identity metadata in `inventory_files`, the coordinator stores file-type specific metadata in
+`file_metadata` for the share viewer, for example camera capture time, image dimensions or media duration. It is never
+used for file identity, change detection or replication.
+
+Metadata is extracted by the storage service only when it calculates a file BLAKE3 hash anyway: on scans and watcher
+events that rehash a file, and on subset share uploads. Extraction never adds a file transfer. Streamed content (S3,
+SFTP, uploads) is extracted from the first and last 1 MiB captured while hashing; filesystem replicas read the local
+file directly. Content whose metadata lies outside the captured ranges, for example a large MP4 `moov` box in the middle
+of a remote file, gets no metadata for those values. Extraction failures are logged and never fail a scan. Replication
+destinations do not extract metadata, because identical content already has it on the coordinator.
+
+Files whose hash is reused from coordinator state (unchanged size and modification time) are not rehashed, so files
+that existed before metadata extraction get metadata only when their content changes or the inventory is re-created.
+
+The storage service sends the entries with the change report. The coordinator validates them and, when the report
+creates a new file version, replaces the file's metadata with the reported entries. A report with the same content
+identity only fills metadata of a file that has none. Downstream and non-authoritative reports never change metadata.
+The node replica file list returns metadata as a key/value map, and the storage-node share viewer uses it for sorting
+by `taken` and `duration`.
+
+Canonical keys and value types:
+
+| key | value_type | source | description |
+|---|---|---|---|
+| capture_time | time | exif, mp4 | EXIF DateTimeOriginal (or DateTimeDigitized), MP4/MOV creation time |
+| capture_offset | text | exif, mp4 | capture time zone offset such as `+02:00` when known; MP4 creation time is `+00:00` |
+| width, height | int | image, exif, mp4 | image or video dimensions in pixels |
+| orientation | int | exif | EXIF orientation 1-8 |
+| camera_make, camera_model | text | exif | camera make and model |
+| gps_lat, gps_lon | float | exif | GPS position in decimal degrees |
+| duration_ms | int | mp4, mp3, flac | media duration in milliseconds |
+| artist, album, title | text | tags | audio tags (ID3, MP4, FLAC, Ogg) |
+
+Value formats: `int` is a plain decimal integer, `float` a decimal number with `.`, `time` is
+`YYYY-MM-DDTHH:MM:SS` without a zone (the offset, when known, is in `capture_offset`), `bool` is `true` or `false`, and
+`text` is at most 512 bytes. Supported formats are JPEG, PNG, GIF, WebP, BMP, TIFF and TIFF-based RAW, HEIF/HEIC/AVIF,
+MP4/MOV/M4A, MP3, FLAC and Ogg.
 
 #### Data transfer between nodes
 The coordinator orchestrates replication, but actual file transfer is performed between storage services.

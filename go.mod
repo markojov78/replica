@@ -3,10 +3,12 @@ module replica
 go 1.27.0
 
 require (
+	github.com/abema/go-mp4 v1.7.3
 	github.com/aws/aws-sdk-go-v2 v1.41.7
 	github.com/aws/aws-sdk-go-v2/config v1.32.18
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.88.2
 	github.com/danielgtaylor/huma/v2 v2.37.3
+	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/disintegration/imaging v1.6.2
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gen2brain/jpegn v0.6.1

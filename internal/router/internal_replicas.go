@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"replica/internal/metadata"
 	"replica/internal/service"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -77,6 +78,7 @@ func registerInternalReplicaRoutes(api huma.API, svc services) {
 				CreatedTimeSet:  file.CreatedTime != nil,
 				ModifiedTimeSet: file.ModifiedTime != nil,
 				ShareID:         file.ShareID,
+				Metadata:        file.Metadata,
 			}
 			if file.FileSize != nil {
 				change.FileSize = *file.FileSize
@@ -155,14 +157,15 @@ type reportReplicaFilesInput struct {
 	ReplicaID     uint   `path:"replica_id"`
 	Body          struct {
 		Files []struct {
-			FileID       *uint      `json:"file_id,omitempty"`
-			Action       string     `json:"action,omitempty"`
-			RelativeURI  string     `json:"relative_uri" minLength:"1"`
-			FileSize     *int64     `json:"file_size,omitempty"`
-			FileHash     *string    `json:"file_hash,omitempty"`
-			CreatedTime  *time.Time `json:"created_time,omitempty"`
-			ModifiedTime *time.Time `json:"modified_time,omitempty"`
-			ShareID      *uint      `json:"share_id,omitempty"`
+			FileID       *uint            `json:"file_id,omitempty"`
+			Action       string           `json:"action,omitempty"`
+			RelativeURI  string           `json:"relative_uri" minLength:"1"`
+			FileSize     *int64           `json:"file_size,omitempty"`
+			FileHash     *string          `json:"file_hash,omitempty"`
+			CreatedTime  *time.Time       `json:"created_time,omitempty"`
+			ModifiedTime *time.Time       `json:"modified_time,omitempty"`
+			ShareID      *uint            `json:"share_id,omitempty"`
+			Metadata     []metadata.Entry `json:"metadata,omitempty"`
 		} `json:"files"`
 	}
 }

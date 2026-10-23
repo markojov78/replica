@@ -467,7 +467,7 @@ func parseShareFileListFilter(req *http.Request) (ShareFileListFilter, error) {
 	}
 	if filter.Sort != "" {
 		switch filter.Sort {
-		case "id", "name", "size", "created", "modified":
+		case "id", "name", "size", "created", "modified", "taken", "duration":
 		default:
 			return ShareFileListFilter{}, errors.New("invalid sort")
 		}

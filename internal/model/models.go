@@ -34,6 +34,23 @@ func (InventoryFile) TableName() string {
 	return "inventory_files"
 }
 
+// FileMetadata is file-type specific viewer metadata (capture time, dimensions, duration...) of an inventory file.
+// It is extracted from the file version it references and never participates in replication.
+type FileMetadata struct {
+	FileID        uint          `gorm:"primaryKey;autoIncrement:false;column:file_id" json:"file_id"`
+	FileVersion   uint          `gorm:"not null" json:"file_version"`
+	ExtractedTime time.Time     `gorm:"not null" json:"extracted_time"`
+	Source        string        `gorm:"primaryKey;size:32" json:"source"`
+	Key           string        `gorm:"primaryKey;size:64" json:"key"`
+	ValueType     string        `gorm:"size:16;not null" json:"value_type"`
+	Value         string        `gorm:"size:1024;not null" json:"value"`
+	File          InventoryFile `gorm:"foreignKey:FileID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
+}
+
+func (FileMetadata) TableName() string {
+	return "file_metadata"
+}
+
 type FileJournal struct {
 	ID          uint              `gorm:"primaryKey" json:"id"`
 	FileID      uint              `gorm:"index;not null" json:"file_id"`
@@ -284,6 +301,7 @@ func AllModels() []any {
 	return []any{
 		&Inventory{},
 		&InventoryFile{},
+		&FileMetadata{},
 		&FileJournal{},
 		&Node{},
 		&NodeToken{},

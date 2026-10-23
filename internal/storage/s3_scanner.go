@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"replica/internal/metadata"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -35,6 +37,7 @@ type S3Scanner struct {
 type s3CachedHash struct {
 	fingerprint string
 	hash        string
+	metadata    []metadata.Entry
 }
 
 func NewS3Scanner(client *s3.Client) *S3Scanner {
@@ -159,7 +162,7 @@ func (s *S3Scanner) fileStateFromObject(ctx context.Context, location s3Location
 	}
 
 	cacheKey := location.Bucket + "/" + key
-	hash, ok := s.cachedHash(cacheKey, fingerprint)
+	hash, fileMetadata, ok := s.cachedHash(cacheKey, fingerprint)
 	if !ok {
 		if s.getClient == nil {
 			return nil, errors.New("s3 scanner requires object read access to calculate BLAKE3")
@@ -171,7 +174,7 @@ func (s *S3Scanner) fileStateFromObject(ctx context.Context, location s3Location
 		if err != nil {
 			return nil, err
 		}
-		hash, err = hashReaderBLAKE3(ctx, output.Body)
+		hash, fileMetadata, err = hashReaderBLAKE3WithMetadata(ctx, output.Body, normalizedRelativeURI)
 		closeErr := output.Body.Close()
 		if err != nil {
 			return nil, err
@@ -179,7 +182,7 @@ func (s *S3Scanner) fileStateFromObject(ctx context.Context, location s3Location
 		if closeErr != nil {
 			return nil, closeErr
 		}
-		s.storeCachedHash(cacheKey, fingerprint, hash)
+		s.storeCachedHash(cacheKey, fingerprint, hash, fileMetadata)
 	}
 
 	return &FileState{
@@ -188,21 +191,22 @@ func (s *S3Scanner) fileStateFromObject(ctx context.Context, location s3Location
 		Hash:        hash,
 		Created:     modified,
 		Modified:    modified,
+		Metadata:    fileMetadata,
 	}, nil
 }
 
-func (s *S3Scanner) cachedHash(key, fingerprint string) (string, bool) {
+func (s *S3Scanner) cachedHash(key, fingerprint string) (string, []metadata.Entry, bool) {
 	s.cacheMu.RLock()
 	defer s.cacheMu.RUnlock()
 
 	cached, ok := s.cache[key]
-	return cached.hash, ok && cached.fingerprint == fingerprint
+	return cached.hash, cached.metadata, ok && cached.fingerprint == fingerprint
 }
 
-func (s *S3Scanner) storeCachedHash(key, fingerprint, hash string) {
+func (s *S3Scanner) storeCachedHash(key, fingerprint, hash string, fileMetadata []metadata.Entry) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
-	s.cache[key] = s3CachedHash{fingerprint: fingerprint, hash: hash}
+	s.cache[key] = s3CachedHash{fingerprint: fingerprint, hash: hash, metadata: fileMetadata}
 }
 
 func s3ObjectFingerprint(object types.Object) string {

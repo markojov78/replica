@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"replica/internal/metadata"
 	"replica/internal/model"
 
 	"gorm.io/gorm"
@@ -32,6 +33,8 @@ type ReplicaFileUpdate struct {
 	ModifiedTime time.Time
 	// ShareID adds a created file to a subset share after it becomes authoritative.
 	ShareID *uint
+	// Metadata is viewer metadata extracted from the reported content.
+	Metadata []metadata.Entry
 }
 
 var (
@@ -52,6 +55,7 @@ type ReplicaInventoryFile struct {
 	ReplicaVersion   uint
 	Created          time.Time
 	Modified         time.Time
+	Metadata         map[string]string `gorm:"-"`
 }
 
 type ReconcileSource struct {
@@ -541,6 +545,13 @@ func (r *ReplicaRepository) ListInventoryFiles(replicaID uint, filters ...Replic
 	if err != nil {
 		return nil, err
 	}
+	values, err := replicaFileMetadataValues(r.db, replicaID, filter.Status)
+	if err != nil {
+		return nil, err
+	}
+	for i := range files {
+		files[i].Metadata = values[files[i].FileID]
+	}
 	return files, nil
 }
 
@@ -702,6 +713,9 @@ func (r *ReplicaRepository) ReportFileChanges(replicaID uint, updates []ReplicaF
 			file.Size = update.FileSize
 			file.Hash = update.FileHash
 			if err := tx.Save(file).Error; err != nil {
+				return err
+			}
+			if err := replaceFileMetadata(tx, file.ID, file.Version, update.Metadata); err != nil {
 				return err
 			}
 
@@ -1055,6 +1069,10 @@ func (r *ReplicaRepository) handleNoContentReportedFile(tx *gorm.DB, replica mod
 	}
 	if file.Status != model.InventoryFileStatusActive || !sameReportedFileContent(file, update) {
 		return false, nil
+	}
+
+	if err := fillMissingFileMetadata(tx, file.ID, file.Version, update.Metadata); err != nil {
+		return false, err
 	}
 
 	var replicaFile model.ReplicaFile

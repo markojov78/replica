@@ -18,6 +18,7 @@ import (
 
 	"replica/internal/apiclient"
 	"replica/internal/config"
+	"replica/internal/metadata"
 
 	"github.com/zeebo/blake3"
 )
@@ -384,6 +385,14 @@ func sortShareFiles(files []apiclient.ReplicaInventoryFile, filter ShareFileList
 		sortBy = "id"
 	}
 	desc := filter.Order == "desc"
+	var taken map[uint]time.Time
+	var durations map[uint]int64
+	switch sortBy {
+	case "taken":
+		taken = shareFileTakenTimes(files)
+	case "duration":
+		durations = shareFileDurations(files)
+	}
 	sort.SliceStable(files, func(i, j int) bool {
 		less := false
 		switch sortBy {
@@ -409,6 +418,23 @@ func sortShareFiles(files []apiclient.ReplicaInventoryFile, filter ShareFileList
 				return false
 			}
 			less = files[i].Modified.Before(files[j].Modified)
+		case "taken":
+			left, right := taken[files[i].FileID], taken[files[j].FileID]
+			if left.Equal(right) {
+				return false
+			}
+			less = left.Before(right)
+		case "duration":
+			left, leftOK := durations[files[i].FileID]
+			right, rightOK := durations[files[j].FileID]
+			if leftOK != rightOK {
+				// Files without a duration are listed last in both orders.
+				return leftOK
+			}
+			if left == right {
+				return false
+			}
+			less = left < right
 		default:
 			if files[i].FileID == files[j].FileID {
 				return false
@@ -420,6 +446,30 @@ func sortShareFiles(files []apiclient.ReplicaInventoryFile, filter ShareFileList
 		}
 		return less
 	})
+}
+
+// shareFileTakenTimes returns the metadata capture time of each file, falling back to the file created time.
+func shareFileTakenTimes(files []apiclient.ReplicaInventoryFile) map[uint]time.Time {
+	result := make(map[uint]time.Time, len(files))
+	for _, file := range files {
+		taken, ok := metadata.CaptureTime(file.Metadata)
+		if !ok {
+			taken = file.Created
+		}
+		result[file.FileID] = taken
+	}
+	return result
+}
+
+// shareFileDurations returns the metadata duration of files that have one.
+func shareFileDurations(files []apiclient.ReplicaInventoryFile) map[uint]int64 {
+	result := make(map[uint]int64, len(files))
+	for _, file := range files {
+		if duration, ok := metadata.Int(file.Metadata, metadata.KeyDurationMS); ok {
+			result[file.FileID] = duration
+		}
+	}
+	return result
 }
 
 func (r *Runtime) createShareFileOperation(ctx context.Context, share apiclient.Share, replica apiclient.Replica, relativeURI string, file io.Reader, size int64) error {
@@ -457,8 +507,9 @@ func (r *Runtime) createSubsetShareFile(ctx context.Context, share apiclient.Sha
 		return errShareCoordinatorOffline
 	}
 	hasher := blake3.New()
+	capture := metadata.NewCapture()
 	var written int64
-	content := io.TeeReader(file, io.MultiWriter(hasher, writeCounter{&written}))
+	content := io.TeeReader(file, io.MultiWriter(hasher, capture, writeCounter{&written}))
 	if err := writer.Save(ctx, replica.URI, relativeURI, content, size); err != nil {
 		return errShareLocalStorageFailed
 	}
@@ -474,6 +525,7 @@ func (r *Runtime) createSubsetShareFile(ctx context.Context, share apiclient.Sha
 		CreatedTime:  &now,
 		ModifiedTime: &now,
 		ShareID:      &shareID,
+		Metadata:     metadata.Extract(relativeURI, capture.ReaderAt(), capture.Size()),
 	}
 	if err := r.client.ReportReplicaFiles(ctx, replica.ID, []apiclient.ReplicaFileReport{report}); err != nil {
 		log.Printf("storage runtime share upload not registered share_id=%d replica_id=%d relative_uri=%s: %v", share.ID, replica.ID, relativeURI, err)

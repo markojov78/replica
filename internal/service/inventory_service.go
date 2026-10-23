@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"replica/internal/metadata"
 	"replica/internal/model"
 	"replica/internal/repository"
 	"replica/internal/storageuri"
@@ -90,6 +91,8 @@ type InventoryFileDetails struct {
 	Version     uint      `json:"version"`
 	Created     time.Time `json:"created"`
 	Modified    time.Time `json:"modified"`
+	// Metadata holds file-type specific viewer metadata by canonical key. It is returned only by file details.
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 type InventoryFileList struct {
@@ -137,6 +140,8 @@ type ReplicaInventoryFileDetails struct {
 	ReplicaVersion   uint      `json:"replica_version"`
 	Created          time.Time `json:"created"`
 	Modified         time.Time `json:"modified"`
+	// Metadata holds file-type specific viewer metadata by canonical key.
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 type ReplicaFileList struct {
@@ -243,6 +248,7 @@ type ReplicaFileChangeInput struct {
 	ModifiedTime    time.Time
 	ModifiedTimeSet bool
 	ShareID         *uint
+	Metadata        []metadata.Entry
 }
 
 func NewInventoryService(repo *repository.InventoryRepository, nodeServices ...*NodeService) *InventoryService {
@@ -607,7 +613,12 @@ func (s *InventoryService) GetFile(inventoryID, fileID uint) (*InventoryFileDeta
 		return nil, err
 	}
 
-	return toInventoryFileDetails(file), nil
+	details := toInventoryFileDetails(file)
+	details.Metadata, err = s.repo.FindFileMetadataValues(file.ID)
+	if err != nil {
+		return nil, err
+	}
+	return details, nil
 }
 
 func (s *InventoryService) ListFiles(inventoryID uint, page, perPage int, filter InventoryFileListFilter) (*InventoryFileList, error) {

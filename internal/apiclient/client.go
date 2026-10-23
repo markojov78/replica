@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"replica/internal/config"
+	"replica/internal/metadata"
 )
 
 const apiVersion = "1"
@@ -103,6 +104,8 @@ type ReplicaInventoryFile struct {
 	ReplicaVersion   uint      `json:"replica_version"`
 	Created          time.Time `json:"created"`
 	Modified         time.Time `json:"modified"`
+	// Metadata holds file-type specific viewer metadata by canonical key.
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 type ReplicaInventoryFileList struct {
@@ -110,14 +113,15 @@ type ReplicaInventoryFileList struct {
 }
 
 type ReplicaFileReport struct {
-	FileID       *uint      `json:"file_id,omitempty"`
-	Action       string     `json:"action,omitempty"`
-	RelativeURI  string     `json:"relative_uri"`
-	FileSize     *int64     `json:"file_size,omitempty"`
-	FileHash     *string    `json:"file_hash,omitempty"`
-	CreatedTime  *time.Time `json:"created_time,omitempty"`
-	ModifiedTime *time.Time `json:"modified_time,omitempty"`
-	ShareID      *uint      `json:"share_id,omitempty"`
+	FileID       *uint            `json:"file_id,omitempty"`
+	Action       string           `json:"action,omitempty"`
+	RelativeURI  string           `json:"relative_uri"`
+	FileSize     *int64           `json:"file_size,omitempty"`
+	FileHash     *string          `json:"file_hash,omitempty"`
+	CreatedTime  *time.Time       `json:"created_time,omitempty"`
+	ModifiedTime *time.Time       `json:"modified_time,omitempty"`
+	ShareID      *uint            `json:"share_id,omitempty"`
+	Metadata     []metadata.Entry `json:"metadata,omitempty"`
 }
 
 type ReplicaFileList struct {

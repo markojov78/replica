@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"replica/internal/metadata"
+
 	"github.com/zeebo/blake3"
 )
 
@@ -170,7 +172,7 @@ func fileStateFromPath(ctx context.Context, rootPath, fullPath string, followSym
 		}, nil
 	}
 
-	hash, err := hashFileBLAKE3(ctx, fullPath)
+	hash, fileMetadata, err := hashFileBLAKE3WithMetadata(ctx, fullPath, rel)
 	if isSymlink && os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -184,6 +186,7 @@ func fileStateFromPath(ctx context.Context, rootPath, fullPath string, followSym
 		Hash:        hash,
 		Created:     created,
 		Modified:    modified,
+		Metadata:    fileMetadata,
 	}, nil
 }
 
@@ -195,6 +198,37 @@ func hashFileBLAKE3(ctx context.Context, path string) (string, error) {
 	defer file.Close()
 
 	return hashReaderBLAKE3(ctx, file)
+}
+
+// hashFileBLAKE3WithMetadata hashes a local file and extracts its metadata from the same open file. Local reads are
+// random access, so extraction is not limited to the captured head and tail of the content.
+func hashFileBLAKE3WithMetadata(ctx context.Context, path, relativeURI string) (string, []metadata.Entry, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", nil, err
+	}
+	defer file.Close()
+
+	hash, err := hashReaderBLAKE3(ctx, file)
+	if err != nil {
+		return "", nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return "", nil, err
+	}
+	return hash, metadata.Extract(relativeURI, file, info.Size()), nil
+}
+
+// hashReaderBLAKE3WithMetadata hashes streamed content and extracts metadata from its captured head and tail, so
+// remote content is read only once.
+func hashReaderBLAKE3WithMetadata(ctx context.Context, reader io.Reader, relativeURI string) (string, []metadata.Entry, error) {
+	capture := metadata.NewCapture()
+	hash, err := hashReaderBLAKE3(ctx, io.TeeReader(reader, capture))
+	if err != nil {
+		return "", nil, err
+	}
+	return hash, metadata.Extract(relativeURI, capture.ReaderAt(), capture.Size()), nil
 }
 
 func hashReaderBLAKE3(ctx context.Context, reader io.Reader) (string, error) {
