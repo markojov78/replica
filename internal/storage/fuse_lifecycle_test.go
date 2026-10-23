@@ -101,6 +101,19 @@ func TestFusePrefixLockRejectsSymlink(t *testing.T) {
 	}
 }
 
+// stubLazyUnmount replaces fuseLazyUnmount for the test and records the paths it was called with.
+func stubLazyUnmount(t *testing.T, err error) *[]string {
+	t.Helper()
+	var paths []string
+	previous := fuseLazyUnmount
+	fuseLazyUnmount = func(_ context.Context, path string) error {
+		paths = append(paths, path)
+		return err
+	}
+	t.Cleanup(func() { fuseLazyUnmount = previous })
+	return &paths
+}
+
 func TestFuseStopRetriesAndWaits(t *testing.T) {
 	server := &testFuseServer{failures: 1}
 	m := &fuseManager{mounts: map[uint]*fuseMount{1: {shareID: 1, server: server}}}
@@ -121,13 +134,29 @@ func TestFuseStopRetriesAndWaits(t *testing.T) {
 }
 
 func TestFuseStopRetainsFailedMount(t *testing.T) {
+	lazyCalls := stubLazyUnmount(t, errors.New("lazy failed"))
 	server := &testFuseServer{failures: 10}
 	m := &fuseManager{mounts: map[uint]*fuseMount{1: {shareID: 1, server: server}}}
 	if err := m.Stop(context.Background()); err == nil {
 		t.Fatal("expected cleanup failure")
 	}
-	if server.calls != 3 || len(m.mounts) != 1 {
+	if server.calls != 3 || len(m.mounts) != 1 || len(*lazyCalls) != 1 {
+		t.Fatalf("calls=%d mounts=%d lazy=%d", server.calls, len(m.mounts), len(*lazyCalls))
+	}
+}
+
+func TestFuseStopFallsBackToLazyUnmountOnFinalAttempt(t *testing.T) {
+	lazyCalls := stubLazyUnmount(t, nil)
+	server := &testFuseServer{failures: 10}
+	m := &fuseManager{mounts: map[uint]*fuseMount{1: {shareID: 1, mountPoint: "/prefix/share", server: server}}}
+	if err := m.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if server.calls != 3 || len(m.mounts) != 0 {
 		t.Fatalf("calls=%d mounts=%d", server.calls, len(m.mounts))
+	}
+	if len(*lazyCalls) != 1 || (*lazyCalls)[0] != "/prefix/share" {
+		t.Fatalf("lazy unmount calls=%q", *lazyCalls)
 	}
 }
 
@@ -151,6 +180,7 @@ func TestFuseReconcileRetainsFailedUnmountAndRetries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	stubLazyUnmount(t, errors.New("lazy failed"))
 	server := &testFuseServer{failures: 1}
 	m := &fuseManager{runtime: &Runtime{client: client}, mounts: map[uint]*fuseMount{1: {shareID: 1, server: server}}}
 	m.reconcile(context.Background())
@@ -160,6 +190,20 @@ func TestFuseReconcileRetainsFailedUnmountAndRetries(t *testing.T) {
 	m.reconcile(context.Background())
 	if len(m.mounts) != 0 || server.calls != 2 {
 		t.Fatal("unmount was not retried")
+	}
+}
+
+func TestFuseReconcileFallsBackToLazyUnmount(t *testing.T) {
+	client, err := apiclient.New(config.Config{App: config.AppConfig{NodeID: "node", NodeAddress: "http://127.0.0.1", CoordinatorURL: "http://127.0.0.1"}, Auth: config.AuthConfig{NodeSecret: "test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lazyCalls := stubLazyUnmount(t, nil)
+	server := &testFuseServer{failures: 10}
+	m := &fuseManager{runtime: &Runtime{client: client}, mounts: map[uint]*fuseMount{1: {shareID: 1, mountPoint: "/prefix/share", server: server}}}
+	m.reconcile(context.Background())
+	if len(m.mounts) != 0 || server.calls != 1 || len(*lazyCalls) != 1 {
+		t.Fatalf("mounts=%d calls=%d lazy=%d", len(m.mounts), server.calls, len(*lazyCalls))
 	}
 }
 

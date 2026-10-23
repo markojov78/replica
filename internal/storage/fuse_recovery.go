@@ -111,6 +111,28 @@ func (m *fuseManager) preparePrefix(ctx context.Context) error {
 	return nil
 }
 
+// fuseLazyUnmount is replaceable in tests.
+var fuseLazyUnmount = lazyUnmount
+
+// lazyUnmount detaches a FUSE mount even while it is busy, using fusermount
+// because unprivileged users cannot unmount FUSE mounts directly.
+func lazyUnmount(ctx context.Context, path string) error {
+	helper, err := exec.LookPath("fusermount3")
+	if err != nil {
+		helper, err = exec.LookPath("fusermount")
+	}
+	if err != nil {
+		return err
+	}
+	unmountCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(unmountCtx, helper, "-u", "-z", path).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
 func (m *fuseManager) recoverMountPoint(ctx context.Context, path string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -130,18 +152,9 @@ func (m *fuseManager) recoverMountPoint(ctx context.Context, path string) error 
 	if !errors.Is(err, syscall.ENOTCONN) {
 		return fmt.Errorf("existing mount is not confirmed disconnected (stat: %v)", err)
 	}
-	helper, err := exec.LookPath("fusermount3")
-	if err != nil {
-		helper, err = exec.LookPath("fusermount")
-	}
-	if err != nil {
-		return err
-	}
-	unmountCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	output, err := exec.CommandContext(unmountCtx, helper, "-u", path).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("unmount stale mount: %w: %s", err, strings.TrimSpace(string(output)))
+	// A lazy unmount also clears a disconnected mount that is still busy.
+	if err := fuseLazyUnmount(ctx, path); err != nil {
+		return fmt.Errorf("unmount stale mount: %w", err)
 	}
 	mounts, err = readFuseMounts()
 	if err != nil {

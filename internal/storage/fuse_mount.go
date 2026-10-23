@@ -128,7 +128,7 @@ func (m *fuseManager) reconcile(ctx context.Context) {
 	for shareID, existing := range m.mounts {
 		want, ok := desired[shareID]
 		if !ok || want.mountPoint != existing.mountPoint {
-			if err := m.unmount(existing); err == nil {
+			if err := m.unmount(existing, true); err == nil {
 				delete(m.mounts, shareID)
 			}
 		}
@@ -244,11 +244,19 @@ func (m *fuseManager) retryMount(ctx context.Context, want desiredMount, retry b
 	m.mountAttempt(ctx, want, false)
 }
 
-func (m *fuseManager) unmount(existing *fuseMount) error {
+// unmount removes a mount owned by this manager. With lazy set, a failed
+// unmount (e.g. a busy mount) falls back to a lazy unmount.
+func (m *fuseManager) unmount(existing *fuseMount, lazy bool) error {
 	if existing.server != nil {
 		if err := existing.server.Unmount(); err != nil {
 			log.Printf("storage runtime fuse unmount failed share_id=%d path=%s: %v", existing.shareID, existing.mountPoint, err)
-			return err
+			if !lazy {
+				return err
+			}
+			if lazyErr := fuseLazyUnmount(context.Background(), existing.mountPoint); lazyErr != nil {
+				log.Printf("storage runtime fuse lazy unmount failed share_id=%d path=%s: %v", existing.shareID, existing.mountPoint, lazyErr)
+				return errors.Join(err, lazyErr)
+			}
 		}
 	}
 	log.Printf("storage runtime fuse unmounted share_id=%d path=%s", existing.shareID, existing.mountPoint)
@@ -265,8 +273,10 @@ func (m *fuseManager) Stop(ctx context.Context) error {
 			m.stopped = true
 			for attempt := 0; attempt < 3; attempt++ {
 				var errs []error
+				// The final attempt falls back to a lazy unmount for busy mounts.
+				lazy := attempt == 2
 				for shareID, existing := range m.mounts {
-					if err := m.unmount(existing); err != nil {
+					if err := m.unmount(existing, lazy); err != nil {
 						errs = append(errs, fmt.Errorf("unmount %s: %w", existing.mountPoint, err))
 					} else {
 						delete(m.mounts, shareID)

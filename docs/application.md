@@ -90,7 +90,8 @@ FUSE mounts are supported on Linux storage nodes, except 32-bit ARM (`linux-armv
 not use `fuse_enabled` or `sharing.fuse.*`; a coordinator on any platform still manages `fuse_enabled` for Linux nodes.
 
 On SIGINT or SIGTERM, the process cancels storage work and waits for FUSE unmount cleanup before exiting.
-Cleanup retries failed unmounts; failures remain tracked and are reported rather than treated as successful removal.
+Cleanup retries failed unmounts and falls back to a lazy unmount on the final attempt, so busy mounts are detached;
+failures remain tracked and are reported rather than treated as successful removal.
 HTTP shutdown and the final wait for FUSE cleanup each have a ten-second limit. Forced termination can still leave
 mounts behind.
 
@@ -99,10 +100,11 @@ file contains no authoritative state and is not removed on shutdown. Before moun
 mount table and attempts to unmount disconnected `replica-share` FUSE mounts owned by the current OS user directly
 under that prefix, including mounts for renamed or deleted shares. A disconnected mount is identified by
 `ENOTCONN` when inspecting its root. Live, foreign, stacked or otherwise ambiguous mounts are left untouched and
-block reuse of their paths. Recovery uses normal unmounting, not automatic lazy or forced unmounting; busy mounts
-may require manual cleanup. Mount failures get at most one recovery-and-retry attempt, and only when a confirmed
-disconnected Replica mount exists. Failed tracked unmounts are retried on subsequent reconciliation, and a replacement
-is not mounted over them.
+block reuse of their paths. Confirmed disconnected mounts are removed with a lazy unmount, so they are cleared even
+while still busy. Mount failures get at most one recovery-and-retry attempt, and only when a confirmed
+disconnected Replica mount exists. When a share's mount is removed during reconciliation, a failed unmount falls back
+to a lazy unmount; mounts that still fail are retried on subsequent reconciliation, and a replacement is not mounted
+over them. Lazy unmounts use `fusermount3` or `fusermount`.
 
 The FUSE view is read-only and has no per-share Replica permissions. Access is governed by OS mount permissions:
 by default only the OS user running the storage node can access a mount, and `sharing.fuse.allow_other` widens
