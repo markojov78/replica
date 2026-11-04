@@ -110,6 +110,25 @@ func TestReportFileChangesFillsMissingMetadataForUnchangedContent(t *testing.T) 
 	if len(rows) != 1 || rows[0].Value != "1500" || rows[0].FileVersion != file.Version {
 		t.Fatalf("metadata rows = %+v", rows)
 	}
+	// Repeated scans must preserve existing metadata and avoid replication work.
+	same.Metadata[0].Value = "2000"
+	if err := fixture.svc.ReportFileChanges(fixture.replica.ID, "node-a", []ReplicaFileChangeInput{same}); err != nil {
+		t.Fatal(err)
+	}
+	after, rows = fileMetadataRows(t, fixture, file.RelativeURI)
+	if after.Version != file.Version || len(rows) != 1 || rows[0].Value != "1500" {
+		t.Fatalf("repeated report changed metadata: %+v %+v", after, rows)
+	}
+	var journals, commands int64
+	if err := fixture.database.Model(&model.FileJournal{}).Where("file_id = ?", file.ID).Count(&journals).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.database.Model(&model.Command{}).Count(&commands).Error; err != nil {
+		t.Fatal(err)
+	}
+	if journals != 0 || commands != 0 {
+		t.Fatalf("metadata backfill created journals=%d commands=%d", journals, commands)
+	}
 }
 
 func TestReportFileChangesIgnoresDownstreamMetadata(t *testing.T) {
@@ -124,5 +143,38 @@ func TestReportFileChangesIgnoresDownstreamMetadata(t *testing.T) {
 	}
 	if _, rows := fileMetadataRows(t, fixture, "album/cover.jpg"); len(rows) != 0 {
 		t.Fatalf("downstream report stored metadata %+v", rows)
+	}
+}
+
+func TestUnchangedMetadataRequiresCurrentSynchronizedReplica(t *testing.T) {
+	for _, status := range []model.ReplicaFileStatus{model.ReplicaFileStatusPending, model.ReplicaFileStatusChanged, model.ReplicaFileStatusConflict, model.ReplicaFileStatusError, model.ReplicaFileStatusSynchronized} {
+		t.Run(string(status), func(t *testing.T) {
+			fixture := newShareFileReportFixture(t)
+			file, _ := fileMetadataRows(t, fixture, "album/cover.jpg")
+			version := file.Version
+			if status == model.ReplicaFileStatusSynchronized {
+				version--
+			}
+			if err := fixture.database.Model(&model.ReplicaFile{}).Where("replica_id = ? AND file_id = ?", fixture.replica.ID, file.ID).Updates(map[string]any{"status": status, "version": version}).Error; err != nil {
+				t.Fatal(err)
+			}
+			entry := metadata.Entry{Source: metadata.SourceImage, Key: metadata.KeyWidth, ValueType: metadata.ValueTypeInt, Value: "10"}
+			change := metadataFileChange("updated", &file.ID, file.RelativeURI, file.Hash, entry)
+			change.FileSize = file.Size
+			if err := fixture.svc.ReportFileChanges(fixture.replica.ID, "node-a", []ReplicaFileChangeInput{change}); err != nil {
+				t.Fatal(err)
+			}
+			after, rows := fileMetadataRows(t, fixture, file.RelativeURI)
+			if len(rows) != 0 || after.Version != file.Version {
+				t.Fatalf("non-authoritative report changed metadata/version: %+v %+v", after, rows)
+			}
+			var rf model.ReplicaFile
+			if err := fixture.database.Where("replica_id = ? AND file_id = ?", fixture.replica.ID, file.ID).First(&rf).Error; err != nil {
+				t.Fatal(err)
+			}
+			if rf.Status != model.ReplicaFileStatusSynchronized || rf.Version != file.Version {
+				t.Fatalf("matching content should still synchronize: %+v", rf)
+			}
+		})
 	}
 }

@@ -1007,7 +1007,8 @@ func (r *Runtime) handleCommand(ctx context.Context, command apiclient.Command) 
 }
 
 type scanReplicaCommandPayload struct {
-	ReplicaID uint `json:"replica_id"`
+	ReplicaID   uint `json:"replica_id"`
+	ForceRescan bool `json:"force_rescan,omitempty"`
 }
 
 type reconcileReplicaCommandPayload struct {
@@ -1385,12 +1386,17 @@ func (r *Runtime) scanReplica(ctx context.Context, command apiclient.Command) er
 	if err != nil {
 		return err
 	}
-	states, err := scanReplicaStates(ctx, replica, scanner, r.getReplicaFiles(replica.ID), targetRelativeURIs...)
+	// GetScanner creates a fresh scanner, including an empty S3 hash cache.
+	oldStates := r.getReplicaFiles(replica.ID)
+	if payload.ForceRescan {
+		oldStates = nil
+	}
+	states, err := scanReplicaStates(ctx, replica, scanner, oldStates, targetRelativeURIs...)
 	if err != nil {
 		return err
 	}
 
-	reports := replicaFileReports(files, states)
+	reports := replicaFileReportsForStatesWithMetadata(files, states, true, payload.ForceRescan && replica.UpstreamReplicaID == nil)
 	if len(reports) > 0 {
 		if err := checkReplicaAvailable(replica); err != nil {
 			return err
@@ -1455,6 +1461,10 @@ func replicaHasPendingFiles(files []apiclient.ReplicaInventoryFile) bool {
 }
 
 func replicaFileReportsForStates(files []apiclient.ReplicaInventoryFile, states []FileState, includeDeletes bool) []apiclient.ReplicaFileReport {
+	return replicaFileReportsForStatesWithMetadata(files, states, includeDeletes, false)
+}
+
+func replicaFileReportsForStatesWithMetadata(files []apiclient.ReplicaInventoryFile, states []FileState, includeDeletes, includeMetadata bool) []apiclient.ReplicaFileReport {
 	activeFilesByURI := make(map[string]apiclient.ReplicaInventoryFile, len(files))
 	for _, file := range files {
 		if file.InventoryStatus == "active" {
@@ -1467,7 +1477,7 @@ func replicaFileReportsForStates(files []apiclient.ReplicaInventoryFile, states 
 	for _, state := range states {
 		seenURIs[state.RelativeURI] = struct{}{}
 		file, ok := activeFilesByURI[state.RelativeURI]
-		if ok && sameReplicaFileContent(file, state) {
+		if ok && sameReplicaFileContent(file, state) && !(includeMetadata && len(file.Metadata) == 0 && len(state.Metadata) > 0) {
 			continue
 		}
 

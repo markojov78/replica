@@ -2,6 +2,8 @@ package router
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"time"
 
 	"replica/internal/model"
@@ -11,6 +13,36 @@ import (
 )
 
 func registerCommandRoutes(api huma.API, svc services) {
+	huma.Register(api, huma.Operation{
+		OperationID:   "create-command",
+		Method:        http.MethodPost,
+		Path:          "/commands",
+		DefaultStatus: http.StatusCreated,
+	}, func(ctx context.Context, input *createCommandInput) (*commandResponse, error) {
+		accessToken, err := bearerToken(input.Authorization)
+		if err != nil {
+			return nil, huma.Error401Unauthorized("missing authenticated user")
+		}
+		// Each supported command defines its payload validation, target authorization and creation.
+		switch model.CommandType(input.Body.Type) {
+		case model.NodeCommandTypeScanReplica:
+			payload, err := service.ParseScanReplicaCommandPayload(input.Body.Payload)
+			if err != nil {
+				return nil, huma.Error400BadRequest("invalid command payload")
+			}
+			if err := AuthorizeReplicaAction(svc, accessToken, payload.ReplicaID, model.PermissionResourceInventories, model.PermissionActionUpdate); err != nil {
+				return nil, mapPermissionError(err)
+			}
+			command, err := svc.replicas.CreateScanCommand(payload)
+			if err != nil {
+				return nil, mapInventoryError(err, svc.inventories)
+			}
+			return &commandResponse{Body: *command}, nil
+		default:
+			return nil, huma.Error400BadRequest("unsupported command type")
+		}
+	})
+
 	huma.Get(api, "/commands", func(ctx context.Context, input *listCommandsInput) (*commandListResponse, error) {
 		accessToken, err := bearerToken(input.Authorization)
 		if err != nil {
@@ -121,4 +153,13 @@ type commandResponse struct {
 
 type commandListResponse struct {
 	Body service.NodeCommandList
+}
+
+type createCommandInput struct {
+	versionHeader
+	Authorization string `header:"Authorization"`
+	Body          struct {
+		Type    string          `json:"type" doc:"Command type; currently only scan_replica can be created."`
+		Payload json.RawMessage `json:"payload" doc:"Command-specific payload. scan_replica requires a positive replica_id and accepts an optional force_rescan boolean (default false)."`
+	}
 }

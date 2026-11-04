@@ -371,6 +371,7 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), `href="/dashboard/inventories/1/replicas/new">Add replica</a>`) ||
 		!strings.Contains(response.Body.String(), `action="/dashboard/inventories/1/delete"`) ||
 		!strings.Contains(response.Body.String(), "Replicas") ||
+		!strings.Contains(response.Body.String(), `action="/dashboard/inventories/1/replicas/1/commands"`) ||
 		!strings.Contains(response.Body.String(), `data-hide-deleted="replicas"`) ||
 		!strings.Contains(response.Body.String(), `data-filter-item="replicas"`) ||
 		!strings.Contains(response.Body.String(), `>active</span><span class="status-separator">/</span><span class="pill ok">synchronized</span>`) ||
@@ -384,6 +385,25 @@ func TestAdminUIRequiresLoginAndManagesInventory(t *testing.T) {
 		!strings.Contains(response.Body.String(), `name="order" value="desc"`) ||
 		strings.Contains(response.Body.String(), ">Apply</button>") {
 		t.Fatalf("inventory detail response = %d body=%q", response.Code, response.Body.String())
+	}
+
+	response = adminRequest(t, handler, http.MethodPost, "/dashboard/inventories/1/replicas/1/commands", url.Values{"type": {"scan_replica"}, "payload": {`{"replica_id":1,"force_rescan":true}`}}, accessToken)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/dashboard/inventories/1" {
+		t.Fatalf("rescan response = %d body=%s", response.Code, response.Body.String())
+	}
+	var rescanCommand model.Command
+	if err := database.Where("type = ?", model.NodeCommandTypeScanReplica).Order("id desc").First(&rescanCommand).Error; err != nil {
+		t.Fatal(err)
+	}
+	var rescanPayload struct {
+		ReplicaID   uint `json:"replica_id"`
+		ForceRescan bool `json:"force_rescan"`
+	}
+	if err := json.Unmarshal(rescanCommand.Payload, &rescanPayload); err != nil {
+		t.Fatal(err)
+	}
+	if rescanPayload.ReplicaID != 1 || !rescanPayload.ForceRescan {
+		t.Fatalf("rescan payload = %+v", rescanPayload)
 	}
 
 	response = adminRequest(t, handler, http.MethodGet, "/dashboard/inventories/1/graph", nil, accessToken)

@@ -513,9 +513,15 @@
         <td><span class="pill neutral">{{.Type}}</span></td>
         <td>{{if .UpstreamReplicaID}}downstream from #{{.UpstreamReplicaID}}{{else}}base{{end}}</td>
         <td><span class="status-pair"><span class="pill {{statusClass .Status}}">{{.Status}}</span>{{if and (eq .Status "active") .SyncStatus}}<span class="status-separator">/</span><span class="pill {{syncStatusClass .SyncStatus}}">{{.SyncStatus}}</span>{{end}}</span></td>
-        <td class="row-actions">
+        <td>
+          <details class="replica-actions">
+            <summary class="btn">Actions <span aria-hidden="true">▾</span></summary>
+            <div class="replica-actions-menu">
           <a class="btn" href="/dashboard/inventories/{{$.Inventory.ID}}/replicas/{{.ID}}/edit">Edit</a>
-          {{if ne .Status "deleted"}}<form action="/dashboard/inventories/{{$.Inventory.ID}}/replicas/{{.ID}}/delete" method="post"><button class="danger" type="submit">Delete</button></form>{{end}}
+          {{if and (eq .Status "active") (ne $.Inventory.Status "deleted")}}<form action="/dashboard/inventories/{{$.Inventory.ID}}/replicas/{{.ID}}/commands" method="post"><input type="hidden" name="type" value="scan_replica"><input type="hidden" name="payload" value='{"replica_id":{{.ID}},"force_rescan":true}'><button class="btn" type="submit">Rescan</button></form>{{end}}
+          {{if ne .Status "deleted"}}<form class="replica-actions-delete" action="/dashboard/inventories/{{$.Inventory.ID}}/replicas/{{.ID}}/delete" method="post"><button class="danger" type="submit">Delete</button></form>{{end}}
+            </div>
+          </details>
         </td>
       </tr>
     {{else}}<tr><td colspan="7" class="empty">No replicas found.</td></tr>{{end}}

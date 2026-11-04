@@ -57,6 +57,10 @@ confirm that file metadata has not changed, the scanner may reuse the known BLAK
 content again. A nil map or a missing entry preserves the old behavior: the scanner reads the file content and
 calculates BLAKE3.
 
+A forced `scan_replica` (`force_rescan: true`) passes no old hash state and creates a fresh scanner, including
+an empty S3 hash cache. It retains the same scan targets and availability safeguards, but rereads all selected
+content and extracts metadata.
+
 Implementation requirements:
 
 - return file entries only, not directories

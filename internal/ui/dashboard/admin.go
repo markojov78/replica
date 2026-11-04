@@ -357,6 +357,7 @@ func Register(mux *http.ServeMux, api http.Handler, cfg config.Config, authServi
 	mux.HandleFunc("GET /dashboard/inventories/{id}/replicas/{replica_id}/edit", handler.protected(handler.editReplicaPage))
 	mux.HandleFunc("POST /dashboard/inventories/{id}/replicas/{replica_id}", handler.protected(handler.updateReplica))
 	mux.HandleFunc("POST /dashboard/inventories/{id}/replicas/{replica_id}/delete", handler.protected(handler.deleteReplica))
+	mux.HandleFunc("POST /dashboard/inventories/{id}/replicas/{replica_id}/commands", handler.protected(handler.createReplicaCommand))
 	mux.HandleFunc("GET /dashboard/shares", handler.protected(handler.sharesPage))
 	mux.HandleFunc("GET /dashboard/shares/new", handler.protected(handler.newSharePage))
 	mux.HandleFunc("POST /dashboard/shares", handler.protected(handler.createShare))
@@ -2564,4 +2565,22 @@ func formatTime(value *string) string {
 		return *value
 	}
 	return parsed.Local().Format("2006-01-02 15:04:05")
+}
+
+func (h *Handler) createReplicaCommand(w http.ResponseWriter, r *http.Request, sess authContext) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form submission.", http.StatusBadRequest)
+		return
+	}
+	payload := json.RawMessage(r.FormValue("payload"))
+	if !json.Valid(payload) {
+		http.Error(w, "Invalid command payload.", http.StatusBadRequest)
+		return
+	}
+	input := map[string]any{"type": r.FormValue("type"), "payload": payload}
+	if err := h.apiAuthJSON(r.Context(), &sess, http.MethodPost, "/api/admin/commands", input, nil); err != nil {
+		h.renderError(w, r, sess, err)
+		return
+	}
+	http.Redirect(w, r, "/dashboard/inventories/"+r.PathValue("id"), http.StatusSeeOther)
 }

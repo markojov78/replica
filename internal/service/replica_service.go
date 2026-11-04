@@ -735,3 +735,37 @@ func (s *ReplicaService) validateUpstreamReplica(inventoryID, replicaID uint, up
 	// TODO: add cycle detection if topology updates become more complex.
 	return nil
 }
+
+// CreateScanCommand queues a validated scan for the replica's coordinator-assigned node.
+func (s *ReplicaService) CreateScanCommand(input ScanReplicaCommandPayload) (*NodeCommand, error) {
+	if input.ReplicaID == 0 {
+		return nil, ErrInvalidCommandPayload
+	}
+	replicaID := input.ReplicaID
+	payload, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	replica, err := s.repo.FindByID(replicaID)
+	if err != nil {
+		return nil, err
+	}
+	inventory, err := s.inventories.FindByID(replica.InventoryID)
+	if err != nil {
+		return nil, err
+	}
+	if inventory.Status == model.InventoryStatusDeleted {
+		return nil, ErrInventoryDeleted
+	}
+	if replica.Status != model.ReplicaStatusActive {
+		return nil, ErrInvalidReplicaStatus
+	}
+	command := &model.Command{NodeID: replica.NodeID, Type: model.NodeCommandTypeScanReplica, Status: model.NodeCommandStatusPending, Payload: payload}
+	if err := s.repo.CreateCommand(command); err != nil {
+		return nil, err
+	}
+	if s.nodes != nil {
+		s.nodes.PublishCommand(command)
+	}
+	return toNodeCommand(command), nil
+}

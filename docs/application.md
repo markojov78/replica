@@ -384,7 +384,7 @@ of a remote file, gets no metadata for those values. Extraction failures are log
 destinations do not extract metadata, because identical content already has it on the coordinator.
 
 Files whose hash is reused from coordinator state (unchanged size and modification time) are not rehashed, so files
-that existed before metadata extraction get metadata only when their content changes or the inventory is re-created.
+that existed before metadata extraction can be backfilled using `scan_replica` with `force_rescan: true`.
 
 The storage service sends the entries with the change report. The coordinator validates them and, when the report
 creates a new file version, replaces the file's metadata with the reported entries. A report with the same content
@@ -517,15 +517,25 @@ Starts or requests a scan of one assigned replica.
 
 Payload:
 ```json
-{ "replica_id": 4 }
+{ "replica_id": 4, "force_rescan": false }
 ```
 
 Payload fields:
 - `replica_id` - required replica ID assigned to the receiving storage node
+- `force_rescan` - optional boolean, defaults to false; rereads and rehashes all files in the scan scope,
+  bypassing coordinator hash reuse and starting with fresh backend hash caches
 
 The storage node refreshes local state if needed, verifies that the replica is active, scans the replica contents and
 reports discovered file changes to the coordinator. For a folder inventory, this scan discovers the initial file set.
 For an existing replica, it detects local creates, updates and deletes for coordinator validation.
+
+With `force_rescan: true`, the scan extracts metadata even when file size and modification time are unchanged.
+Unchanged content from a synchronized, current base replica fills metadata only if the inventory file has none,
+without a version bump or replication. Existing metadata is preserved. Downstream replicas do not backfill metadata.
+Detected creates, content changes and deletions follow the normal replica change reporting rules, including version
+bumps and replication for authoritative base changes, rejection of stale base changes, and downstream repair.
+File-set scope, symlink policy and removable-media safeguards remain in effect. The inventory dashboard's Rescan
+button queues this command for the selected active replica through `POST /commands` with type `scan_replica` and payload containing its `replica_id` and `force_rescan: true`.
 
 The coordinator creates `scan_replica` commands when a new default replica must be scanned and can also use this
 command to start watching a newly assigned replica without restarting the storage service.

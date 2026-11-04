@@ -332,6 +332,8 @@ func mapInventoryError(err error, inventoryService *service.InventoryService) er
 		return huma.Error409Conflict("replica file version is stale")
 	case errors.Is(err, service.ErrInvalidReplicaFileAction):
 		return huma.Error400BadRequest("invalid file action")
+	case errors.Is(err, service.ErrInvalidCommandPayload):
+		return huma.Error400BadRequest("invalid command payload")
 	case errors.Is(err, service.ErrInvalidReplicaStatus):
 		return huma.Error400BadRequest("invalid replica status")
 	case errors.Is(err, service.ErrInvalidReplicaType):

@@ -548,3 +548,17 @@
     bootstrapLogin();
   }
 })();
+
+// Replica actions use native disclosure controls for keyboard activation.
+document.addEventListener('click', (event) => {
+  document.querySelectorAll('.replica-actions[open]').forEach((menu) => {
+    if (!menu.contains(event.target)) menu.open = false;
+  });
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  document.querySelectorAll('.replica-actions[open]').forEach((menu) => {
+    if (menu.contains(document.activeElement)) menu.querySelector('summary').focus();
+    menu.open = false;
+  });
+});

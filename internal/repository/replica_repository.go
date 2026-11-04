@@ -1071,8 +1071,14 @@ func (r *ReplicaRepository) handleNoContentReportedFile(tx *gorm.DB, replica mod
 		return false, nil
 	}
 
-	if err := fillMissingFileMetadata(tx, file.ID, file.Version, update.Metadata); err != nil {
+	authoritative, err := r.replicaFileIsAuthoritative(tx, replica.ID, file.ID, file.Version)
+	if err != nil {
 		return false, err
+	}
+	if authoritative && replica.UpstreamReplicaID == nil {
+		if err := fillMissingFileMetadata(tx, file.ID, file.Version, update.Metadata); err != nil {
+			return false, err
+		}
 	}
 
 	var replicaFile model.ReplicaFile
@@ -1159,4 +1165,8 @@ func (r *ReplicaRepository) resolveReportedInventoryFile(tx *gorm.DB, inventoryI
 	default:
 		return nil, false, false, err
 	}
+}
+
+func (r *ReplicaRepository) CreateCommand(command *model.Command) error {
+	return r.db.Create(command).Error
 }

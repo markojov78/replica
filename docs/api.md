@@ -607,10 +607,48 @@ Possible errors:
 - `403` missing required permission
 
 ### /commands endpoint
-All `/commands` endpoints require the matching `nodes` permission for the requested action.
+Command listing, retrieval and status updates require the matching `nodes` permission.
+Command creation validates the payload and required permission according to the command type.
 Commands are durable orchestration tasks created by the coordinator and assigned to storage nodes.
 Commands are normally processed automatically by storage nodes through the WebSocket orchestration channel or
 heartbeat responses. The admin API exposes commands primarily for monitoring, debugging and administrative recovery.
+
+#### POST /commands
+Creates a durable command. Validation and authorization depend on `type`; currently only `scan_replica` is supported.
+Other command types, including other existing internal command types, are rejected.
+
+Request body:
+```json
+{
+  "type": "scan_replica",
+  "payload": { "replica_id": 4, "force_rescan": true }
+}
+```
+
+- `type` is required.
+- `payload` is a required object whose fields depend on the command type.
+- For `scan_replica`, `replica_id` is a required positive integer identifying an active replica in an active inventory.
+  `force_rescan` is an optional boolean defaulting to false. Unknown fields and invalid value types are rejected.
+- `scan_replica` requires `inventories:update`, using the same authorization rules as updates to the target replica.
+  `nodes:create` or `nodes:update` alone does not permit creation of this command. Both base and downstream replicas
+  are supported.
+- The coordinator derives `node_id` from the replica and sets the command status to `pending`; clients cannot choose
+  the receiving node or command status.
+
+Returns `201 Created` with the command in the same representation used by `GET /commands/{id}`.
+The persisted payload contains `replica_id` and `force_rescan`. Delivery uses the existing WebSocket/heartbeat
+mechanism; creation does not mean execution has completed. Scan behavior and replica authority rules are defined in
+[scan_replica](application.md#scan_replica). Existing GET/PATCH command permissions are unchanged.
+
+Possible errors:
+- `401` missing authenticated user
+- `403` missing required permission
+- `404` replica not found
+- `400` unsupported command type
+- `400` invalid command payload
+- `400` invalid replica status
+- `409` inventory is deleted
+- `422` request schema validation failed
 
 #### GET /commands
 Returns a paginated list of commands.
