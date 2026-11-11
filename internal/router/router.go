@@ -84,6 +84,7 @@ func New(
 	if cfg.App.Coordinator || authService != nil {
 		registerPublicAuthRoutes(adminGroup, svc)
 		registerInternalAuthRoutes(nodeGroup, svc)
+		registerInternalUserAuthRoutes(nodeGroup, svc)
 		registerInternalNodeWebSocketRoute(mux, svc)
 		registerInternalNodeRoutes(nodeGroup, svc)
 		registerInternalCommandRoutes(nodeGroup, svc)

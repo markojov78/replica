@@ -12,7 +12,7 @@ import (
 
 func registerPublicAuthRoutes(api huma.API, svc services) {
 	huma.Post(api, "/auth/login", func(ctx context.Context, input *loginInput) (*tokenPairResponse, error) {
-		pair, err := svc.auth.Login(input.Body.Username, input.Body.Password, service.SourceAddress(ctx))
+		pair, err := svc.auth.Login(input.Body.Username, input.Body.Password, service.AuditContext{SourceAddress: service.SourceAddress(ctx)})
 		if err != nil {
 			return nil, mapAuthError(err)
 		}
@@ -20,7 +20,7 @@ func registerPublicAuthRoutes(api huma.API, svc services) {
 	})
 
 	huma.Post(api, "/auth/refresh", func(ctx context.Context, input *refreshInput) (*tokenPairResponse, error) {
-		pair, err := svc.auth.Refresh(input.Body.RefreshToken, service.SourceAddress(ctx))
+		pair, err := svc.auth.Refresh(input.Body.RefreshToken, service.AuditContext{SourceAddress: service.SourceAddress(ctx)})
 		if err != nil {
 			return nil, mapAuthError(err)
 		}
@@ -33,7 +33,7 @@ func registerPublicAuthRoutes(api huma.API, svc services) {
 			return nil, huma.Error401Unauthorized("invalid token")
 		}
 
-		if err := svc.auth.Logout(accessToken, service.SourceAddress(ctx)); err != nil {
+		if err := svc.auth.Logout(accessToken, service.AuditContext{SourceAddress: service.SourceAddress(ctx)}); err != nil {
 			return nil, mapAuthError(err)
 		}
 
@@ -100,14 +100,50 @@ func registerInternalAuthRoutes(api huma.API, svc services) {
 		}, nil
 	})
 
-	huma.Post(api, "/auth/validate-user-token", func(ctx context.Context, input *validateUserTokenInput) (*validateUserTokenResponse, error) {
-		nodeAccessToken, err := bearerToken(input.Authorization)
-		if err != nil {
-			return nil, huma.Error401Unauthorized("missing authenticated node")
-		}
+}
 
-		if _, err := svc.auth.Node(nodeAccessToken); err != nil {
-			return nil, mapNodeMeError(err)
+// registerInternalUserAuthRoutes registers user authentication performed by a storage node
+// on behalf of share users. The node is authenticated by its access token, which is why
+// source_address from the body is trusted and node_id is taken from the token.
+func registerInternalUserAuthRoutes(api huma.API, svc services) {
+	huma.Post(api, "/users/auth/login", func(ctx context.Context, input *nodeUserLoginInput) (*tokenPairResponse, error) {
+		node, err := authenticatedNode(svc, input.Authorization)
+		if err != nil {
+			return nil, err
+		}
+		pair, err := svc.auth.Login(input.Body.Username, input.Body.Password, nodeUserAudit(node, input.Body.SourceAddress))
+		if err != nil {
+			return nil, mapAuthError(err)
+		}
+		return tokenPairFromService(pair), nil
+	})
+
+	huma.Post(api, "/users/auth/refresh", func(ctx context.Context, input *nodeUserRefreshInput) (*tokenPairResponse, error) {
+		node, err := authenticatedNode(svc, input.Authorization)
+		if err != nil {
+			return nil, err
+		}
+		pair, err := svc.auth.Refresh(input.Body.RefreshToken, nodeUserAudit(node, input.Body.SourceAddress))
+		if err != nil {
+			return nil, mapAuthError(err)
+		}
+		return tokenPairFromService(pair), nil
+	})
+
+	huma.Post(api, "/users/auth/logout", func(ctx context.Context, input *nodeUserLogoutInput) (*logoutResponse, error) {
+		node, err := authenticatedNode(svc, input.Authorization)
+		if err != nil {
+			return nil, err
+		}
+		if err := svc.auth.Logout(input.Body.AccessToken, nodeUserAudit(node, input.Body.SourceAddress)); err != nil {
+			return nil, mapAuthError(err)
+		}
+		return &logoutResponse{Status: http.StatusNoContent}, nil
+	})
+
+	huma.Post(api, "/users/auth/validate", func(ctx context.Context, input *validateUserTokenInput) (*validateUserTokenResponse, error) {
+		if _, err := authenticatedNode(svc, input.Authorization); err != nil {
+			return nil, err
 		}
 
 		token, err := svc.auth.ValidateUserAccessToken(input.Body.AccessToken)
@@ -125,6 +161,50 @@ func registerInternalAuthRoutes(api huma.API, svc services) {
 			},
 		}, nil
 	})
+}
+
+func authenticatedNode(svc services, authorization string) (*service.AuthenticatedNode, error) {
+	nodeAccessToken, err := bearerToken(authorization)
+	if err != nil {
+		return nil, huma.Error401Unauthorized("missing authenticated node")
+	}
+	node, err := svc.auth.Node(nodeAccessToken)
+	if err != nil {
+		return nil, mapNodeMeError(err)
+	}
+	return node, nil
+}
+
+func nodeUserAudit(node *service.AuthenticatedNode, sourceAddress string) service.AuditContext {
+	return service.AuditContext{SourceAddress: sourceAddress, NodeID: node.ID}
+}
+
+type nodeUserLoginInput struct {
+	versionHeader
+	Authorization string `header:"Authorization"`
+	Body          struct {
+		Username      string `json:"username" minLength:"1"`
+		Password      string `json:"password" minLength:"1"`
+		SourceAddress string `json:"source_address,omitempty" maxLength:"255"`
+	}
+}
+
+type nodeUserRefreshInput struct {
+	versionHeader
+	Authorization string `header:"Authorization"`
+	Body          struct {
+		RefreshToken  string `json:"refresh_token" minLength:"1"`
+		SourceAddress string `json:"source_address,omitempty" maxLength:"255"`
+	}
+}
+
+type nodeUserLogoutInput struct {
+	versionHeader
+	Authorization string `header:"Authorization"`
+	Body          struct {
+		AccessToken   string `json:"access_token" minLength:"1"`
+		SourceAddress string `json:"source_address,omitempty" maxLength:"255"`
+	}
 }
 
 type loginInput struct {

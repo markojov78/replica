@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,55 +18,89 @@ import (
 	"replica/internal/storage"
 )
 
-func TestStorageOnlyAuthLoginProxiesToCoordinator(t *testing.T) {
-	loginCalls := 0
-	coordinator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/admin/auth/login" {
-			t.Fatalf("path = %q, want /api/admin/auth/login", r.URL.Path)
-		}
-		loginCalls++
+// nodeUserAuthCoordinator is a mock coordinator for /node/users/auth/* relays. Node logins and refreshes
+// issue numbered node tokens; requests to path are answered by respond.
+type nodeUserAuthCoordinator struct {
+	nodeAuthCalls int
+	calls         []nodeUserAuthCall
+}
+
+type nodeUserAuthCall struct {
+	authorization string
+	body          map[string]string
+}
+
+func newNodeUserAuthCoordinator(t *testing.T, path string, respond func(w http.ResponseWriter, call int)) (*nodeUserAuthCoordinator, *httptest.Server) {
+	t.Helper()
+	mock := &nodeUserAuthCoordinator{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"user_id":                  15,
-			"access_token":             "access-token",
-			"refresh_token":            "refresh-token",
-			"access_token_expires_at":  "2026-04-07T12:30:00Z",
-			"refresh_token_expires_at": "2026-04-07T20:30:00Z",
-		})
+		switch r.URL.Path {
+		case "/node/auth/login", "/node/auth/refresh":
+			mock.nodeAuthCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"node_id":                  "node-a",
+				"access_token":             "node-access-token-" + strconv.Itoa(mock.nodeAuthCalls),
+				"refresh_token":            "node-refresh-token",
+				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
+				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
+			})
+		case path:
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode relay body: %v", err)
+			}
+			mock.calls = append(mock.calls, nodeUserAuthCall{authorization: r.Header.Get("Authorization"), body: body})
+			respond(w, len(mock.calls))
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}))
-	defer coordinator.Close()
+	return mock, server
+}
 
-	cfg := config.Config{
-		App: config.AppConfig{
-			Storage:           true,
-			NodeID:            "node-a",
-			NodeAddress:       "http://node-a",
-			CoordinatorURL:    coordinator.URL,
-			HeartbeatInterval: time.Minute,
-		},
-		Auth: config.AuthConfig{
-			NodeSecret: "node-secret",
-		},
-		Sharing: config.SharingConfig{Enabled: true},
-	}
-	runtime, err := storage.NewRuntime(cfg)
-	if err != nil {
-		t.Fatalf("NewRuntime() error = %v", err)
-	}
-	handler := New(cfg, buildinfo.Info{Version: "test"}, nil, nil, nil, nil, nil, nil, nil, runtime)
+func writeShareTokenPair(w http.ResponseWriter, accessToken string) {
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"user_id":                  15,
+		"access_token":             accessToken,
+		"refresh_token":            "refresh-token",
+		"access_token_expires_at":  "2026-04-07T12:30:00Z",
+		"refresh_token_expires_at": "2026-04-07T20:30:00Z",
+	})
+}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/share/auth/login", strings.NewReader(`{"username":"alice","password":"secret"}`))
+func storageOnlyShareAuthRequest(handler http.Handler, path, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.RemoteAddr = "203.0.113.5:1234"
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
+	req.Header.Set("X-Forwarded-For", "10.9.9.9")
 	recorder := httptest.NewRecorder()
-
 	handler.ServeHTTP(recorder, req)
+	return recorder
+}
+
+func TestStorageOnlyAuthLoginProxiesToCoordinator(t *testing.T) {
+	mock, coordinator := newNodeUserAuthCoordinator(t, "/node/users/auth/login", func(w http.ResponseWriter, _ int) {
+		writeShareTokenPair(w, "access-token")
+	})
+	defer coordinator.Close()
+
+	recorder := storageOnlyShareAuthRequest(newStorageOnlyShareAuthHandler(t, coordinator.URL), "/api/share/auth/login", `{"username":"alice","password":"secret"}`)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s, want %d", recorder.Code, recorder.Body.String(), http.StatusOK)
 	}
-	if loginCalls != 1 {
-		t.Fatalf("loginCalls = %d, want 1", loginCalls)
+	if len(mock.calls) != 1 {
+		t.Fatalf("login calls = %d, want 1", len(mock.calls))
+	}
+	call := mock.calls[0]
+	if call.authorization != "Bearer node-access-token-1" {
+		t.Fatalf("Authorization = %q, want node access token", call.authorization)
+	}
+	if call.body["username"] != "alice" || call.body["password"] != "secret" || call.body["source_address"] != "203.0.113.5" {
+		t.Fatalf("relay body = %v, want credentials and client address", call.body)
 	}
 	if !strings.Contains(recorder.Body.String(), `"access_token":"access-token"`) {
 		t.Fatalf("body = %s, want proxied coordinator response", recorder.Body.String())
@@ -73,39 +108,59 @@ func TestStorageOnlyAuthLoginProxiesToCoordinator(t *testing.T) {
 }
 
 func TestStorageOnlyShareAuthRefreshProxiesToCoordinator(t *testing.T) {
-	refreshCalls := 0
-	coordinator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/admin/auth/refresh" {
-			t.Fatalf("path = %q, want /api/admin/auth/refresh", r.URL.Path)
-		}
-		refreshCalls++
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"user_id":                  15,
-			"access_token":             "new-access-token",
-			"refresh_token":            "new-refresh-token",
-			"access_token_expires_at":  "2026-04-07T12:30:00Z",
-			"refresh_token_expires_at": "2026-04-07T20:30:00Z",
-		})
-	}))
+	mock, coordinator := newNodeUserAuthCoordinator(t, "/node/users/auth/refresh", func(w http.ResponseWriter, _ int) {
+		writeShareTokenPair(w, "new-access-token")
+	})
 	defer coordinator.Close()
 
-	handler := newStorageOnlyShareAuthHandler(t, coordinator.URL)
-	req := httptest.NewRequest(http.MethodPost, "/api/share/auth/refresh", strings.NewReader(`{"refresh_token":"refresh-token"}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Version", "1")
-	recorder := httptest.NewRecorder()
-
-	handler.ServeHTTP(recorder, req)
+	recorder := storageOnlyShareAuthRequest(newStorageOnlyShareAuthHandler(t, coordinator.URL), "/api/share/auth/refresh", `{"refresh_token":"refresh-token"}`)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s, want %d", recorder.Code, recorder.Body.String(), http.StatusOK)
 	}
-	if refreshCalls != 1 {
-		t.Fatalf("refreshCalls = %d, want 1", refreshCalls)
+	if len(mock.calls) != 1 || mock.calls[0].body["refresh_token"] != "refresh-token" || mock.calls[0].body["source_address"] != "203.0.113.5" {
+		t.Fatalf("refresh calls = %+v, want one relay with client address", mock.calls)
 	}
 	if !strings.Contains(recorder.Body.String(), `"access_token":"new-access-token"`) {
 		t.Fatalf("body = %s, want proxied coordinator response", recorder.Body.String())
+	}
+}
+
+func TestStorageOnlyShareAuthLoginRetriesRejectedNodeToken(t *testing.T) {
+	mock, coordinator := newNodeUserAuthCoordinator(t, "/node/users/auth/login", func(w http.ResponseWriter, call int) {
+		if call == 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"status":401,"title":"Unauthorized","detail":"missing authenticated node"}`))
+			return
+		}
+		writeShareTokenPair(w, "access-token")
+	})
+	defer coordinator.Close()
+
+	recorder := storageOnlyShareAuthRequest(newStorageOnlyShareAuthHandler(t, coordinator.URL), "/api/share/auth/login", `{"username":"alice","password":"secret"}`)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want %d", recorder.Code, recorder.Body.String(), http.StatusOK)
+	}
+	if len(mock.calls) != 2 || mock.calls[1].authorization != "Bearer node-access-token-2" {
+		t.Fatalf("login calls = %+v, want retry with a new node token", mock.calls)
+	}
+}
+
+func TestStorageOnlyShareAuthLoginDoesNotRetryUserFailure(t *testing.T) {
+	mock, coordinator := newNodeUserAuthCoordinator(t, "/node/users/auth/login", func(w http.ResponseWriter, _ int) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"status":401,"title":"Unauthorized","detail":"invalid username or password"}`))
+	})
+	defer coordinator.Close()
+
+	recorder := storageOnlyShareAuthRequest(newStorageOnlyShareAuthHandler(t, coordinator.URL), "/api/share/auth/login", `{"username":"alice","password":"wrong"}`)
+
+	if recorder.Code != http.StatusUnauthorized || !strings.Contains(recorder.Body.String(), "invalid username or password") {
+		t.Fatalf("status = %d body=%s, want relayed 401", recorder.Code, recorder.Body.String())
+	}
+	if len(mock.calls) != 1 || mock.nodeAuthCalls != 1 {
+		t.Fatalf("login calls = %d node auth calls = %d, want 1 and 1", len(mock.calls), mock.nodeAuthCalls)
 	}
 }
 
@@ -121,7 +176,7 @@ func TestStorageOnlyShareAuthMeUsesCoordinatorIntrospection(t *testing.T) {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/node/auth/validate-user-token":
+		case "/node/users/auth/validate":
 			validateCalls++
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"user_id":                 15,

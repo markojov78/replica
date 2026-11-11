@@ -519,7 +519,7 @@ func createConfigUserToken(t *testing.T, database *gorm.DB, permissions []model.
 		30*time.Minute,
 		8*time.Hour,
 	)
-	pair, err := authService.Login("settings-user", "secret", "")
+	pair, err := authService.Login("settings-user", "secret", service.AuditContext{})
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}

@@ -210,3 +210,72 @@ func TestUserLogsDashboardKeepsClientAddress(t *testing.T) {
 		t.Fatalf("no dashboard update row found: %+v", rows)
 	}
 }
+
+func TestUserLogsNodeUserAuthUsesNodeAttribution(t *testing.T) {
+	handler, database := newUserLogTestHandler(t)
+
+	hashedSecret, err := security.HashPassword("node-secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	if err := database.Create(&model.Node{ID: "node-b", Status: model.NodeStatusOffline, Secret: hashedSecret}).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+	nodePair, err := newRouterTestAuthService(database).NodeLogin("node-b", "node-secret", "", "", "", "")
+	if err != nil {
+		t.Fatalf("NodeLogin() error = %v", err)
+	}
+
+	assertRow := func(action model.UserLogAction) {
+		t.Helper()
+		row := latestUserLog(t, database)
+		if row.Action != action || !row.Success || row.NodeID != "node-b" || row.SourceAddress == nil || *row.SourceAddress != "203.0.113.5" {
+			t.Fatalf("%s row = %+v, want node-b and client address 203.0.113.5", action, row)
+		}
+	}
+
+	response := userLogJSONRequest(t, handler, http.MethodPost, "/node/users/auth/login", "10.0.0.2:4000",
+		map[string]string{"username": "admin", "password": "secret", "source_address": "203.0.113.5"}, nodePair.AccessToken)
+	if response.Code != http.StatusOK {
+		t.Fatalf("node user login = %d body=%s", response.Code, response.Body.String())
+	}
+	assertRow(model.UserLogActionLogin)
+	var pair struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &pair); err != nil {
+		t.Fatalf("decode login: %v", err)
+	}
+
+	response = userLogJSONRequest(t, handler, http.MethodPost, "/node/users/auth/refresh", "10.0.0.2:4000",
+		map[string]string{"refresh_token": pair.RefreshToken, "source_address": "203.0.113.5"}, nodePair.AccessToken)
+	if response.Code != http.StatusOK {
+		t.Fatalf("node user refresh = %d body=%s", response.Code, response.Body.String())
+	}
+	assertRow(model.UserLogActionTokenRefresh)
+	if err := json.Unmarshal(response.Body.Bytes(), &pair); err != nil {
+		t.Fatalf("decode refresh: %v", err)
+	}
+
+	response = userLogJSONRequest(t, handler, http.MethodPost, "/node/users/auth/logout", "10.0.0.2:4000",
+		map[string]string{"access_token": pair.AccessToken, "source_address": "203.0.113.5"}, nodePair.AccessToken)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("node user logout = %d body=%s", response.Code, response.Body.String())
+	}
+	assertRow(model.UserLogActionLogout)
+
+	// Without a valid node token the request is rejected before any user auth and nothing is logged.
+	var before int64
+	database.Model(&model.UserLog{}).Count(&before)
+	response = userLogJSONRequest(t, handler, http.MethodPost, "/node/users/auth/login", "10.0.0.2:4000",
+		map[string]string{"username": "admin", "password": "wrong", "source_address": "203.0.113.5"}, "not-a-node-token")
+	if response.Code != http.StatusUnauthorized || !strings.Contains(response.Body.String(), "missing authenticated node") {
+		t.Fatalf("invalid node token = %d body=%s, want 401 missing authenticated node", response.Code, response.Body.String())
+	}
+	var after int64
+	database.Model(&model.UserLog{}).Count(&after)
+	if after != before {
+		t.Fatalf("rejected node request wrote %d user log rows", after-before)
+	}
+}

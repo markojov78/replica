@@ -124,8 +124,7 @@ func (s *AuthService) WithUserLogs(logs *UserLogService) *AuthService {
 	return s
 }
 
-func (s *AuthService) Login(username, password, sourceAddress string) (*TokenPair, error) {
-	audit := AuditContext{SourceAddress: sourceAddress}
+func (s *AuthService) Login(username, password string, audit AuditContext) (*TokenPair, error) {
 	failure := func(userID *uint, reason string, err error) error {
 		return s.logs.Failure(UserLogEntry{
 			Action:  model.UserLogActionLogin,
@@ -167,8 +166,7 @@ func (s *AuthService) Login(username, password, sourceAddress string) (*TokenPai
 	return pair, nil
 }
 
-func (s *AuthService) Refresh(refreshToken, sourceAddress string) (*TokenPair, error) {
-	audit := AuditContext{SourceAddress: sourceAddress}
+func (s *AuthService) Refresh(refreshToken string, audit AuditContext) (*TokenPair, error) {
 	failure := func(action model.UserLogAction, userID *uint, reason string, err error) error {
 		return s.logs.Failure(UserLogEntry{Action: action, Message: reason, UserID: userID, Audit: audit}, err)
 	}
@@ -275,8 +273,7 @@ func (s *AuthService) NodeRefresh(refreshToken string) (*NodeTokenPair, error) {
 	return s.issueNodeTokenPair(nodeToken.NodeID)
 }
 
-func (s *AuthService) Logout(accessToken, sourceAddress string) error {
-	audit := AuditContext{SourceAddress: sourceAddress}
+func (s *AuthService) Logout(accessToken string, audit AuditContext) error {
 	failure := func(userID *uint, err error) error {
 		return s.logs.Failure(UserLogEntry{Action: model.UserLogActionLogout, Message: err.Error(), UserID: userID, Audit: audit}, err)
 	}

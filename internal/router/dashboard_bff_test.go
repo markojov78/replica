@@ -10,6 +10,7 @@ import (
 	"replica/internal/config"
 	"replica/internal/model"
 	"replica/internal/security"
+	"replica/internal/service"
 	"replica/internal/ui/uiauth"
 )
 
@@ -89,7 +90,7 @@ func TestDashboardBFFCookieLoginMeLogoutAndCSRF(t *testing.T) {
 			t.Fatalf("cleared cookie %s MaxAge = %d", name, cookie.MaxAge)
 		}
 	}
-	if _, err := auth.Refresh(refresh.Value, ""); err == nil {
+	if _, err := auth.Refresh(refresh.Value, service.AuditContext{}); err == nil {
 		t.Fatal("Refresh() succeeded after dashboard logout")
 	}
 }

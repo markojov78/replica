@@ -36,7 +36,7 @@ func TestServeAuthenticatedSharesFiltersReadableSharesAndCachesToken(t *testing.
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/node/auth/validate-user-token":
+		case "/node/users/auth/validate":
 			validateCalls++
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"user_id":                 15,
@@ -1375,7 +1375,7 @@ func validationServer(t *testing.T, userID uint, validateStatus int) string {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/node/auth/validate-user-token":
+		case "/node/users/auth/validate":
 			if validateStatus != http.StatusOK {
 				w.WriteHeader(validateStatus)
 				return

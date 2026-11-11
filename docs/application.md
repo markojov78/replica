@@ -71,8 +71,10 @@ access token, then caches only the positive result in memory until the earlier o
 configured sharing token cache duration.
 
 The storage-node sharing API exposes `/api/share/auth/login`, `/api/share/auth/refresh` and `/api/share/auth/me` so a
-sharing UI can authenticate through the storage node. In storage-only mode, login and refresh are proxied to the
-coordinator Admin API, and `me` is resolved through coordinator node-control token introspection. In coordinator +
+sharing UI can authenticate through the storage node. In storage-only mode, login, refresh and logout are relayed to
+the coordinator Node Control API `/node/users/auth/*` endpoints with the node access token and the client address, and
+`me` is resolved through coordinator node-control token introspection (`/node/users/auth/validate`). The node never
+relays user auth anonymously, so the coordinator can attribute the action to the storage node and its client. In coordinator +
 storage mode, the same endpoints use the local coordinator auth service directly.
 
 Anonymous sharing uses the share `link_hash` as the public non-guessable identifier. Anonymous access is available
@@ -267,13 +269,16 @@ password values are never logged
 user_id - optional user the action was performed on; for a successful login, refresh or logout it equals action_user_id  
 role_id - optional role the action was performed on  
 action_user_id - optional user who performed the action; empty for failed logins and failed token refreshes  
-source_address - optional client IP address (TCP peer address; forwarded headers are ignored)  
-node_id - `app.node_id` of the process that created the entry; not a reference to `nodes`
+source_address - optional client IP address (TCP peer address; forwarded headers are ignored). For share auth relayed
+by a storage node, the client address observed by that storage node  
+node_id - `app.node_id` of the node where the action originated: the coordinator process, or, for share auth relayed
+by a storage node, the node identified by its node access token; not a reference to `nodes`
 
 The coordinator logs:
 - user login, token refresh and logout through `AuthService`, from the Admin API, the dashboard and the storage-node
-  sharing API (in storage-only mode share logins reach the coordinator through the admin auth endpoints, so they are
-  logged with the storage node address)
+  sharing API and sharing UI (in storage-only mode share login, refresh and logout reach the coordinator through the
+  node-authenticated Node Control API `/node/users/auth/*` endpoints, and are logged with the client address and the
+  storage node `node_id`)
 - failed logins (unknown user, inactive user, bad password), failed refreshes, and refreshes with an expired refresh
   token (`token_expired`)
 - user and role create, update and delete. A user update writes one row for field changes, one `update` row with
@@ -497,9 +502,9 @@ This keeps storage-node behavior consistent between:
 - storage-only deployments
 - coordinator + storage deployments
 
-In storage-only mode, `/api/share/auth/login` and `/api/share/auth/refresh` are proxied to coordinator
-`/api/admin/auth/login` and `/api/admin/auth/refresh` so clients can obtain and refresh normal user tokens without the
-storage node validating passwords, storing tokens or minting tokens. `/api/share/auth/me` is resolved through
+In storage-only mode, `/api/share/auth/login` and `/api/share/auth/refresh` are relayed to coordinator
+`/node/users/auth/login` and `/node/users/auth/refresh` so clients can obtain and refresh normal user tokens without
+the storage node validating passwords, storing tokens or minting tokens. `/api/share/auth/me` is resolved through
 coordinator node-control token introspection. In coordinator + storage mode, `/api/admin/auth/*` and
 `/api/share/auth/*` coexist because they are in separate namespaces.
 

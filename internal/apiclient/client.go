@@ -355,39 +355,65 @@ func (c *Client) ReportAvailability(ctx context.Context) (*AvailabilityReport, e
 	return &report, nil
 }
 
-func (c *Client) ProxyUserLogin(ctx context.Context, body []byte, contentType string) (int, http.Header, []byte, error) {
-	return c.proxyAdminAuth(ctx, "/api/admin/auth/login", body, contentType)
+// ProxyUserLogin logs a share user in through the coordinator on behalf of the client at sourceAddress.
+// The coordinator response status, headers and body are returned unchanged.
+func (c *Client) ProxyUserLogin(ctx context.Context, username, password, sourceAddress string) (int, http.Header, []byte, error) {
+	return c.proxyNodeUserAuth(ctx, "/node/users/auth/login", map[string]string{
+		"username":       username,
+		"password":       password,
+		"source_address": sourceAddress,
+	})
 }
 
-func (c *Client) ProxyUserRefresh(ctx context.Context, body []byte, contentType string) (int, http.Header, []byte, error) {
-	return c.proxyAdminAuth(ctx, "/api/admin/auth/refresh", body, contentType)
+func (c *Client) ProxyUserRefresh(ctx context.Context, refreshToken, sourceAddress string) (int, http.Header, []byte, error) {
+	return c.proxyNodeUserAuth(ctx, "/node/users/auth/refresh", map[string]string{
+		"refresh_token":  refreshToken,
+		"source_address": sourceAddress,
+	})
 }
 
-func (c *Client) ProxyUserLogout(ctx context.Context, accessToken string) (int, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.coordinatorURL+"/api/admin/auth/logout", nil)
+func (c *Client) ProxyUserLogout(ctx context.Context, accessToken, sourceAddress string) (int, error) {
+	status, _, _, err := c.proxyNodeUserAuth(ctx, "/node/users/auth/logout", map[string]string{
+		"access_token":   accessToken,
+		"source_address": sourceAddress,
+	})
+	return status, err
+}
+
+// nodeAuthFailedDetail is the coordinator problem detail for a rejected node access token.
+const nodeAuthFailedDetail = "missing authenticated node"
+
+// proxyNodeUserAuth posts a user auth request with the node access token. A 401 caused by the
+// node token re-authenticates the node and retries once; any other response is returned as-is,
+// so a user auth failure is never retried.
+func (c *Client) proxyNodeUserAuth(ctx context.Context, path string, requestBody any) (int, http.Header, []byte, error) {
+	payload, err := json.Marshal(requestBody)
 	if err != nil {
-		return 0, err
+		return 0, nil, nil, err
 	}
-	req.Header.Set("X-API-Version", apiVersion)
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	resp, err := c.httpClient.Do(req)
+	accessToken, err := c.ensureAccessToken(ctx)
 	if err != nil {
-		return 0, err
+		return 0, nil, nil, err
 	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	return resp.StatusCode, nil
+	status, headers, body, err := c.postNodeUserAuth(ctx, path, payload, accessToken)
+	if err != nil || status != http.StatusUnauthorized || !isNodeAuthFailure(body) {
+		return status, headers, body, err
+	}
+	accessToken, err = c.refreshOrAuthenticate(ctx)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	return c.postNodeUserAuth(ctx, path, payload, accessToken)
 }
 
-func (c *Client) proxyAdminAuth(ctx context.Context, path string, body []byte, contentType string) (int, http.Header, []byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.coordinatorURL+path, bytes.NewReader(body))
+func (c *Client) postNodeUserAuth(ctx context.Context, path string, payload []byte, accessToken string) (int, http.Header, []byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.coordinatorURL+path, bytes.NewReader(payload))
 	if err != nil {
 		return 0, nil, nil, err
 	}
 	req.Header.Set("X-API-Version", apiVersion)
-	if strings.TrimSpace(contentType) != "" {
-		req.Header.Set("Content-Type", contentType)
-	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+accessToken)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -400,6 +426,13 @@ func (c *Client) proxyAdminAuth(ctx context.Context, path string, body []byte, c
 		return 0, nil, nil, err
 	}
 	return resp.StatusCode, resp.Header.Clone(), data, nil
+}
+
+func isNodeAuthFailure(body []byte) bool {
+	var problem struct {
+		Detail string `json:"detail"`
+	}
+	return json.Unmarshal(body, &problem) == nil && problem.Detail == nodeAuthFailedDetail
 }
 
 func (c *Client) ListOwnReplicas(ctx context.Context) ([]Replica, error) {
@@ -506,13 +539,13 @@ func (c *Client) ValidateUserToken(ctx context.Context, accessToken string) (*Va
 
 	reqBody := map[string]string{"access_token": accessToken}
 	var token ValidatedUserToken
-	if err := c.doAuthenticatedJSON(ctx, http.MethodPost, "/node/auth/validate-user-token", reqBody, nodeAccessToken, &token); err != nil {
+	if err := c.doAuthenticatedJSON(ctx, http.MethodPost, "/node/users/auth/validate", reqBody, nodeAccessToken, &token); err != nil {
 		if apiErr, ok := err.(*APIError); ok && apiErr.StatusCode == http.StatusUnauthorized {
 			nodeAccessToken, err = c.refreshOrAuthenticate(ctx)
 			if err != nil {
 				return nil, err
 			}
-			if err := c.doAuthenticatedJSON(ctx, http.MethodPost, "/node/auth/validate-user-token", reqBody, nodeAccessToken, &token); err != nil {
+			if err := c.doAuthenticatedJSON(ctx, http.MethodPost, "/node/users/auth/validate", reqBody, nodeAccessToken, &token); err != nil {
 				return nil, err
 			}
 			return &token, nil

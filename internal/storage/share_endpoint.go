@@ -65,26 +65,37 @@ type shareAuthMeBody struct {
 }
 
 func (r *Runtime) ServeUserLoginProxy(w http.ResponseWriter, req *http.Request) {
-	r.serveUserAuthProxy(w, req, r.client.ProxyUserLogin)
+	var body struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	r.serveUserAuthProxy(w, req, &body, func() (int, http.Header, []byte, error) {
+		return r.client.ProxyUserLogin(req.Context(), body.Username, body.Password, service.SourceAddress(req.Context()))
+	})
 }
 
 func (r *Runtime) ServeUserRefreshProxy(w http.ResponseWriter, req *http.Request) {
-	r.serveUserAuthProxy(w, req, r.client.ProxyUserRefresh)
+	var body struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	r.serveUserAuthProxy(w, req, &body, func() (int, http.Header, []byte, error) {
+		return r.client.ProxyUserRefresh(req.Context(), body.RefreshToken, service.SourceAddress(req.Context()))
+	})
 }
 
-func (r *Runtime) serveUserAuthProxy(w http.ResponseWriter, req *http.Request, proxy func(context.Context, []byte, string) (int, http.Header, []byte, error)) {
+// serveUserAuthProxy decodes the request into body and relays the coordinator response unchanged.
+func (r *Runtime) serveUserAuthProxy(w http.ResponseWriter, req *http.Request, body any, proxy func() (int, http.Header, []byte, error)) {
 	if req.Method != http.MethodPost {
 		writeStorageShareError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
-	body, err := io.ReadAll(req.Body)
-	if err != nil {
-		writeStorageShareError(w, http.StatusBadRequest, "invalid request body")
+	if err := json.NewDecoder(req.Body).Decode(body); err != nil {
+		writeStorageShareError(w, http.StatusBadRequest, "invalid JSON payload")
 		return
 	}
 
-	status, headers, responseBody, err := proxy(req.Context(), body, req.Header.Get("Content-Type"))
+	status, headers, responseBody, err := proxy()
 	if err != nil {
 		writeStorageShareError(w, http.StatusServiceUnavailable, errShareCoordinatorOffline.Error())
 		return

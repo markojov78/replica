@@ -95,7 +95,7 @@ func TestUserLogLogin(t *testing.T) {
 	user := createAuthTestUser(t, svc.database, "jsmith", model.UserStatusActive, "secret")
 	createAuthTestUser(t, svc.database, "gone", model.UserStatusDeleted, "secret")
 
-	if _, err := svc.auth.Login("jsmith", "secret", "203.0.113.7"); err != nil {
+	if _, err := svc.auth.Login("jsmith", "secret", AuditContext{SourceAddress: "203.0.113.7"}); err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
 	row := lastUserLog(t, svc.database)
@@ -104,7 +104,7 @@ func TestUserLogLogin(t *testing.T) {
 		t.Fatalf("source_address=%q, want 203.0.113.7", stringValue(row.SourceAddress))
 	}
 
-	if _, err := svc.auth.Login("jsmith", "wrong", ""); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := svc.auth.Login("jsmith", "wrong", AuditContext{}); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Login(bad password) error = %v", err)
 	}
 	row = lastUserLog(t, svc.database)
@@ -113,12 +113,12 @@ func TestUserLogLogin(t *testing.T) {
 		t.Fatalf("source_address=%q, want nil", *row.SourceAddress)
 	}
 
-	if _, err := svc.auth.Login("nobody", "secret", ""); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := svc.auth.Login("nobody", "secret", AuditContext{}); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Login(unknown) error = %v", err)
 	}
 	assertUserLog(t, lastUserLog(t, svc.database), model.UserLogActionLogin, false, 0, 0, "failed login for username nobody: unknown user")
 
-	if _, err := svc.auth.Login("gone", "secret", ""); !errors.Is(err, ErrInactiveUser) {
+	if _, err := svc.auth.Login("gone", "secret", AuditContext{}); !errors.Is(err, ErrInactiveUser) {
 		t.Fatalf("Login(inactive) error = %v", err)
 	}
 	assertUserLog(t, lastUserLog(t, svc.database), model.UserLogActionLogin, false, user.ID+1, 0, "inactive user")
@@ -127,18 +127,18 @@ func TestUserLogLogin(t *testing.T) {
 func TestUserLogRefreshAndLogout(t *testing.T) {
 	svc := newUserLogTestServices(t, "user-log-refresh.db")
 	user := createAuthTestUser(t, svc.database, "jsmith", model.UserStatusActive, "secret")
-	pair, err := svc.auth.Login("jsmith", "secret", "")
+	pair, err := svc.auth.Login("jsmith", "secret", AuditContext{})
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
 
-	refreshed, err := svc.auth.Refresh(pair.RefreshToken, "")
+	refreshed, err := svc.auth.Refresh(pair.RefreshToken, AuditContext{})
 	if err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
 	assertUserLog(t, lastUserLog(t, svc.database), model.UserLogActionTokenRefresh, true, user.ID, user.ID, "")
 
-	if _, err := svc.auth.Refresh(pair.RefreshToken, ""); !errors.Is(err, ErrInvalidToken) {
+	if _, err := svc.auth.Refresh(pair.RefreshToken, AuditContext{}); !errors.Is(err, ErrInvalidToken) {
 		t.Fatalf("Refresh(used token) error = %v", err)
 	}
 	assertUserLog(t, lastUserLog(t, svc.database), model.UserLogActionTokenRefresh, false, 0, 0, "invalid token")
@@ -151,17 +151,17 @@ func TestUserLogRefreshAndLogout(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("Create(user_token) error = %v", err)
 	}
-	if _, err := svc.auth.Refresh(expired, ""); !errors.Is(err, ErrExpiredToken) {
+	if _, err := svc.auth.Refresh(expired, AuditContext{}); !errors.Is(err, ErrExpiredToken) {
 		t.Fatalf("Refresh(expired) error = %v", err)
 	}
 	assertUserLog(t, lastUserLog(t, svc.database), model.UserLogActionTokenExpired, false, user.ID, 0, "")
 
-	if err := svc.auth.Logout(refreshed.AccessToken, ""); err != nil {
+	if err := svc.auth.Logout(refreshed.AccessToken, AuditContext{}); err != nil {
 		t.Fatalf("Logout() error = %v", err)
 	}
 	assertUserLog(t, lastUserLog(t, svc.database), model.UserLogActionLogout, true, user.ID, user.ID, "")
 
-	if err := svc.auth.Logout("not-a-token", ""); err == nil {
+	if err := svc.auth.Logout("not-a-token", AuditContext{}); err == nil {
 		t.Fatal("Logout(invalid) error = nil")
 	}
 	assertUserLog(t, lastUserLog(t, svc.database), model.UserLogActionLogout, false, 0, 0, "")
@@ -196,7 +196,7 @@ func TestUserLogUserLifecycle(t *testing.T) {
 	}
 
 	// Log in so the password change has a token to revoke.
-	if _, err := svc.auth.Login("jsmith", "secret", ""); err != nil {
+	if _, err := svc.auth.Login("jsmith", "secret", AuditContext{}); err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
 	before = len(userLogRows(t, svc.database))
@@ -272,7 +272,7 @@ func TestUserLogWriteFailureFailsAction(t *testing.T) {
 		t.Fatalf("DropTable(user_logs) error = %v", err)
 	}
 
-	if _, err := svc.auth.Login("jsmith", "secret", ""); err == nil {
+	if _, err := svc.auth.Login("jsmith", "secret", AuditContext{}); err == nil {
 		t.Fatal("Login() error = nil, want log write error")
 	}
 	var tokens int64
@@ -283,7 +283,7 @@ func TestUserLogWriteFailureFailsAction(t *testing.T) {
 		t.Fatalf("user_tokens = %d, want 0 after rolled back login", tokens)
 	}
 
-	if _, err := svc.auth.Login("jsmith", "wrong", ""); err == nil || errors.Is(err, ErrInvalidCredentials) {
+	if _, err := svc.auth.Login("jsmith", "wrong", AuditContext{}); err == nil || errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Login(bad password) error = %v, want log write error", err)
 	}
 

@@ -19,6 +19,8 @@ const userLogMessageMaxBytes = 2048
 type AuditContext struct {
 	ActorUserID   *uint
 	SourceAddress string
+	// NodeID overrides the service node ID, for actions a storage node performs on behalf of a client.
+	NodeID string
 }
 
 type sourceAddressContextKey struct{}
@@ -112,6 +114,9 @@ func (w *UserLogWriter) Write(entry UserLogEntry) error {
 		RoleID:       entry.RoleID,
 		ActionUserID: entry.Audit.ActorUserID,
 		NodeID:       w.service.nodeID,
+	}
+	if nodeID := strings.TrimSpace(entry.Audit.NodeID); nodeID != "" {
+		row.NodeID = nodeID
 	}
 	if address := strings.TrimSpace(entry.Audit.SourceAddress); address != "" {
 		row.SourceAddress = optionalString(truncateUTF8(address, 255))

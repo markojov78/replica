@@ -19,6 +19,7 @@ import (
 	"replica/internal/apiclient"
 	"replica/internal/config"
 	"replica/internal/metadata"
+	"replica/internal/service"
 
 	"github.com/zeebo/blake3"
 )
@@ -75,28 +76,15 @@ func (r *Runtime) AuthenticateShareUserAuthorization(ctx context.Context, author
 }
 
 func (r *Runtime) LoginShareUser(ctx context.Context, username string, password string) (ShareTokenPair, int, error) {
-	body, err := json.Marshal(map[string]string{
-		"username": username,
-		"password": password,
-	})
-	if err != nil {
-		return ShareTokenPair{}, http.StatusInternalServerError, err
-	}
-	return r.proxyShareUserTokenPair(ctx, body, r.client.ProxyUserLogin)
+	return shareUserTokenPair(r.client.ProxyUserLogin(ctx, username, password, service.SourceAddress(ctx)))
 }
 
 func (r *Runtime) RefreshShareUser(ctx context.Context, refreshToken string) (ShareTokenPair, int, error) {
-	body, err := json.Marshal(map[string]string{
-		"refresh_token": refreshToken,
-	})
-	if err != nil {
-		return ShareTokenPair{}, http.StatusInternalServerError, err
-	}
-	return r.proxyShareUserTokenPair(ctx, body, r.client.ProxyUserRefresh)
+	return shareUserTokenPair(r.client.ProxyUserRefresh(ctx, refreshToken, service.SourceAddress(ctx)))
 }
 
 func (r *Runtime) LogoutShareUser(ctx context.Context, accessToken string) error {
-	status, err := r.client.ProxyUserLogout(ctx, accessToken)
+	status, err := r.client.ProxyUserLogout(ctx, accessToken, service.SourceAddress(ctx))
 	if err != nil {
 		return err
 	}
@@ -106,8 +94,7 @@ func (r *Runtime) LogoutShareUser(ctx context.Context, accessToken string) error
 	return nil
 }
 
-func (r *Runtime) proxyShareUserTokenPair(ctx context.Context, body []byte, proxy func(context.Context, []byte, string) (int, http.Header, []byte, error)) (ShareTokenPair, int, error) {
-	status, _, responseBody, err := proxy(ctx, body, "application/json")
+func shareUserTokenPair(status int, _ http.Header, responseBody []byte, err error) (ShareTokenPair, int, error) {
 	if err != nil {
 		return ShareTokenPair{}, http.StatusServiceUnavailable, err
 	}

@@ -88,7 +88,7 @@ func TestRequireAuthenticatedNodeRejectsUserJWT(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.Login("jsmith", "secret", "")
+	pair, err := authService.Login("jsmith", "secret", service.AuditContext{})
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
@@ -158,7 +158,7 @@ func TestInternalValidateUserTokenAcceptsActiveUserToken(t *testing.T) {
 	handler := newInternalAuthTestHandler(t, database)
 	userToken, nodeToken := createValidateUserTokenCredentials(t, database, model.UserStatusActive)
 
-	req := httptest.NewRequest(http.MethodPost, "/node/auth/validate-user-token", strings.NewReader(`{"access_token":`+strconv.Quote(userToken)+`}`))
+	req := httptest.NewRequest(http.MethodPost, "/node/users/auth/validate", strings.NewReader(`{"access_token":`+strconv.Quote(userToken)+`}`))
 	req.Header.Set("Authorization", "Bearer "+nodeToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -187,7 +187,7 @@ func TestInternalValidateUserTokenRejectsNodeToken(t *testing.T) {
 	handler := newInternalAuthTestHandler(t, database)
 	_, nodeToken := createValidateUserTokenCredentials(t, database, model.UserStatusActive)
 
-	req := httptest.NewRequest(http.MethodPost, "/node/auth/validate-user-token", strings.NewReader(`{"access_token":`+strconv.Quote(nodeToken)+`}`))
+	req := httptest.NewRequest(http.MethodPost, "/node/users/auth/validate", strings.NewReader(`{"access_token":`+strconv.Quote(nodeToken)+`}`))
 	req.Header.Set("Authorization", "Bearer "+nodeToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -209,7 +209,7 @@ func TestInternalValidateUserTokenRejectsExpiredToken(t *testing.T) {
 		t.Fatalf("GenerateUserAccessToken() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/node/auth/validate-user-token", strings.NewReader(`{"access_token":`+strconv.Quote(expiredToken)+`}`))
+	req := httptest.NewRequest(http.MethodPost, "/node/users/auth/validate", strings.NewReader(`{"access_token":`+strconv.Quote(expiredToken)+`}`))
 	req.Header.Set("Authorization", "Bearer "+nodeToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -227,7 +227,7 @@ func TestInternalValidateUserTokenRejectsInactiveUser(t *testing.T) {
 	handler := newInternalAuthTestHandler(t, database)
 	userToken, nodeToken := createValidateUserTokenCredentials(t, database, model.UserStatusDeleted)
 
-	req := httptest.NewRequest(http.MethodPost, "/node/auth/validate-user-token", strings.NewReader(`{"access_token":`+strconv.Quote(userToken)+`}`))
+	req := httptest.NewRequest(http.MethodPost, "/node/users/auth/validate", strings.NewReader(`{"access_token":`+strconv.Quote(userToken)+`}`))
 	req.Header.Set("Authorization", "Bearer "+nodeToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Version", "1")
@@ -1141,7 +1141,7 @@ func TestPublicReplicasListIsPaginated(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.Login("jsmith", "secret", "")
+	pair, err := authService.Login("jsmith", "secret", service.AuditContext{})
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
@@ -1309,7 +1309,7 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 	}
 
 	authService := newRouterTestAuthService(database)
-	userPair, err := authService.Login("jsmith", "secret", "")
+	userPair, err := authService.Login("jsmith", "secret", service.AuditContext{})
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
@@ -1530,7 +1530,7 @@ func TestPublicReplicaCreatePopulatesPendingFilesAndReconcileCommand(t *testing.
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.Login("jsmith", "secret", "")
+	pair, err := authService.Login("jsmith", "secret", service.AuditContext{})
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
@@ -2207,7 +2207,7 @@ func createValidateUserTokenCredentials(t *testing.T, database *gorm.DB, userSta
 	authService := newRouterTestAuthService(database)
 	var userToken string
 	if userStatus == model.UserStatusActive {
-		pair, err := authService.Login("token-user", "secret", "")
+		pair, err := authService.Login("token-user", "secret", service.AuditContext{})
 		if err != nil {
 			t.Fatalf("Login(user) error = %v", err)
 		}

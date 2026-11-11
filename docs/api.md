@@ -1709,15 +1709,16 @@ Anonymous browser-friendly public endpoints are exposed under `/s`.
 
 Storage nodes expose sharing authentication endpoints so a sharing UI can authenticate through the storage node without
 knowing whether it is connected to a storage-only deployment or coordinator + storage deployment. In storage-only
-mode, login and refresh are proxied to the coordinator admin auth endpoints. In coordinator + storage mode, the local
-coordinator auth service is used directly.
+mode, login, refresh and logout are relayed to the coordinator Node Control API `/node/users/auth/*` endpoints with the
+node access token and the client address. In coordinator + storage mode, the local coordinator auth service is used
+directly.
 
 Storage nodes do not validate passwords locally, store user tokens server-side, mint user tokens, or receive
 `AUTH_JWT_SECRET`.
 
 Storage nodes do not persist share, user or permission state. They hydrate assigned shares from the coordinator `/node/shares` endpoint during startup and whenever a `refresh_state` command is processed. The coordinator database remains the only source of truth.
 
-Storage nodes do not receive `AUTH_JWT_SECRET` and do not validate normal user JWTs locally. For authenticated share access, a previously unseen bearer user access token is validated once through coordinator `POST /node/auth/validate-user-token`, then cached in volatile memory by token hash until the earlier of:
+Storage nodes do not receive `AUTH_JWT_SECRET` and do not validate normal user JWTs locally. For authenticated share access, a previously unseen bearer user access token is validated once through coordinator `POST /node/users/auth/validate`, then cached in volatile memory by token hash until the earlier of:
 - the JWT expiration returned by the coordinator
 - `auth.share_api_token_cache_duration`, default `5m`
 
@@ -1729,8 +1730,10 @@ When the cache entry expires, the storage node revalidates the token through the
 Authenticates a user for storage sharing.
 
 Storage-only behavior:
-- proxies the request to coordinator `POST /api/admin/auth/login`
+- relays the request to coordinator `POST /node/users/auth/login` with the node access token and the client address
+  (`source_address`, taken from the connection remote address; forwarded headers are ignored)
 - returns the coordinator response unchanged
+- returns `400` for an invalid JSON payload
 
 Coordinator + storage behavior:
 - uses the local coordinator auth service directly
@@ -1741,8 +1744,10 @@ Request and response bodies match coordinator `POST /api/admin/auth/login`.
 Refreshes a user token pair for storage sharing.
 
 Storage-only behavior:
-- proxies the request to coordinator `POST /api/admin/auth/refresh`
+- relays the request to coordinator `POST /node/users/auth/refresh` with the node access token and the client address
+  (`source_address`, taken from the connection remote address; forwarded headers are ignored)
 - returns the coordinator response unchanged
+- returns `400` for an invalid JSON payload
 
 Coordinator + storage behavior:
 - uses the local coordinator auth service directly
@@ -1756,7 +1761,7 @@ Authorization:
 - `Authorization: Bearer <normal-user-access-token>` required
 
 Storage-only behavior:
-- validates the user access token through coordinator `POST /node/auth/validate-user-token`
+- validates the user access token through coordinator `POST /node/users/auth/validate`
 - uses the in-memory positive validation cache when available
 
 Coordinator + storage behavior:
@@ -2664,47 +2669,6 @@ Possible errors:
 - `403` disabled node
 - `403` revoked node
 
-#### POST /auth/validate-user-token
-Coordinator-only internal endpoint used by storage nodes to introspect a normal user access token for the storage-node sharing API.
-
-Authorization:
-- requires `Authorization: Bearer <node-access-token>`
-- any valid node access token identifies the caller as a storage node for internal API purposes
-
-Behavior:
-- validates the caller's node access token
-- parses and validates the provided normal user access token using coordinator auth logic
-- verifies JWT signature and expiration
-- rejects node tokens
-- rejects invalid or expired tokens with `401`
-- rejects deleted or inactive users with `403`
-- does not require refresh-token/session lookup in v1 beyond existing access-token validation
-- does not expose password, roles or global permissions
-
-Request body:
-```json
-{
-  "access_token": "normal-user-access-token"
-}
-```
-
-Example response:
-```json
-{
-  "user_id": 15,
-  "username": "marko",
-  "name": "Marko",
-  "status": "active",
-  "access_token_expires_at": "2026-04-07T12:30:00Z"
-}
-```
-
-Possible errors:
-- `401` missing authenticated node
-- `401` invalid, expired or non-user access token
-- `403` disabled or revoked node
-- `403` deleted or inactive user
-
 #### POST /auth/refresh
 Exchanges a node refresh token for a new node token pair.
 The refresh token is rotated on success, so the old refresh token becomes invalid.
@@ -2782,6 +2746,115 @@ Possible errors:
 - `401` missing authenticated node
 - `403` disabled node
 - `403` revoked node
+
+### /users/auth endpoint
+Coordinator-only internal endpoints used by storage nodes to authenticate normal users on behalf of the storage-node
+sharing API and sharing UI in storage-only mode.
+
+Authorization:
+- requires `Authorization: Bearer <node-access-token>`
+- any valid node access token identifies the caller as a storage node for internal API purposes
+
+Common behavior:
+- the node access token is validated before the user request is processed; a rejected node token returns `401` with
+  detail `missing authenticated node`, which storage nodes use to re-authenticate and retry once
+- user auth failures use the same errors as the coordinator Admin API `/auth` endpoints and are not retried
+- `source_address` is the client address observed by the storage node; it is optional and stored as
+  `user_logs.source_address`
+- `user_logs.node_id` is the node identified by the node access token; it cannot be set in the request body
+- unknown request body fields are rejected with `422`
+
+#### POST /users/auth/login
+Authenticates a user. Same behavior and response as coordinator Admin API `POST /api/admin/auth/login`.
+
+Request body:
+```json
+{
+  "username": "marko",
+  "password": "secret",
+  "source_address": "203.0.113.5"
+}
+```
+
+Possible errors:
+- `401` missing authenticated node
+- `401` invalid username or password
+- `403` disabled or revoked node
+- `403` inactive user
+
+#### POST /users/auth/refresh
+Refreshes a user token pair. Same behavior and response as coordinator Admin API `POST /api/admin/auth/refresh`.
+
+Request body:
+```json
+{
+  "refresh_token": "user-refresh-token",
+  "source_address": "203.0.113.5"
+}
+```
+
+Possible errors:
+- `401` missing authenticated node
+- `401` invalid or expired token
+- `403` disabled or revoked node
+- `403` inactive user
+
+#### POST /users/auth/logout
+Revokes the session of the provided user access token. Same behavior as coordinator Admin API
+`POST /api/admin/auth/logout`, but the user access token is sent in the body because `Authorization` carries the node
+token.
+
+Request body:
+```json
+{
+  "access_token": "user-access-token",
+  "source_address": "203.0.113.5"
+}
+```
+
+Response: `204 No Content`
+
+Possible errors:
+- `401` missing authenticated node
+- `401` invalid token
+- `403` disabled or revoked node
+
+#### POST /users/auth/validate
+Introspects a normal user access token for the storage-node sharing API.
+
+Behavior:
+- parses and validates the provided normal user access token using coordinator auth logic
+- verifies JWT signature and expiration
+- rejects node tokens
+- rejects invalid or expired tokens with `401`
+- rejects deleted or inactive users with `403`
+- does not require refresh-token/session lookup in v1 beyond existing access-token validation
+- does not expose password, roles or global permissions
+- is not written to `user_logs`
+
+Request body:
+```json
+{
+  "access_token": "normal-user-access-token"
+}
+```
+
+Example response:
+```json
+{
+  "user_id": 15,
+  "username": "marko",
+  "name": "Marko",
+  "status": "active",
+  "access_token_expires_at": "2026-04-07T12:30:00Z"
+}
+```
+
+Possible errors:
+- `401` missing authenticated node
+- `401` invalid, expired or non-user access token
+- `403` disabled or revoked node
+- `403` deleted or inactive user
 
 ### /nodes endpoint
 

@@ -829,7 +829,7 @@ func newShareUIRuntime(t *testing.T) *storage.Runtime {
 	t.Helper()
 	coordinator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/admin/auth/login":
+		case "/node/users/auth/login":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"user_id":                  15,
 				"access_token":             "user-access-token",
@@ -845,7 +845,7 @@ func newShareUIRuntime(t *testing.T) *storage.Runtime {
 				"access_token_expires_at":  time.Now().UTC().Add(time.Hour),
 				"refresh_token_expires_at": time.Now().UTC().Add(2 * time.Hour),
 			})
-		case "/node/auth/validate-user-token":
+		case "/node/users/auth/validate":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"user_id":                 15,
 				"username":                "jsmith",
