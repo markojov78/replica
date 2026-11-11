@@ -90,8 +90,10 @@ func run() (runErr error) {
 			cfg.Auth.RefreshTokenDuration,
 			settingService,
 		)
-		userService = service.NewUserService(userRepo, roleRepo, userTokenRepo)
-		roleService = service.NewRoleService(roleRepo)
+		userLogService := service.NewUserLogService(repository.NewUserLogRepository(database), cfg.App.NodeID)
+		authService.WithUserLogs(userLogService)
+		userService = service.NewUserService(userRepo, roleRepo, userTokenRepo).WithUserLogs(userLogService)
+		roleService = service.NewRoleService(roleRepo).WithUserLogs(userLogService)
 		nodeService = service.NewNodeService(nodeRepo, nodeCommandRepo, nodeTokenRepo)
 		nodeService.Start(ctx)
 		inventoryService = service.NewInventoryService(inventoryRepo, nodeService)

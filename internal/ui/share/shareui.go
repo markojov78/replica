@@ -219,7 +219,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) loginShareUser(r *http.Request, username string, password string) (storage.ShareTokenPair, int, error) {
 	if h.auth != nil {
-		pair, err := h.auth.Login(username, password)
+		pair, err := h.auth.Login(username, password, service.SourceAddress(r.Context()))
 		if err != nil {
 			return storage.ShareTokenPair{}, localAuthStatus(err), err
 		}
@@ -230,7 +230,7 @@ func (h *Handler) loginShareUser(r *http.Request, username string, password stri
 
 func (h *Handler) refreshShareUser(r *http.Request, refreshToken string) (storage.ShareTokenPair, int, error) {
 	if h.auth != nil {
-		pair, err := h.auth.Refresh(refreshToken)
+		pair, err := h.auth.Refresh(refreshToken, service.SourceAddress(r.Context()))
 		if err != nil {
 			return storage.ShareTokenPair{}, localAuthStatus(err), err
 		}
@@ -257,7 +257,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, accessToken, err := h.authenticateCookieToken(w, r); err == nil {
 		if h.auth != nil {
-			_ = h.auth.Logout(accessToken)
+			_ = h.auth.Logout(accessToken, service.SourceAddress(r.Context()))
 		} else {
 			_ = h.runtime.LogoutShareUser(r.Context(), accessToken)
 		}

@@ -12,7 +12,7 @@ import (
 
 func registerPublicAuthRoutes(api huma.API, svc services) {
 	huma.Post(api, "/auth/login", func(ctx context.Context, input *loginInput) (*tokenPairResponse, error) {
-		pair, err := svc.auth.Login(input.Body.Username, input.Body.Password)
+		pair, err := svc.auth.Login(input.Body.Username, input.Body.Password, service.SourceAddress(ctx))
 		if err != nil {
 			return nil, mapAuthError(err)
 		}
@@ -20,7 +20,7 @@ func registerPublicAuthRoutes(api huma.API, svc services) {
 	})
 
 	huma.Post(api, "/auth/refresh", func(ctx context.Context, input *refreshInput) (*tokenPairResponse, error) {
-		pair, err := svc.auth.Refresh(input.Body.RefreshToken)
+		pair, err := svc.auth.Refresh(input.Body.RefreshToken, service.SourceAddress(ctx))
 		if err != nil {
 			return nil, mapAuthError(err)
 		}
@@ -33,7 +33,7 @@ func registerPublicAuthRoutes(api huma.API, svc services) {
 			return nil, huma.Error401Unauthorized("invalid token")
 		}
 
-		if err := svc.auth.Logout(accessToken); err != nil {
+		if err := svc.auth.Logout(accessToken, service.SourceAddress(ctx)); err != nil {
 			return nil, mapAuthError(err)
 		}
 

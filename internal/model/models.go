@@ -297,6 +297,25 @@ func (InventoryPermission) TableName() string {
 	return "inventory_permissions"
 }
 
+// UserLog is an audit entry for authentication and user management actions.
+// It has no foreign keys so entries outlive the users, roles and nodes they reference.
+type UserLog struct {
+	ID            uint          `gorm:"primaryKey" json:"id"`
+	Timestamp     time.Time     `gorm:"not null;index" json:"timestamp"`
+	Action        UserLogAction `gorm:"size:32;not null;index" json:"action"`
+	Success       bool          `gorm:"not null" json:"success"`
+	Message       *string       `gorm:"size:2048" json:"message,omitempty"`
+	UserID        *uint         `gorm:"index" json:"user_id,omitempty"`
+	RoleID        *uint         `gorm:"index" json:"role_id,omitempty"`
+	ActionUserID  *uint         `gorm:"index" json:"action_user_id,omitempty"`
+	SourceAddress *string       `gorm:"size:255" json:"source_address,omitempty"`
+	NodeID        string        `gorm:"size:255;not null" json:"node_id"`
+}
+
+func (UserLog) TableName() string {
+	return "user_logs"
+}
+
 func AllModels() []any {
 	return []any{
 		&Inventory{},
@@ -320,5 +339,6 @@ func AllModels() []any {
 		&SharePermission{},
 		&InventoryPermission{},
 		&UserToken{},
+		&UserLog{},
 	}
 }

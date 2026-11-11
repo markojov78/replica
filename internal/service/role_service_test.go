@@ -27,7 +27,7 @@ func TestRoleServiceSettingsPermissions(t *testing.T) {
 	role, err := service.Create("settings-manager", "", []RolePermissionInput{
 		{Resource: string(model.PermissionResourceSettings), Action: string(model.PermissionActionRead)},
 		{Resource: string(model.PermissionResourceSettings), Action: string(model.PermissionActionUpdate)},
-	})
+	}, AuditContext{})
 	if err != nil {
 		t.Fatalf("Create(settings read/update) error = %v", err)
 	}
@@ -37,7 +37,7 @@ func TestRoleServiceSettingsPermissions(t *testing.T) {
 
 	_, err = service.Create("invalid-settings-manager", "", []RolePermissionInput{
 		{Resource: string(model.PermissionResourceSettings), Action: string(model.PermissionActionCreate)},
-	})
+	}, AuditContext{})
 	if !errors.Is(err, ErrInvalidPermissions) {
 		t.Fatalf("Create(settings create) error = %v, want %v", err, ErrInvalidPermissions)
 	}

@@ -55,7 +55,7 @@ func TestAuthServiceLoginStoresRefreshHashAndReturnsJWT(t *testing.T) {
 
 	authService := newTestAuthService(database)
 
-	pair, err := authService.Login("jsmith", "secret")
+	pair, err := authService.Login("jsmith", "secret", "")
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
@@ -131,12 +131,12 @@ func TestAuthServiceRefreshRotatesRefreshToken(t *testing.T) {
 
 	authService := newTestAuthService(database)
 
-	firstPair, err := authService.Login("jsmith", "secret")
+	firstPair, err := authService.Login("jsmith", "secret", "")
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
 
-	secondPair, err := authService.Refresh(firstPair.RefreshToken)
+	secondPair, err := authService.Refresh(firstPair.RefreshToken, "")
 	if err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
@@ -156,7 +156,7 @@ func TestAuthServiceRefreshRotatesRefreshToken(t *testing.T) {
 		t.Fatalf("claims.Subject = %q, want %q", claims.Subject, "1")
 	}
 
-	if _, err := authService.Refresh(firstPair.RefreshToken); err != ErrInvalidToken {
+	if _, err := authService.Refresh(firstPair.RefreshToken, ""); err != ErrInvalidToken {
 		t.Fatalf("Refresh(old token) error = %v, want %v", err, ErrInvalidToken)
 	}
 
@@ -200,16 +200,16 @@ func TestAuthServiceLogoutRevokesCurrentSession(t *testing.T) {
 
 	authService := newTestAuthService(database)
 
-	pair, err := authService.Login("jsmith", "secret")
+	pair, err := authService.Login("jsmith", "secret", "")
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
 
-	if err := authService.Logout(pair.AccessToken); err != nil {
+	if err := authService.Logout(pair.AccessToken, ""); err != nil {
 		t.Fatalf("Logout() error = %v", err)
 	}
 
-	if _, err := authService.Refresh(pair.RefreshToken); err != ErrInvalidToken {
+	if _, err := authService.Refresh(pair.RefreshToken, ""); err != ErrInvalidToken {
 		t.Fatalf("Refresh(revoked token) error = %v, want %v", err, ErrInvalidToken)
 	}
 }
@@ -240,7 +240,7 @@ func TestAuthServiceRefreshRejectsDeletedUser(t *testing.T) {
 	}
 
 	authService := newTestAuthService(database)
-	if _, err := authService.Refresh(refreshToken); err != ErrInactiveUser {
+	if _, err := authService.Refresh(refreshToken, ""); err != ErrInactiveUser {
 		t.Fatalf("Refresh(deleted user) error = %v, want %v", err, ErrInactiveUser)
 	}
 }
@@ -249,7 +249,7 @@ func TestUserPasswordChangeInvalidatesRefreshTokens(t *testing.T) {
 	database := newAuthTestDB(t, "auth-user-password-change.db")
 	user := createAuthTestUser(t, database, "jsmith", model.UserStatusActive, "secret")
 	authService := newTestAuthService(database)
-	pair, err := authService.Login("jsmith", "secret")
+	pair, err := authService.Login("jsmith", "secret", "")
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
@@ -260,11 +260,11 @@ func TestUserPasswordChangeInvalidatesRefreshTokens(t *testing.T) {
 		repository.NewUserTokenRepository(database),
 	)
 	newPassword := "new-secret"
-	if _, err := userService.Update(user.ID, UpdateUserInput{Password: &newPassword}); err != nil {
+	if _, err := userService.Update(user.ID, UpdateUserInput{Password: &newPassword}, AuditContext{}); err != nil {
 		t.Fatalf("Update(password) error = %v", err)
 	}
 
-	if _, err := authService.Refresh(pair.RefreshToken); err != ErrInvalidToken {
+	if _, err := authService.Refresh(pair.RefreshToken, ""); err != ErrInvalidToken {
 		t.Fatalf("Refresh(old token) error = %v, want %v", err, ErrInvalidToken)
 	}
 	assertUserTokenCount(t, database, user.ID, 0)
@@ -274,7 +274,7 @@ func TestUserStatusChangeInvalidatesRefreshTokens(t *testing.T) {
 	database := newAuthTestDB(t, "auth-user-status-change.db")
 	user := createAuthTestUser(t, database, "jsmith", model.UserStatusActive, "secret")
 	authService := newTestAuthService(database)
-	pair, err := authService.Login("jsmith", "secret")
+	pair, err := authService.Login("jsmith", "secret", "")
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
@@ -285,11 +285,11 @@ func TestUserStatusChangeInvalidatesRefreshTokens(t *testing.T) {
 		repository.NewUserTokenRepository(database),
 	)
 	deleted := string(model.UserStatusDeleted)
-	if _, err := userService.Update(user.ID, UpdateUserInput{Status: &deleted}); err != nil {
+	if _, err := userService.Update(user.ID, UpdateUserInput{Status: &deleted}, AuditContext{}); err != nil {
 		t.Fatalf("Update(status) error = %v", err)
 	}
 
-	if _, err := authService.Refresh(pair.RefreshToken); err != ErrInvalidToken {
+	if _, err := authService.Refresh(pair.RefreshToken, ""); err != ErrInvalidToken {
 		t.Fatalf("Refresh(old token) error = %v, want %v", err, ErrInvalidToken)
 	}
 	assertUserTokenCount(t, database, user.ID, 0)

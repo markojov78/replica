@@ -89,7 +89,7 @@ func TestDashboardBFFCookieLoginMeLogoutAndCSRF(t *testing.T) {
 			t.Fatalf("cleared cookie %s MaxAge = %d", name, cookie.MaxAge)
 		}
 	}
-	if _, err := auth.Refresh(refresh.Value); err == nil {
+	if _, err := auth.Refresh(refresh.Value, ""); err == nil {
 		t.Fatal("Refresh() succeeded after dashboard logout")
 	}
 }

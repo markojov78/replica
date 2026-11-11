@@ -425,7 +425,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		}
 		input.Username, input.Password = r.FormValue("username"), r.FormValue("password")
 	}
-	pair, err := h.auth.Login(strings.TrimSpace(input.Username), input.Password)
+	pair, err := h.auth.Login(strings.TrimSpace(input.Username), input.Password, service.SourceAddress(r.Context()))
 	if err != nil {
 		status := http.StatusInternalServerError
 		message := "authentication failed"
@@ -463,7 +463,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if token, err := h.authenticate(w, r); err == nil {
-		_ = h.auth.Logout(token)
+		_ = h.auth.Logout(token, service.SourceAddress(r.Context()))
 	}
 	h.cookies.Clear(w, r)
 	w.WriteHeader(http.StatusNoContent)
@@ -1394,7 +1394,7 @@ func (h *Handler) authenticate(w http.ResponseWriter, r *http.Request) (string, 
 		return "", errUnauthorized
 	}
 	pair, err := h.refreshes.Do(refreshToken, func() (uiauth.TokenPair, error) {
-		refreshed, err := h.auth.Refresh(refreshToken)
+		refreshed, err := h.auth.Refresh(refreshToken, service.SourceAddress(r.Context()))
 		if err != nil {
 			return uiauth.TokenPair{}, err
 		}

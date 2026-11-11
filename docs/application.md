@@ -256,6 +256,35 @@ action - read, create, update, delete; settings supports read and update only
 key - application-managed setting key
 value - application-managed setting value
 
+#### user_logs
+Audit log of user authentication and user management actions. Rows are append-only and have no foreign keys, so
+they outlive the users, roles and nodes they reference.  
+timestamp - time the action happened, assigned by the node where the entry originates  
+action - create, update, delete, login, logout, token_refresh, token_revoke, token_expired  
+success - action outcome  
+message - optional details, for example `failed login for username jsmith: bad password` or the changed fields;
+password values are never logged  
+user_id - optional user the action was performed on; for a successful login, refresh or logout it equals action_user_id  
+role_id - optional role the action was performed on  
+action_user_id - optional user who performed the action; empty for failed logins and failed token refreshes  
+source_address - optional client IP address (TCP peer address; forwarded headers are ignored)  
+node_id - `app.node_id` of the process that created the entry; not a reference to `nodes`
+
+The coordinator logs:
+- user login, token refresh and logout through `AuthService`, from the Admin API, the dashboard and the storage-node
+  sharing API (in storage-only mode share logins reach the coordinator through the admin auth endpoints, so they are
+  logged with the storage node address)
+- failed logins (unknown user, inactive user, bad password), failed refreshes, and refreshes with an expired refresh
+  token (`token_expired`)
+- user and role create, update and delete. A user update writes one row for field changes, one `update` row with
+  `role_id` per role added or removed, and a `token_revoke` row when a password or status change revokes refresh
+  tokens. A role update writes one row that includes added and removed permissions
+- failed user and role mutations, including `403` permission denials on `/users` and `/roles`; unauthenticated
+  requests are not logged
+
+Log rows are written in the same transaction as the logged change. If a log row cannot be written, the action fails.
+Node authentication and storage-node events are not logged in `user_logs`.
+
 ## Operation
 ### Communication between nodes
 

@@ -14,6 +14,10 @@ func NewUserRepository(db *gorm.DB) *UserRepository {
 	return &UserRepository{db: db}
 }
 
+func (r *UserRepository) WithTx(tx *gorm.DB) *UserRepository {
+	return &UserRepository{db: tx}
+}
+
 func (r *UserRepository) Create(user *model.User) error {
 	return r.db.Create(user).Error
 }

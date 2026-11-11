@@ -2,6 +2,8 @@ package service
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
 	"replica/internal/model"
 	"replica/internal/repository"
@@ -44,6 +46,7 @@ type UserService struct {
 	users      *repository.UserRepository
 	roles      *repository.RoleRepository
 	userTokens *repository.UserTokenRepository
+	logs       *UserLogService
 }
 
 func NewUserService(users *repository.UserRepository, roles *repository.RoleRepository, userTokens ...*repository.UserTokenRepository) *UserService {
@@ -54,7 +57,33 @@ func NewUserService(users *repository.UserRepository, roles *repository.RoleRepo
 	return s
 }
 
-func (s *UserService) Create(username, name, password string, roleIDs []uint) (*UserDetails, error) {
+// WithUserLogs enables user log rows for user create, update and delete.
+func (s *UserService) WithUserLogs(logs *UserLogService) *UserService {
+	s.logs = logs
+	return s
+}
+
+type userRepos struct {
+	users      *repository.UserRepository
+	roles      *repository.RoleRepository
+	userTokens *repository.UserTokenRepository
+}
+
+func (s *UserService) transaction(fn func(repos userRepos, logs *UserLogWriter) error) error {
+	return s.logs.Transaction(func(tx *gorm.DB, logs *UserLogWriter) error {
+		repos := userRepos{users: s.users, roles: s.roles, userTokens: s.userTokens}
+		if tx != nil {
+			repos.users = s.users.WithTx(tx)
+			repos.roles = s.roles.WithTx(tx)
+			if s.userTokens != nil {
+				repos.userTokens = s.userTokens.WithTx(tx)
+			}
+		}
+		return fn(repos, logs)
+	})
+}
+
+func (s *UserService) Create(username, name, password string, roleIDs []uint, audit AuditContext) (*UserDetails, error) {
 	hashedPassword, err := security.HashPassword(password)
 	if err != nil {
 		return nil, err
@@ -67,17 +96,35 @@ func (s *UserService) Create(username, name, password string, roleIDs []uint) (*
 		Status:   model.UserStatusActive,
 	}
 
-	if err := s.users.Create(user); err != nil {
-		return nil, err
-	}
-
-	if err := s.replaceRoles(user.ID, roleIDs); err != nil {
-		return nil, err
-	}
-
-	user, err = s.users.FindByID(user.ID)
+	err = s.transaction(func(repos userRepos, logs *UserLogWriter) error {
+		if err := repos.users.Create(user); err != nil {
+			return err
+		}
+		if err := replaceUserRoles(repos, user.ID, roleIDs); err != nil {
+			return err
+		}
+		if err := logs.Write(UserLogEntry{
+			Action:  model.UserLogActionCreate,
+			Success: true,
+			Message: fmt.Sprintf("created user username=%s name=%s", username, name),
+			UserID:  uintPtr(user.ID),
+			Audit:   audit,
+		}); err != nil {
+			return err
+		}
+		created, err := repos.users.FindByID(user.ID)
+		if err != nil {
+			return err
+		}
+		user = created
+		return writeUserRoleChanges(logs, user.ID, nil, user.Roles, audit)
+	})
 	if err != nil {
-		return nil, err
+		return nil, s.logs.Failure(UserLogEntry{
+			Action:  model.UserLogActionCreate,
+			Message: fmt.Sprintf("create user username=%s failed: %v", username, err),
+			Audit:   audit,
+		}, err)
 	}
 
 	return toUserDetails(user), nil
@@ -111,66 +158,181 @@ func (s *UserService) List(page, perPage int) (*UserList, error) {
 	}, nil
 }
 
-func (s *UserService) Update(id uint, input UpdateUserInput) (*UserDetails, error) {
-	user, err := s.users.FindByID(id)
-	if err != nil {
-		return nil, err
-	}
+func (s *UserService) Update(id uint, input UpdateUserInput, audit AuditContext) (*UserDetails, error) {
+	return s.update(id, input, audit, model.UserLogActionUpdate)
+}
 
-	revokeTokens := input.Password != nil
+func (s *UserService) Delete(id uint, audit AuditContext) (*UserDetails, error) {
+	return s.update(id, UpdateUserInput{
+		Status: stringPtr(string(model.UserStatusDeleted)),
+	}, audit, model.UserLogActionDelete)
+}
 
-	if input.Username != nil {
-		user.Username = *input.Username
-	}
-	if input.Name != nil {
-		user.Name = *input.Name
-	}
+// LogPermissionDenied records a user management request rejected for missing permission.
+func (s *UserService) LogPermissionDenied(action model.UserLogAction, userID *uint, audit AuditContext) error {
+	return s.logs.Write(UserLogEntry{Action: action, Message: "permission denied", UserID: userID, Audit: audit})
+}
 
-	if input.Password != nil {
-		hashedPassword, err := security.HashPassword(*input.Password)
+func (s *UserService) update(id uint, input UpdateUserInput, audit AuditContext, action model.UserLogAction) (*UserDetails, error) {
+	var user *model.User
+	err := s.transaction(func(repos userRepos, logs *UserLogWriter) error {
+		var err error
+		user, err = repos.users.FindByID(id)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		user.Password = hashedPassword
-	}
+		previous := *user
+		previousRoles := append([]model.Role(nil), user.Roles...)
 
-	if input.Status != nil {
-		status := model.UserStatus(*input.Status)
-		if !status.Valid() {
-			return nil, ErrInvalidUserStatus
+		revokeTokens := input.Password != nil
+		changes := []string{}
+
+		if input.Username != nil {
+			user.Username = *input.Username
 		}
-		if status != model.UserStatusActive {
-			revokeTokens = true
+		if input.Name != nil {
+			user.Name = *input.Name
 		}
-		user.Status = status
-	}
 
-	if err := s.users.Update(user); err != nil {
-		return nil, err
-	}
-
-	if revokeTokens && s.userTokens != nil {
-		if err := s.userTokens.DeleteByUserID(user.ID); err != nil {
-			return nil, err
+		if input.Password != nil {
+			hashedPassword, err := security.HashPassword(*input.Password)
+			if err != nil {
+				return err
+			}
+			user.Password = hashedPassword
+			changes = append(changes, "password changed")
 		}
-	}
 
-	if err := s.applyRoleUpdate(user, input); err != nil {
-		return nil, err
-	}
+		if input.Status != nil {
+			status := model.UserStatus(*input.Status)
+			if !status.Valid() {
+				return ErrInvalidUserStatus
+			}
+			if status != model.UserStatusActive {
+				revokeTokens = true
+			}
+			user.Status = status
+		}
 
-	user, err = s.users.FindByID(user.ID)
+		if err := repos.users.Update(user); err != nil {
+			return err
+		}
+
+		var revoked int64
+		if revokeTokens && repos.userTokens != nil {
+			revoked, err = repos.userTokens.DeleteByUserID(user.ID)
+			if err != nil {
+				return err
+			}
+		}
+
+		if err := applyUserRoleUpdate(repos, user, input); err != nil {
+			return err
+		}
+
+		user, err = repos.users.FindByID(user.ID)
+		if err != nil {
+			return err
+		}
+
+		changes = append(userFieldChanges(&previous, user), changes...)
+		if action == model.UserLogActionDelete || len(changes) > 0 {
+			message := "updated user"
+			if action == model.UserLogActionDelete {
+				message = "deleted user"
+			}
+			if len(changes) > 0 {
+				message += ": " + strings.Join(changes, "; ")
+			}
+			if err := logs.Write(UserLogEntry{Action: action, Success: true, Message: message, UserID: uintPtr(user.ID), Audit: audit}); err != nil {
+				return err
+			}
+		}
+		if revoked > 0 {
+			if err := logs.Write(UserLogEntry{
+				Action:  model.UserLogActionTokenRevoke,
+				Success: true,
+				Message: fmt.Sprintf("revoked %d refresh tokens", revoked),
+				UserID:  uintPtr(user.ID),
+				Audit:   audit,
+			}); err != nil {
+				return err
+			}
+		}
+		return writeUserRoleChanges(logs, user.ID, previousRoles, user.Roles, audit)
+	})
 	if err != nil {
-		return nil, err
+		verb := "update"
+		if action == model.UserLogActionDelete {
+			verb = "delete"
+		}
+		return nil, s.logs.Failure(UserLogEntry{
+			Action:  action,
+			Message: fmt.Sprintf("%s user %d failed: %v", verb, id, err),
+			UserID:  uintPtr(id),
+			Audit:   audit,
+		}, err)
 	}
 
 	return toUserDetails(user), nil
 }
 
-func (s *UserService) Delete(id uint) (*UserDetails, error) {
-	return s.Update(id, UpdateUserInput{
-		Status: stringPtr(string(model.UserStatusDeleted)),
-	})
+func userFieldChanges(previous, current *model.User) []string {
+	changes := []string{}
+	if previous.Username != current.Username {
+		changes = append(changes, fmt.Sprintf("username: %s -> %s", previous.Username, current.Username))
+	}
+	if previous.Name != current.Name {
+		changes = append(changes, fmt.Sprintf("name: %s -> %s", previous.Name, current.Name))
+	}
+	if previous.Status != current.Status {
+		changes = append(changes, fmt.Sprintf("status: %s -> %s", previous.Status, current.Status))
+	}
+	return changes
+}
+
+// writeUserRoleChanges writes one update row per role added to or removed from a user.
+func writeUserRoleChanges(logs *UserLogWriter, userID uint, previous, current []model.Role, audit AuditContext) error {
+	previousIDs := map[uint]struct{}{}
+	for _, role := range previous {
+		previousIDs[role.ID] = struct{}{}
+	}
+	currentIDs := map[uint]struct{}{}
+	for _, role := range current {
+		currentIDs[role.ID] = struct{}{}
+	}
+
+	for _, role := range current {
+		if _, ok := previousIDs[role.ID]; ok {
+			continue
+		}
+		if err := logs.Write(UserLogEntry{
+			Action:  model.UserLogActionUpdate,
+			Success: true,
+			Message: fmt.Sprintf("role added: %s", role.Name),
+			UserID:  uintPtr(userID),
+			RoleID:  uintPtr(role.ID),
+			Audit:   audit,
+		}); err != nil {
+			return err
+		}
+	}
+	for _, role := range previous {
+		if _, ok := currentIDs[role.ID]; ok {
+			continue
+		}
+		if err := logs.Write(UserLogEntry{
+			Action:  model.UserLogActionUpdate,
+			Success: true,
+			Message: fmt.Sprintf("role removed: %s", role.Name),
+			UserID:  uintPtr(userID),
+			RoleID:  uintPtr(role.ID),
+			Audit:   audit,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *UserService) IsNotFound(err error) bool {
@@ -202,8 +364,8 @@ func stringPtr(value string) *string {
 	return &value
 }
 
-func (s *UserService) replaceRoles(userID uint, roleIDs []uint) error {
-	roles, err := s.roles.FindByIDs(roleIDs)
+func replaceUserRoles(repos userRepos, userID uint, roleIDs []uint) error {
+	roles, err := repos.roles.FindByIDs(roleIDs)
 	if err != nil {
 		return err
 	}
@@ -211,16 +373,16 @@ func (s *UserService) replaceRoles(userID uint, roleIDs []uint) error {
 		return ErrInvalidRoles
 	}
 
-	return s.users.SetRoles(userID, dedupeUint(roleIDs))
+	return repos.users.SetRoles(userID, dedupeUint(roleIDs))
 }
 
-func (s *UserService) applyRoleUpdate(user *model.User, input UpdateUserInput) error {
+func applyUserRoleUpdate(repos userRepos, user *model.User, input UpdateUserInput) error {
 	if input.RoleIDs != nil && (input.AddRoleIDs != nil || input.RemoveRoleIDs != nil) {
 		return ErrInvalidRoles
 	}
 
 	if input.RoleIDs != nil {
-		return s.replaceRoles(user.ID, *input.RoleIDs)
+		return replaceUserRoles(repos, user.ID, *input.RoleIDs)
 	}
 
 	if input.AddRoleIDs == nil && input.RemoveRoleIDs == nil {
@@ -250,7 +412,7 @@ func (s *UserService) applyRoleUpdate(user *model.User, input UpdateUserInput) e
 		merged = append(merged, roleID)
 	}
 
-	return s.replaceRoles(user.ID, merged)
+	return replaceUserRoles(repos, user.ID, merged)
 }
 
 func mapPermissions(permissions []model.Permission) []PermissionDetail {

@@ -14,6 +14,10 @@ func NewRoleRepository(db *gorm.DB) *RoleRepository {
 	return &RoleRepository{db: db}
 }
 
+func (r *RoleRepository) WithTx(tx *gorm.DB) *RoleRepository {
+	return &RoleRepository{db: tx}
+}
+
 func (r *RoleRepository) FindByIDs(roleIDs []uint) ([]model.Role, error) {
 	if len(roleIDs) == 0 {
 		return []model.Role{}, nil

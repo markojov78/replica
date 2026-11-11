@@ -107,7 +107,23 @@ func New(
 }
 
 func withMiddleware(next http.Handler) http.Handler {
-	return recoverMiddleware(loggingMiddleware(next))
+	return recoverMiddleware(loggingMiddleware(sourceAddressMiddleware(next)))
+}
+
+// sourceAddressMiddleware stores the TCP peer address in the request context for user logs.
+// Forwarded headers are ignored.
+func sourceAddressMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(service.ContextWithSourceAddress(r.Context(), remoteHost(r.RemoteAddr))))
+	})
+}
+
+func remoteHost(remoteAddr string) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return remoteAddr
+	}
+	return host
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {

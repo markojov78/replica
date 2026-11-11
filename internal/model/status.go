@@ -16,6 +16,7 @@ type CommandStatus string
 type CommandType string
 type PermissionResource string
 type PermissionAction string
+type UserLogAction string
 
 const (
 	InventoryStatusActive  InventoryStatus = "active"
@@ -78,6 +79,17 @@ const (
 const (
 	RoleStatusActive  RoleStatus = "active"
 	RoleStatusDeleted RoleStatus = "deleted"
+)
+
+const (
+	UserLogActionCreate       UserLogAction = "create"
+	UserLogActionUpdate       UserLogAction = "update"
+	UserLogActionDelete       UserLogAction = "delete"
+	UserLogActionLogin        UserLogAction = "login"
+	UserLogActionLogout       UserLogAction = "logout"
+	UserLogActionTokenRefresh UserLogAction = "token_refresh"
+	UserLogActionTokenRevoke  UserLogAction = "token_revoke"
+	UserLogActionTokenExpired UserLogAction = "token_expired"
 )
 
 const (

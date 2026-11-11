@@ -59,7 +59,7 @@ func TestPublicReplicaMutationsRejectDeletedInventory(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.Login("jsmith", "secret")
+	pair, err := authService.Login("jsmith", "secret", "")
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}

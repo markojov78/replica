@@ -63,7 +63,7 @@ func serveShareAuthLogin(svc services) http.HandlerFunc {
 			writeJSONError(w, http.StatusBadRequest, "invalid JSON payload")
 			return
 		}
-		pair, err := svc.auth.Login(body.Username, body.Password)
+		pair, err := svc.auth.Login(body.Username, body.Password, service.SourceAddress(r.Context()))
 		if err != nil {
 			writeShareAuthError(w, err)
 			return
@@ -89,7 +89,7 @@ func serveShareAuthRefresh(svc services) http.HandlerFunc {
 			writeJSONError(w, http.StatusBadRequest, "invalid JSON payload")
 			return
 		}
-		pair, err := svc.auth.Refresh(body.RefreshToken)
+		pair, err := svc.auth.Refresh(body.RefreshToken, service.SourceAddress(r.Context()))
 		if err != nil {
 			writeShareAuthError(w, err)
 			return

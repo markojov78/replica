@@ -14,6 +14,10 @@ type UserTokenRepository struct {
 	db *gorm.DB
 }
 
+func (r *UserTokenRepository) WithTx(tx *gorm.DB) *UserTokenRepository {
+	return &UserTokenRepository{db: tx}
+}
+
 func (r *UserTokenRepository) Create(userToken *model.UserToken) error {
 	return r.db.Create(userToken).Error
 }
@@ -33,6 +37,7 @@ func (r *UserTokenRepository) DeleteByID(id uint) error {
 	return r.db.Delete(&model.UserToken{}, id).Error
 }
 
-func (r *UserTokenRepository) DeleteByUserID(userID uint) error {
-	return r.db.Delete(&model.UserToken{}, "user_id = ?", userID).Error
+func (r *UserTokenRepository) DeleteByUserID(userID uint) (int64, error) {
+	result := r.db.Delete(&model.UserToken{}, "user_id = ?", userID)
+	return result.RowsAffected, result.Error
 }

@@ -845,7 +845,7 @@ func createShareRouteUser(t *testing.T, database *gorm.DB, permissions []model.P
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.Login("jsmith", "secret")
+	pair, err := authService.Login("jsmith", "secret", "")
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}

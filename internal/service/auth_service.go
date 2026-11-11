@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -88,6 +89,7 @@ type AuthService struct {
 	jwtSecret       []byte
 	accessTokenTTL  time.Duration
 	refreshTokenTTL time.Duration
+	logs            *UserLogService
 }
 
 func NewAuthService(
@@ -116,56 +118,103 @@ func NewAuthService(
 	}
 }
 
-func (s *AuthService) Login(username, password string) (*TokenPair, error) {
+// WithUserLogs enables user log rows for user login, token refresh and logout.
+func (s *AuthService) WithUserLogs(logs *UserLogService) *AuthService {
+	s.logs = logs
+	return s
+}
+
+func (s *AuthService) Login(username, password, sourceAddress string) (*TokenPair, error) {
+	audit := AuditContext{SourceAddress: sourceAddress}
+	failure := func(userID *uint, reason string, err error) error {
+		return s.logs.Failure(UserLogEntry{
+			Action:  model.UserLogActionLogin,
+			Message: fmt.Sprintf("failed login for username %s: %s", username, reason),
+			UserID:  userID,
+			Audit:   audit,
+		}, err)
+	}
+
 	user, err := s.users.FindByUsername(username)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrInvalidCredentials
+			return nil, failure(nil, "unknown user", ErrInvalidCredentials)
 		}
 		return nil, err
 	}
 
 	if user.Status != model.UserStatusActive {
-		return nil, ErrInactiveUser
+		return nil, failure(uintPtr(user.ID), "inactive user", ErrInactiveUser)
 	}
 
 	if err := security.CheckPassword(user.Password, password); err != nil {
-		return nil, ErrInvalidCredentials
+		return nil, failure(uintPtr(user.ID), "bad password", ErrInvalidCredentials)
 	}
 
-	return s.issueTokenPair(user.ID)
+	var pair *TokenPair
+	err = s.logs.Transaction(func(tx *gorm.DB, logs *UserLogWriter) error {
+		var err error
+		pair, err = s.issueTokenPair(s.tokensWithTx(tx), user.ID)
+		if err != nil {
+			return err
+		}
+		audit.ActorUserID = uintPtr(user.ID)
+		return logs.Write(UserLogEntry{Action: model.UserLogActionLogin, Success: true, UserID: uintPtr(user.ID), Audit: audit})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return pair, nil
 }
 
-func (s *AuthService) Refresh(refreshToken string) (*TokenPair, error) {
+func (s *AuthService) Refresh(refreshToken, sourceAddress string) (*TokenPair, error) {
+	audit := AuditContext{SourceAddress: sourceAddress}
+	failure := func(action model.UserLogAction, userID *uint, reason string, err error) error {
+		return s.logs.Failure(UserLogEntry{Action: action, Message: reason, UserID: userID, Audit: audit}, err)
+	}
+
 	userToken, err := s.userTokens.FindByRefreshHash(security.HashOpaqueToken(refreshToken))
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrInvalidToken
+			return nil, failure(model.UserLogActionTokenRefresh, nil, "invalid token", ErrInvalidToken)
 		}
 		return nil, err
 	}
 
 	now := time.Now().UTC()
 	if userToken.RefreshExpiration.Before(now) {
-		return nil, ErrExpiredToken
+		return nil, failure(model.UserLogActionTokenExpired, uintPtr(userToken.UserID), "expired refresh token", ErrExpiredToken)
 	}
 
 	user, err := s.users.FindByID(userToken.UserID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrInvalidToken
+			return nil, failure(model.UserLogActionTokenRefresh, uintPtr(userToken.UserID), "invalid token: unknown user", ErrInvalidToken)
 		}
 		return nil, err
 	}
 	if user.Status != model.UserStatusActive {
-		return nil, ErrInactiveUser
+		return nil, failure(model.UserLogActionTokenRefresh, uintPtr(user.ID), "inactive user", ErrInactiveUser)
 	}
 
-	if err := s.userTokens.DeleteByID(userToken.ID); err != nil {
+	var pair *TokenPair
+	err = s.logs.Transaction(func(tx *gorm.DB, logs *UserLogWriter) error {
+		tokens := s.tokensWithTx(tx)
+		if err := tokens.DeleteByID(userToken.ID); err != nil {
+			return err
+		}
+		var err error
+		pair, err = s.issueTokenPair(tokens, userToken.UserID)
+		if err != nil {
+			return err
+		}
+		audit.ActorUserID = uintPtr(user.ID)
+		return logs.Write(UserLogEntry{Action: model.UserLogActionTokenRefresh, Success: true, UserID: uintPtr(user.ID), Audit: audit})
+	})
+	if err != nil {
 		return nil, err
 	}
-
-	return s.issueTokenPair(userToken.UserID)
+	return pair, nil
 }
 
 func (s *AuthService) NodeLogin(nodeID, secret string, publicKey string, version string, commit string, build string) (*NodeTokenPair, error) {
@@ -226,18 +275,34 @@ func (s *AuthService) NodeRefresh(refreshToken string) (*NodeTokenPair, error) {
 	return s.issueNodeTokenPair(nodeToken.NodeID)
 }
 
-func (s *AuthService) Logout(accessToken string) error {
+func (s *AuthService) Logout(accessToken, sourceAddress string) error {
+	audit := AuditContext{SourceAddress: sourceAddress}
+	failure := func(userID *uint, err error) error {
+		return s.logs.Failure(UserLogEntry{Action: model.UserLogActionLogout, Message: err.Error(), UserID: userID, Audit: audit}, err)
+	}
+
 	claims, err := s.parseAccessToken(accessToken)
 	if err != nil {
-		return err
+		return failure(nil, err)
+	}
+
+	var userID *uint
+	if id, err := parseUintClaim(claims.Subject); err == nil {
+		userID = uintPtr(id)
 	}
 
 	userTokenID, err := parseUintClaim(claims.ID)
 	if err != nil {
-		return ErrInvalidToken
+		return failure(userID, ErrInvalidToken)
 	}
 
-	return s.userTokens.DeleteByID(userTokenID)
+	return s.logs.Transaction(func(tx *gorm.DB, logs *UserLogWriter) error {
+		if err := s.tokensWithTx(tx).DeleteByID(userTokenID); err != nil {
+			return err
+		}
+		audit.ActorUserID = userID
+		return logs.Write(UserLogEntry{Action: model.UserLogActionLogout, Success: true, UserID: userID, Audit: audit})
+	})
 }
 
 func (s *AuthService) Me(accessToken string) (*AuthenticatedUser, error) {
@@ -384,7 +449,14 @@ func (s *AuthService) Node(accessToken string) (*AuthenticatedNode, error) {
 	}, nil
 }
 
-func (s *AuthService) issueTokenPair(userID uint) (*TokenPair, error) {
+func (s *AuthService) tokensWithTx(tx *gorm.DB) *repository.UserTokenRepository {
+	if tx == nil {
+		return s.userTokens
+	}
+	return s.userTokens.WithTx(tx)
+}
+
+func (s *AuthService) issueTokenPair(userTokens *repository.UserTokenRepository, userID uint) (*TokenPair, error) {
 	refreshToken, err := security.NewOpaqueToken()
 	if err != nil {
 		return nil, err
@@ -404,7 +476,7 @@ func (s *AuthService) issueTokenPair(userID uint) (*TokenPair, error) {
 		RefreshExpiration: pair.RefreshTokenExpiresAt,
 	}
 
-	if err := s.userTokens.Create(userToken); err != nil {
+	if err := userTokens.Create(userToken); err != nil {
 		return nil, err
 	}
 

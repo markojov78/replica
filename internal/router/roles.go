@@ -51,11 +51,14 @@ func registerRoleRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceUsers, model.PermissionActionCreate); err != nil {
-			return nil, mapPermissionError(err)
+		caller, err := svc.auth.Authorize(accessToken, model.PermissionResourceUsers, model.PermissionActionCreate)
+		if err != nil {
+			return nil, mapLoggedPermissionError(ctx, err, caller, func(audit service.AuditContext) error {
+				return svc.roles.LogPermissionDenied(model.UserLogActionCreate, nil, audit)
+			})
 		}
 
-		role, err := svc.roles.Create(input.Body.Name, input.Body.Description, input.Body.Permissions)
+		role, err := svc.roles.Create(input.Body.Name, input.Body.Description, input.Body.Permissions, userLogAudit(ctx, caller))
 		if err != nil {
 			return nil, mapRoleError(err, svc.roles)
 		}
@@ -67,8 +70,11 @@ func registerRoleRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceUsers, model.PermissionActionUpdate); err != nil {
-			return nil, mapPermissionError(err)
+		caller, err := svc.auth.Authorize(accessToken, model.PermissionResourceUsers, model.PermissionActionUpdate)
+		if err != nil {
+			return nil, mapLoggedPermissionError(ctx, err, caller, func(audit service.AuditContext) error {
+				return svc.roles.LogPermissionDenied(model.UserLogActionUpdate, &input.ID, audit)
+			})
 		}
 
 		role, err := svc.roles.Update(input.ID, service.UpdateRoleInput{
@@ -76,7 +82,7 @@ func registerRoleRoutes(api huma.API, svc services) {
 			Description: input.Body.Description,
 			Status:      input.Body.Status,
 			Permissions: input.Body.Permissions,
-		})
+		}, userLogAudit(ctx, caller))
 		if err != nil {
 			return nil, mapRoleError(err, svc.roles)
 		}
@@ -88,11 +94,14 @@ func registerRoleRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceUsers, model.PermissionActionDelete); err != nil {
-			return nil, mapPermissionError(err)
+		caller, err := svc.auth.Authorize(accessToken, model.PermissionResourceUsers, model.PermissionActionDelete)
+		if err != nil {
+			return nil, mapLoggedPermissionError(ctx, err, caller, func(audit service.AuditContext) error {
+				return svc.roles.LogPermissionDenied(model.UserLogActionDelete, &input.ID, audit)
+			})
 		}
 
-		role, err := svc.roles.Delete(input.ID)
+		role, err := svc.roles.Delete(input.ID, userLogAudit(ctx, caller))
 		if err != nil {
 			return nil, mapRoleError(err, svc.roles)
 		}

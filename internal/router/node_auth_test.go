@@ -88,7 +88,7 @@ func TestRequireAuthenticatedNodeRejectsUserJWT(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.Login("jsmith", "secret")
+	pair, err := authService.Login("jsmith", "secret", "")
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
@@ -1141,7 +1141,7 @@ func TestPublicReplicasListIsPaginated(t *testing.T) {
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.Login("jsmith", "secret")
+	pair, err := authService.Login("jsmith", "secret", "")
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
@@ -1309,7 +1309,7 @@ func TestInventoryCreatePushesPendingScanReplicaCommandToNodeWebSocket(t *testin
 	}
 
 	authService := newRouterTestAuthService(database)
-	userPair, err := authService.Login("jsmith", "secret")
+	userPair, err := authService.Login("jsmith", "secret", "")
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
@@ -1530,7 +1530,7 @@ func TestPublicReplicaCreatePopulatesPendingFilesAndReconcileCommand(t *testing.
 	}
 
 	authService := newRouterTestAuthService(database)
-	pair, err := authService.Login("jsmith", "secret")
+	pair, err := authService.Login("jsmith", "secret", "")
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
@@ -2207,7 +2207,7 @@ func createValidateUserTokenCredentials(t *testing.T, database *gorm.DB, userSta
 	authService := newRouterTestAuthService(database)
 	var userToken string
 	if userStatus == model.UserStatusActive {
-		pair, err := authService.Login("token-user", "secret")
+		pair, err := authService.Login("token-user", "secret", "")
 		if err != nil {
 			t.Fatalf("Login(user) error = %v", err)
 		}
