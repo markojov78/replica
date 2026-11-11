@@ -25,6 +25,10 @@ func NewNodeCommandRepository(db *gorm.DB) *CommandRepository {
 	return &CommandRepository{db: db}
 }
 
+func (r *CommandRepository) WithTx(tx *gorm.DB) *CommandRepository {
+	return &CommandRepository{db: tx}
+}
+
 func (r *CommandRepository) Create(command *model.Command) error {
 	now := time.Now().UTC()
 	if command.CreatedAt.IsZero() {

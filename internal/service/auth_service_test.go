@@ -704,7 +704,7 @@ func TestNodeSecretChangeInvalidatesRefreshToken(t *testing.T) {
 		repository.NewNodeTokenRepository(database),
 	)
 	newSecret := "new-node-secret"
-	if _, err := nodeService.Update("node-a", UpdateNodeInput{Secret: &newSecret}); err != nil {
+	if _, err := nodeService.Update("node-a", UpdateNodeInput{Secret: &newSecret}, AuditContext{}); err != nil {
 		t.Fatalf("Update(secret) error = %v", err)
 	}
 
@@ -731,7 +731,7 @@ func TestNodeStatusChangeInvalidatesRefreshToken(t *testing.T) {
 				repository.NewNodeTokenRepository(database),
 			)
 			statusValue := string(status)
-			if _, err := nodeService.Update("node-a", UpdateNodeInput{Status: &statusValue}); err != nil {
+			if _, err := nodeService.Update("node-a", UpdateNodeInput{Status: &statusValue}, AuditContext{}); err != nil {
 				t.Fatalf("Update(status) error = %v", err)
 			}
 

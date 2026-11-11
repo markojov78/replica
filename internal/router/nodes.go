@@ -51,11 +51,12 @@ func registerNodeRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceNodes, model.PermissionActionCreate); err != nil {
+		caller, err := svc.auth.Authorize(accessToken, model.PermissionResourceNodes, model.PermissionActionCreate)
+		if err != nil {
 			return nil, mapPermissionError(err)
 		}
 
-		node, err := svc.nodes.Create(input.Body.ID, input.Body.Secret, input.Body.Address, input.Body.Status, input.Body.SharingEnabled)
+		node, err := svc.nodes.Create(input.Body.ID, input.Body.Secret, input.Body.Address, input.Body.Status, input.Body.SharingEnabled, userLogAudit(ctx, caller))
 		if err != nil {
 			return nil, mapNodeError(err, svc.nodes)
 		}
@@ -67,7 +68,8 @@ func registerNodeRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceNodes, model.PermissionActionUpdate); err != nil {
+		caller, err := svc.auth.Authorize(accessToken, model.PermissionResourceNodes, model.PermissionActionUpdate)
+		if err != nil {
 			return nil, mapPermissionError(err)
 		}
 
@@ -76,7 +78,7 @@ func registerNodeRoutes(api huma.API, svc services) {
 			Address:        input.Body.Address,
 			Status:         input.Body.Status,
 			SharingEnabled: input.Body.SharingEnabled,
-		})
+		}, userLogAudit(ctx, caller))
 		if err != nil {
 			return nil, mapNodeError(err, svc.nodes)
 		}
@@ -88,11 +90,12 @@ func registerNodeRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceNodes, model.PermissionActionDelete); err != nil {
+		caller, err := svc.auth.Authorize(accessToken, model.PermissionResourceNodes, model.PermissionActionDelete)
+		if err != nil {
 			return nil, mapPermissionError(err)
 		}
 
-		node, err := svc.nodes.Delete(input.ID)
+		node, err := svc.nodes.Delete(input.ID, userLogAudit(ctx, caller))
 		if err != nil {
 			return nil, mapNodeError(err, svc.nodes)
 		}

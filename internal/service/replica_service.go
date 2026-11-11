@@ -20,6 +20,20 @@ type ReplicaService struct {
 	inventories *repository.InventoryRepository
 	nodes       *NodeService
 	settings    *SettingService
+	logs        *ChangeLogService
+}
+
+// WithChangeLogs enables replica_logs rows for replica changes.
+func (s *ReplicaService) WithChangeLogs(logs *ChangeLogService) *ReplicaService {
+	s.logs = logs
+	return s
+}
+
+func (s *ReplicaService) repoWithTx(tx *gorm.DB) *repository.ReplicaRepository {
+	if tx == nil {
+		return s.repo
+	}
+	return s.repo.WithTx(tx)
 }
 
 func NewReplicaService(repo *repository.ReplicaRepository, inventoryRepo *repository.InventoryRepository, optionalServices ...any) *ReplicaService {
@@ -52,7 +66,7 @@ func (s *ReplicaService) ListByNodeID(nodeID string) ([]model.Replica, error) {
 	return s.repo.ListByNodeID(nodeID)
 }
 
-func (s *ReplicaService) Create(input CreateReplicaInput) (*InventoryReplicaDetails, error) {
+func (s *ReplicaService) Create(input CreateReplicaInput, audit AuditContext) (*InventoryReplicaDetails, error) {
 	inventory, err := s.inventories.FindByID(input.InventoryID)
 	if err != nil {
 		return nil, err
@@ -114,7 +128,20 @@ func (s *ReplicaService) Create(input CreateReplicaInput) (*InventoryReplicaDeta
 		Type:   model.NodeCommandTypeRefreshState,
 		Status: model.NodeCommandStatusPending,
 	}
-	if err := s.repo.CreateWithPendingFiles(replica, command, refreshCommand, s.reconcilePayloadBuilder()); err != nil {
+	err = s.logs.Transaction(func(tx *gorm.DB, logs *ChangeLogWriter) error {
+		if err := s.repoWithTx(tx).CreateWithPendingFiles(replica, command, refreshCommand, s.reconcilePayloadBuilder()); err != nil {
+			return err
+		}
+		return logs.Replica(ReplicaLogEntry{
+			Action:      model.ReplicaLogActionCreate,
+			Message:     replicaCreatedMessage(replica),
+			ReplicaID:   replica.ID,
+			InventoryID: replica.InventoryID,
+			NodeID:      replica.NodeID,
+			Audit:       audit,
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
 	if s.nodes != nil {
@@ -439,7 +466,11 @@ func (s *ReplicaService) ListInventoryFiles(replicaID uint, nodeID string, filte
 	return result, nil
 }
 
-func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput) (*InventoryReplicaDetails, error) {
+func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput, audit AuditContext) (*InventoryReplicaDetails, error) {
+	return s.update(replicaID, input, audit, model.ReplicaLogActionUpdate)
+}
+
+func (s *ReplicaService) update(replicaID uint, input UpdateReplicaInput, audit AuditContext, action model.ReplicaLogAction) (*InventoryReplicaDetails, error) {
 	replica, err := s.repo.FindByID(replicaID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -447,6 +478,7 @@ func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput) (*Inve
 		}
 		return nil, err
 	}
+	previous := *replica
 
 	changed := false
 	followSymlinksChanged := false
@@ -537,7 +569,28 @@ func (s *ReplicaService) Update(replicaID uint, input UpdateReplicaInput) (*Inve
 			Payload: payload,
 		})
 	}
-	if err := s.repo.UpdateWithCommands(replica, commands...); err != nil {
+	err = s.logs.Transaction(func(tx *gorm.DB, logs *ChangeLogWriter) error {
+		if err := s.repoWithTx(tx).UpdateWithCommands(replica, commands...); err != nil {
+			return err
+		}
+		changes := replicaChanges(previous, *replica)
+		if len(changes) == 0 {
+			return nil
+		}
+		message := strings.Join(changes, "; ")
+		if action == model.ReplicaLogActionDelete {
+			message = "deleted replica uri=" + replica.URI
+		}
+		return logs.Replica(ReplicaLogEntry{
+			Action:      action,
+			Message:     message,
+			ReplicaID:   replica.ID,
+			InventoryID: replica.InventoryID,
+			NodeID:      replica.NodeID,
+			Audit:       audit,
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
 	if s.nodes != nil {
@@ -556,10 +609,10 @@ func uintPointersEqual(left, right *uint) bool {
 	return *left == *right
 }
 
-func (s *ReplicaService) Delete(replicaID uint) (*InventoryReplicaDetails, error) {
-	return s.Update(replicaID, UpdateReplicaInput{
+func (s *ReplicaService) Delete(replicaID uint, audit AuditContext) (*InventoryReplicaDetails, error) {
+	return s.update(replicaID, UpdateReplicaInput{
 		Status: stringPtr(string(model.ReplicaStatusDeleted)),
-	})
+	}, audit, model.ReplicaLogActionDelete)
 }
 
 func (s *ReplicaService) ReportFileChanges(replicaID uint, nodeID string, changes []ReplicaFileChangeInput) error {

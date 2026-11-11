@@ -94,11 +94,13 @@ func run() (runErr error) {
 		authService.WithUserLogs(userLogService)
 		userService = service.NewUserService(userRepo, roleRepo, userTokenRepo).WithUserLogs(userLogService)
 		roleService = service.NewRoleService(roleRepo).WithUserLogs(userLogService)
+		changeLogService := service.NewChangeLogService(repository.NewChangeLogRepository(database))
 		nodeService = service.NewNodeService(nodeRepo, nodeCommandRepo, nodeTokenRepo).
-			WithLogs(service.NewNodeLogService(repository.NewNodeLogRepository(database)))
+			WithLogs(service.NewNodeLogService(repository.NewNodeLogRepository(database))).
+			WithChangeLogs(changeLogService)
 		nodeService.Start(ctx)
-		inventoryService = service.NewInventoryService(inventoryRepo, nodeService)
-		replicaService = service.NewReplicaService(replicaRepo, inventoryRepo, nodeService, settingService)
+		inventoryService = service.NewInventoryService(inventoryRepo, nodeService).WithChangeLogs(changeLogService)
+		replicaService = service.NewReplicaService(replicaRepo, inventoryRepo, nodeService, settingService).WithChangeLogs(changeLogService)
 		shareService = service.NewShareService(shareRepo, nodeService, func() config.SharingConfig {
 			return configService.EffectiveConfig().Sharing
 		}).WithShareLogs(service.NewShareLogService(repository.NewShareLogRepository(database), cfg.App.NodeID))

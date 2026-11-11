@@ -22,6 +22,10 @@ func NewInventoryRepository(db *gorm.DB) *InventoryRepository {
 	return &InventoryRepository{db: db}
 }
 
+func (r *InventoryRepository) WithTx(tx *gorm.DB) *InventoryRepository {
+	return &InventoryRepository{db: tx}
+}
+
 func (r *InventoryRepository) CreateWithDefaultReplica(inventory *model.Inventory, replica *model.Replica, inventoryFiles []model.InventoryFile, command, refreshCommand *model.Command, permissions []UserPermissionDetails) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(inventory).Error; err != nil {

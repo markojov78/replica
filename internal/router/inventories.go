@@ -115,7 +115,8 @@ func registerInventoryRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionCreate); err != nil {
+		caller, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionCreate)
+		if err != nil {
 			return nil, mapPermissionError(err)
 		}
 
@@ -128,7 +129,7 @@ func registerInventoryRoutes(api huma.API, svc services) {
 			StorageProfile:  input.Body.StorageProfile,
 			FollowSymlinks:  input.Body.FollowSymlinks,
 			UserPermissions: input.Body.UserPermissions,
-		})
+		}, userLogAudit(ctx, caller))
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
 		}
@@ -140,7 +141,8 @@ func registerInventoryRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if err := AuthorizeInventoryAction(svc, accessToken, input.ID, model.PermissionResourceInventories, model.PermissionActionUpdate); err != nil {
+		caller, err := authorizeInventoryAction(svc, accessToken, input.ID, model.PermissionResourceInventories, model.PermissionActionUpdate)
+		if err != nil {
 			return nil, mapPermissionError(err)
 		}
 
@@ -148,7 +150,7 @@ func registerInventoryRoutes(api huma.API, svc services) {
 			Name:            input.Body.Name,
 			Status:          input.Body.Status,
 			UserPermissions: input.Body.UserPermissions,
-		})
+		}, userLogAudit(ctx, caller))
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
 		}
@@ -160,11 +162,12 @@ func registerInventoryRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if err := AuthorizeInventoryAction(svc, accessToken, input.ID, model.PermissionResourceInventories, model.PermissionActionDelete); err != nil {
+		caller, err := authorizeInventoryAction(svc, accessToken, input.ID, model.PermissionResourceInventories, model.PermissionActionDelete)
+		if err != nil {
 			return nil, mapPermissionError(err)
 		}
 
-		inventory, err := svc.inventories.Delete(input.ID)
+		inventory, err := svc.inventories.Delete(input.ID, userLogAudit(ctx, caller))
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
 		}
@@ -175,6 +178,12 @@ func registerInventoryRoutes(api huma.API, svc services) {
 
 // wrapper function to authorize based on user's roles with fallback to per-user permissions
 func AuthorizeInventoryAction(svc services, accessToken string, inventoryID uint, resource model.PermissionResource, action model.PermissionAction) error {
+	_, err := authorizeInventoryAction(svc, accessToken, inventoryID, resource, action)
+	return err
+}
+
+// authorizeInventoryAction is AuthorizeInventoryAction that also returns the authorized caller.
+func authorizeInventoryAction(svc services, accessToken string, inventoryID uint, resource model.PermissionResource, action model.PermissionAction) (*service.AuthenticatedUser, error) {
 	user, err := svc.auth.Authorize(accessToken, resource, action)
 	if err != nil {
 		if errors.Is(err, service.ErrForbidden) {
@@ -182,11 +191,11 @@ func AuthorizeInventoryAction(svc services, accessToken string, inventoryID uint
 		}
 
 		if err != nil {
-			return mapPermissionError(err)
+			return nil, mapPermissionError(err)
 		}
 	}
 
-	return nil
+	return user, nil
 }
 
 type listInventoriesInput struct {

@@ -82,21 +82,21 @@ func TestReplicaAndInventoryCreateRejectOverlappingLocations(t *testing.T) {
 	inventories := NewInventoryService(repository.NewInventoryRepository(database))
 	var conflict *ActiveReplicaLocationError
 
-	if _, err := replicas.Create(CreateReplicaInput{InventoryID: inventory.ID, NodeID: "node-a", URI: "/data/photos/album", Type: string(model.ReplicaTypeFilesystem)}); !errors.As(err, &conflict) || conflict.ReplicaID != existing[0].ID {
+	if _, err := replicas.Create(CreateReplicaInput{InventoryID: inventory.ID, NodeID: "node-a", URI: "/data/photos/album", Type: string(model.ReplicaTypeFilesystem)}, AuditContext{}); !errors.As(err, &conflict) || conflict.ReplicaID != existing[0].ID {
 		t.Fatalf("Create(nested filesystem) error = %v, want conflict with replica %d", err, existing[0].ID)
 	}
-	if _, err := replicas.Create(CreateReplicaInput{InventoryID: inventory.ID, NodeID: "node-b", URI: "s3://bucket", Type: string(model.ReplicaTypeStorage)}); !errors.As(err, &conflict) || conflict.ReplicaID != existing[1].ID {
+	if _, err := replicas.Create(CreateReplicaInput{InventoryID: inventory.ID, NodeID: "node-b", URI: "s3://bucket", Type: string(model.ReplicaTypeStorage)}, AuditContext{}); !errors.As(err, &conflict) || conflict.ReplicaID != existing[1].ID {
 		t.Fatalf("Create(s3 on other node) error = %v, want conflict with replica %d", err, existing[1].ID)
 	}
 	folder := "/data"
-	if _, err := inventories.Create(CreateInventoryInput{Name: "all", NodeID: "node-a", FolderURI: &folder, ReplicaType: string(model.ReplicaTypeFilesystem)}); !errors.As(err, &conflict) {
+	if _, err := inventories.Create(CreateInventoryInput{Name: "all", NodeID: "node-a", FolderURI: &folder, ReplicaType: string(model.ReplicaTypeFilesystem)}, AuditContext{}); !errors.As(err, &conflict) {
 		t.Fatalf("inventory Create(containing folder) error = %v, want conflict", err)
 	}
 	// The fixture inventory has no synchronized source, so allowed creates fail later; only the overlap check matters.
-	if _, err := replicas.Create(CreateReplicaInput{InventoryID: inventory.ID, NodeID: "node-b", URI: "/data/photos", Type: string(model.ReplicaTypeFilesystem)}); errors.As(err, &conflict) {
+	if _, err := replicas.Create(CreateReplicaInput{InventoryID: inventory.ID, NodeID: "node-b", URI: "/data/photos", Type: string(model.ReplicaTypeFilesystem)}, AuditContext{}); errors.As(err, &conflict) {
 		t.Fatalf("Create(filesystem on other node) error = %v, want no overlap conflict", err)
 	}
-	if _, err := replicas.Create(CreateReplicaInput{InventoryID: inventory.ID, NodeID: "node-a", URI: "/data/archive/2025", Type: string(model.ReplicaTypeFilesystem)}); errors.As(err, &conflict) {
+	if _, err := replicas.Create(CreateReplicaInput{InventoryID: inventory.ID, NodeID: "node-a", URI: "/data/archive/2025", Type: string(model.ReplicaTypeFilesystem)}, AuditContext{}); errors.As(err, &conflict) {
 		t.Fatalf("Create(inside deleted replica) error = %v, want no overlap conflict", err)
 	}
 }

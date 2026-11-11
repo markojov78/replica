@@ -23,6 +23,10 @@ func NewReplicaRepository(db *gorm.DB) *ReplicaRepository {
 	return &ReplicaRepository{db: db}
 }
 
+func (r *ReplicaRepository) WithTx(tx *gorm.DB) *ReplicaRepository {
+	return &ReplicaRepository{db: tx}
+}
+
 type ReplicaFileUpdate struct {
 	FileID       *uint
 	Action       model.ReplicaFileAction

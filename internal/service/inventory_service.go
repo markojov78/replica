@@ -21,6 +21,20 @@ import (
 type InventoryService struct {
 	repo  *repository.InventoryRepository
 	nodes *NodeService
+	logs  *ChangeLogService
+}
+
+// WithChangeLogs enables inventory_logs and replica_logs rows for inventory changes.
+func (s *InventoryService) WithChangeLogs(logs *ChangeLogService) *InventoryService {
+	s.logs = logs
+	return s
+}
+
+func (s *InventoryService) repoWithTx(tx *gorm.DB) *repository.InventoryRepository {
+	if tx == nil {
+		return s.repo
+	}
+	return s.repo.WithTx(tx)
 }
 
 var (
@@ -259,7 +273,7 @@ func NewInventoryService(repo *repository.InventoryRepository, nodeServices ...*
 	return service
 }
 
-func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails, error) {
+func (s *InventoryService) Create(input CreateInventoryInput, audit AuditContext) (*InventoryDetails, error) {
 	name := strings.TrimSpace(input.Name)
 	nodeID := strings.TrimSpace(input.NodeID)
 	if name == "" || nodeID == "" {
@@ -355,7 +369,31 @@ func (s *InventoryService) Create(input CreateInventoryInput) (*InventoryDetails
 	if err := overlappingReplicaError(activeReplicas, nodeID, replicaURI, 0); err != nil {
 		return nil, err
 	}
-	if err := s.repo.CreateWithDefaultReplica(inventory, replica, inventoryFiles, command, refreshCommand, permissions); err != nil {
+	err = s.logs.Transaction(func(tx *gorm.DB, logs *ChangeLogWriter) error {
+		if err := s.repoWithTx(tx).CreateWithDefaultReplica(inventory, replica, inventoryFiles, command, refreshCommand, permissions); err != nil {
+			return err
+		}
+		if err := logs.Inventory(InventoryLogEntry{
+			Action:      model.InventoryLogActionCreate,
+			Message:     fmt.Sprintf("created inventory name=%s type=%s", inventory.Name, inventory.Type),
+			InventoryID: inventory.ID,
+			Audit:       audit,
+		}); err != nil {
+			return err
+		}
+		if err := writeInventoryPermissionLogs(logs, inventory.ID, nil, userPermissionSets(permissions), true, audit); err != nil {
+			return err
+		}
+		return logs.Replica(ReplicaLogEntry{
+			Action:      model.ReplicaLogActionCreate,
+			Message:     replicaCreatedMessage(replica),
+			ReplicaID:   replica.ID,
+			InventoryID: inventory.ID,
+			NodeID:      replica.NodeID,
+			Audit:       audit,
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -713,7 +751,11 @@ func (s *InventoryService) ListFileJournal(inventoryID, fileID uint, page, perPa
 	return &FileJournalList{Items: items, Page: page, Count: perPage, Total: total}, nil
 }
 
-func (s *InventoryService) Update(id uint, input UpdateInventoryInput) (*InventoryDetails, error) {
+func (s *InventoryService) Update(id uint, input UpdateInventoryInput, audit AuditContext) (*InventoryDetails, error) {
+	return s.update(id, input, audit, model.InventoryLogActionUpdate)
+}
+
+func (s *InventoryService) update(id uint, input UpdateInventoryInput, audit AuditContext, action model.InventoryLogAction) (*InventoryDetails, error) {
 	inventory, err := s.repo.FindByID(id)
 	if err != nil {
 		return nil, err
@@ -721,6 +763,15 @@ func (s *InventoryService) Update(id uint, input UpdateInventoryInput) (*Invento
 	permissions, err := validateUserPermissions(input.UserPermissions)
 	if err != nil {
 		return nil, err
+	}
+	previous := *inventory
+	var previousPermissions map[uint][]string
+	if s.logs != nil && input.UserPermissions != nil {
+		current, err := s.repo.UserPermissions(inventory.ID)
+		if err != nil {
+			return nil, err
+		}
+		previousPermissions = userPermissionSets(current)
 	}
 
 	if input.Name != nil {
@@ -741,7 +792,37 @@ func (s *InventoryService) Update(id uint, input UpdateInventoryInput) (*Invento
 		inventory.Status = status
 	}
 
-	if err := s.repo.UpdateWithUserPermissions(inventory, permissions, input.UserPermissions != nil); err != nil {
+	err = s.logs.Transaction(func(tx *gorm.DB, logs *ChangeLogWriter) error {
+		if err := s.repoWithTx(tx).UpdateWithUserPermissions(inventory, permissions, input.UserPermissions != nil); err != nil {
+			return err
+		}
+		if action == model.InventoryLogActionDelete {
+			if previous.Status == inventory.Status {
+				return nil
+			}
+			return logs.Inventory(InventoryLogEntry{
+				Action:      action,
+				Message:     "deleted inventory name=" + inventory.Name,
+				InventoryID: inventory.ID,
+				Audit:       audit,
+			})
+		}
+		if changes := inventoryChanges(previous, *inventory); len(changes) > 0 {
+			if err := logs.Inventory(InventoryLogEntry{
+				Action:      action,
+				Message:     strings.Join(changes, "; "),
+				InventoryID: inventory.ID,
+				Audit:       audit,
+			}); err != nil {
+				return err
+			}
+		}
+		if input.UserPermissions == nil {
+			return nil
+		}
+		return writeInventoryPermissionLogs(logs, inventory.ID, previousPermissions, userPermissionSets(permissions), false, audit)
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -757,10 +838,10 @@ func (s *InventoryService) Update(id uint, input UpdateInventoryInput) (*Invento
 	return details, nil
 }
 
-func (s *InventoryService) Delete(id uint) (*InventoryDetails, error) {
-	return s.Update(id, UpdateInventoryInput{
+func (s *InventoryService) Delete(id uint, audit AuditContext) (*InventoryDetails, error) {
+	return s.update(id, UpdateInventoryInput{
 		Status: stringPtr(string(model.InventoryStatusDeleted)),
-	})
+	}, audit, model.InventoryLogActionDelete)
 }
 
 func (s *InventoryService) IsNotFound(err error) bool {

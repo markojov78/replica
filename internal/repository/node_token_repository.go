@@ -12,6 +12,10 @@ func NewNodeTokenRepository(db *gorm.DB) *NodeTokenRepository {
 	return &NodeTokenRepository{db: db}
 }
 
+func (r *NodeTokenRepository) WithTx(tx *gorm.DB) *NodeTokenRepository {
+	return &NodeTokenRepository{db: tx}
+}
+
 type NodeTokenRepository struct {
 	db *gorm.DB
 }

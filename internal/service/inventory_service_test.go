@@ -34,7 +34,7 @@ func TestInventoryServiceCreateCreatesPendingScanReplicaCommand(t *testing.T) {
 		NodeID:      "node-a",
 		FolderURI:   stringPointer("/data/photos"),
 		ReplicaType: string(model.ReplicaTypeFilesystem),
-	})
+	}, AuditContext{})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -107,7 +107,7 @@ func TestInventoryServiceCreateAppliesDefaultReplicaOptions(t *testing.T) {
 				Name: "Photos", NodeID: "node-a", FolderURI: &tt.folderURI,
 				ReplicaType:    string(tt.wantType),
 				StorageProfile: tt.storageProfile, FollowSymlinks: tt.followSymlinks,
-			})
+			}, AuditContext{})
 			if err != nil {
 				t.Fatalf("Create() error = %v", err)
 			}
@@ -133,20 +133,20 @@ func TestInventoryServiceCreateRejectsInvalidDefaultReplicaOptions(t *testing.T)
 	svc := NewInventoryService(repository.NewInventoryRepository(database))
 
 	filesystemURI := "/data/photos"
-	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &filesystemURI, ReplicaType: "filesystem", StorageProfile: "aws"}); !errors.Is(err, ErrInvalidReplicaStorageProfile) {
+	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &filesystemURI, ReplicaType: "filesystem", StorageProfile: "aws"}, AuditContext{}); !errors.Is(err, ErrInvalidReplicaStorageProfile) {
 		t.Fatalf("Create(filesystem with profile) error = %v, want %v", err, ErrInvalidReplicaStorageProfile)
 	}
 	s3URI := "s3://photos/archive"
-	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &s3URI, ReplicaType: "storage", FollowSymlinks: true}); !errors.Is(err, ErrInvalidReplicaFollowSymlinks) {
+	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &s3URI, ReplicaType: "storage", FollowSymlinks: true}, AuditContext{}); !errors.Is(err, ErrInvalidReplicaFollowSymlinks) {
 		t.Fatalf("Create(storage following symlinks) error = %v, want %v", err, ErrInvalidReplicaFollowSymlinks)
 	}
-	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &filesystemURI}); !errors.Is(err, ErrInvalidReplicaType) {
+	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &filesystemURI}, AuditContext{}); !errors.Is(err, ErrInvalidReplicaType) {
 		t.Fatalf("Create(missing replica type) error = %v, want %v", err, ErrInvalidReplicaType)
 	}
-	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &filesystemURI, ReplicaType: "storage"}); !errors.Is(err, ErrInvalidInventoryURI) {
+	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &filesystemURI, ReplicaType: "storage"}, AuditContext{}); !errors.Is(err, ErrInvalidInventoryURI) {
 		t.Fatalf("Create(storage with filesystem URI) error = %v, want %v", err, ErrInvalidInventoryURI)
 	}
-	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &s3URI, ReplicaType: "filesystem"}); !errors.Is(err, ErrInvalidInventoryURI) {
+	if _, err := svc.Create(CreateInventoryInput{Name: "Photos", NodeID: "node-a", FolderURI: &s3URI, ReplicaType: "filesystem"}, AuditContext{}); !errors.Is(err, ErrInvalidInventoryURI) {
 		t.Fatalf("Create(filesystem with S3 URI) error = %v, want %v", err, ErrInvalidInventoryURI)
 	}
 }
@@ -172,7 +172,7 @@ func TestInventoryServiceCreateFileSetInventorySeedsPlaceholders(t *testing.T) {
 			"/home/username/images/album/file1.jpg",
 			"file:///home/username/images/album/subfolder/file2.jpg",
 		}),
-	})
+	}, AuditContext{})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -238,7 +238,7 @@ func TestInventoryServiceCreateFileSetInventorySeedsPlaceholders(t *testing.T) {
 		NodeID:      "node-a",
 		FileURIs:    &s3Files,
 		ReplicaType: "storage",
-	})
+	}, AuditContext{})
 	if err != nil {
 		t.Fatalf("Create(S3 file set) error = %v", err)
 	}
@@ -324,7 +324,7 @@ func TestInventoryServiceCreateRejectsInvalidLocationSelection(t *testing.T) {
 		{Name: "", NodeID: "node-a", ReplicaType: "filesystem", FolderURI: stringPointer("/data")},
 	}
 	for _, input := range inputs {
-		if _, err := svc.Create(input); !errors.Is(err, ErrInvalidInventoryURI) {
+		if _, err := svc.Create(input, AuditContext{}); !errors.Is(err, ErrInvalidInventoryURI) {
 			t.Fatalf("Create(%+v) error = %v, want %v", input, err, ErrInvalidInventoryURI)
 		}
 	}
@@ -363,7 +363,7 @@ func TestInventoryServiceDeleteRejectsActiveReplicas(t *testing.T) {
 	}
 
 	svc := NewInventoryService(repository.NewInventoryRepository(database))
-	if _, err := svc.Delete(inventory.ID); err != ErrInventoryHasActiveReplica {
+	if _, err := svc.Delete(inventory.ID, AuditContext{}); err != ErrInventoryHasActiveReplica {
 		t.Fatalf("Delete() error = %v, want %v", err, ErrInventoryHasActiveReplica)
 	}
 
@@ -387,7 +387,7 @@ func TestInventoryServiceDeleteRejectsActiveReplicas(t *testing.T) {
 	if err := database.Save(&replicas[0]).Error; err != nil {
 		t.Fatalf("Save(active replica as deleted) error = %v", err)
 	}
-	deletedInventory, err := svc.Delete(inventory.ID)
+	deletedInventory, err := svc.Delete(inventory.ID, AuditContext{})
 	if err != nil {
 		t.Fatalf("Delete() after deleting replicas error = %v", err)
 	}
@@ -497,7 +497,7 @@ func TestInventoryServiceCreateReplicaPopulatesPendingFilesAndCommand(t *testing
 		NodeID:      "node-b",
 		URI:         "s3://bucket/photos",
 		Type:        string(model.ReplicaTypeStorage),
-	})
+	}, AuditContext{})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -617,7 +617,7 @@ func TestReplicaServiceCreateValidatesUpstreamReplica(t *testing.T) {
 		URI:               "/data/c",
 		Type:              string(model.ReplicaTypeFilesystem),
 		UpstreamReplicaID: &upstreamID,
-	})
+	}, AuditContext{})
 	if err != nil {
 		t.Fatalf("Create(valid upstream) error = %v", err)
 	}
@@ -632,7 +632,7 @@ func TestReplicaServiceCreateValidatesUpstreamReplica(t *testing.T) {
 		URI:               "/data/d",
 		Type:              string(model.ReplicaTypeFilesystem),
 		UpstreamReplicaID: &foreignID,
-	}); err != ErrInvalidReplicaUpstream {
+	}, AuditContext{}); err != ErrInvalidReplicaUpstream {
 		t.Fatalf("Create(foreign upstream) error = %v, want %v", err, ErrInvalidReplicaUpstream)
 	}
 
@@ -643,7 +643,7 @@ func TestReplicaServiceCreateValidatesUpstreamReplica(t *testing.T) {
 		URI:               "/data/e",
 		Type:              string(model.ReplicaTypeFilesystem),
 		UpstreamReplicaID: &deletedID,
-	}); err != ErrInvalidReplicaUpstream {
+	}, AuditContext{}); err != ErrInvalidReplicaUpstream {
 		t.Fatalf("Create(deleted upstream) error = %v, want %v", err, ErrInvalidReplicaUpstream)
 	}
 }
@@ -684,17 +684,17 @@ func TestReplicaServiceRejectsActiveReplicaOnDeletedInventory(t *testing.T) {
 		NodeID:      "node-a",
 		URI:         "/data/new",
 		Type:        string(model.ReplicaTypeFilesystem),
-	}); err != ErrInventoryDeleted {
+	}, AuditContext{}); err != ErrInventoryDeleted {
 		t.Fatalf("Create() error = %v, want %v", err, ErrInventoryDeleted)
 	}
 
 	active := string(model.ReplicaStatusActive)
-	if _, err := svc.Update(replica.ID, UpdateReplicaInput{Status: &active}); err != ErrInventoryDeleted {
+	if _, err := svc.Update(replica.ID, UpdateReplicaInput{Status: &active}, AuditContext{}); err != ErrInventoryDeleted {
 		t.Fatalf("Update(enable) error = %v, want %v", err, ErrInventoryDeleted)
 	}
 
 	deleted := string(model.ReplicaStatusDeleted)
-	if _, err := svc.Update(replica.ID, UpdateReplicaInput{Status: &deleted}); err != nil {
+	if _, err := svc.Update(replica.ID, UpdateReplicaInput{Status: &deleted}, AuditContext{}); err != nil {
 		t.Fatalf("Update(keep deleted) error = %v", err)
 	}
 }
@@ -726,7 +726,7 @@ func TestReplicaServiceRejectsUndeleteWhenActiveReplicaUsesLocation(t *testing.T
 
 	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
 	active := string(model.ReplicaStatusActive)
-	_, err = svc.Update(replicas[1].ID, UpdateReplicaInput{Status: &active})
+	_, err = svc.Update(replicas[1].ID, UpdateReplicaInput{Status: &active}, AuditContext{})
 	var conflict *ActiveReplicaLocationError
 	if !errors.As(err, &conflict) {
 		t.Fatalf("Update(conflict) error = %v, want ActiveReplicaLocationError", err)
@@ -736,7 +736,7 @@ func TestReplicaServiceRejectsUndeleteWhenActiveReplicaUsesLocation(t *testing.T
 		t.Fatalf("conflict.Error() = %q, want %q", conflict.Error(), wantMessage)
 	}
 
-	if _, err := svc.Update(replicas[2].ID, UpdateReplicaInput{Status: &active}); err != nil {
+	if _, err := svc.Update(replicas[2].ID, UpdateReplicaInput{Status: &active}, AuditContext{}); err != nil {
 		t.Fatalf("Update(different node) error = %v", err)
 	}
 }
@@ -777,14 +777,14 @@ func TestReplicaServiceRejectsDeleteWithActiveShare(t *testing.T) {
 	}
 
 	svc := NewReplicaService(repository.NewReplicaRepository(database), repository.NewInventoryRepository(database))
-	if _, err := svc.Delete(replica.ID); err != ErrReplicaHasActiveShare {
+	if _, err := svc.Delete(replica.ID, AuditContext{}); err != ErrReplicaHasActiveShare {
 		t.Fatalf("Delete(active share) error = %v, want %v", err, ErrReplicaHasActiveShare)
 	}
 
 	if err := database.Model(share).Update("status", model.ShareStatusDeleted).Error; err != nil {
 		t.Fatalf("Update(share deleted) error = %v", err)
 	}
-	if _, err := svc.Delete(replica.ID); err != nil {
+	if _, err := svc.Delete(replica.ID, AuditContext{}); err != nil {
 		t.Fatalf("Delete(deleted share) error = %v", err)
 	}
 }

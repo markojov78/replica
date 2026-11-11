@@ -29,7 +29,7 @@ func TestNodeServiceCreateHashesSecretAndDefaultsOffline(t *testing.T) {
 
 	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
 
-	node, err := nodeService.Create("node-a", "plain-secret", "http://node-a:8081", nil, true)
+	node, err := nodeService.Create("node-a", "plain-secret", "http://node-a:8081", nil, true, AuditContext{})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -86,7 +86,7 @@ func TestNodeServiceDeleteRevokesNode(t *testing.T) {
 
 	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
 
-	node, err := nodeService.Delete("node-a")
+	node, err := nodeService.Delete("node-a", AuditContext{})
 	if err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
@@ -120,7 +120,7 @@ func TestNodeServiceUpdateSharingEnabled(t *testing.T) {
 	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
 
 	disabled := false
-	node, err := nodeService.Update("node-a", UpdateNodeInput{SharingEnabled: &disabled})
+	node, err := nodeService.Update("node-a", UpdateNodeInput{SharingEnabled: &disabled}, AuditContext{})
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -162,7 +162,7 @@ func TestNodeServiceUpdateCreatesRefreshConfigCommand(t *testing.T) {
 	defer unsubscribe()
 
 	address := "https://node-a.example"
-	if _, err := nodeService.Update("node-a", UpdateNodeInput{Address: &address}); err != nil {
+	if _, err := nodeService.Update("node-a", UpdateNodeInput{Address: &address}, AuditContext{}); err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
 
@@ -416,20 +416,20 @@ func TestNodeServiceRestrictsAdminStatusTransitions(t *testing.T) {
 	nodeService := NewNodeService(repository.NewNodeRepository(database), repository.NewNodeCommandRepository(database))
 
 	offline := string(model.NodeStatusOffline)
-	if _, err := nodeService.Update("node-a", UpdateNodeInput{Status: &offline}); err != ErrInvalidNodeStatus {
+	if _, err := nodeService.Update("node-a", UpdateNodeInput{Status: &offline}, AuditContext{}); err != ErrInvalidNodeStatus {
 		t.Fatalf("Update(online to offline) error = %v, want %v", err, ErrInvalidNodeStatus)
 	}
 
 	disabled := string(model.NodeStatusDisabled)
-	if _, err := nodeService.Update("node-a", UpdateNodeInput{Status: &disabled}); err != nil {
+	if _, err := nodeService.Update("node-a", UpdateNodeInput{Status: &disabled}, AuditContext{}); err != nil {
 		t.Fatalf("Update(online to disabled) error = %v", err)
 	}
-	if _, err := nodeService.Update("node-a", UpdateNodeInput{Status: &offline}); err != nil {
+	if _, err := nodeService.Update("node-a", UpdateNodeInput{Status: &offline}, AuditContext{}); err != nil {
 		t.Fatalf("Update(disabled to offline) error = %v", err)
 	}
 
 	online := string(model.NodeStatusOnline)
-	if _, err := nodeService.Update("node-a", UpdateNodeInput{Status: &online}); err != ErrInvalidNodeStatus {
+	if _, err := nodeService.Update("node-a", UpdateNodeInput{Status: &online}, AuditContext{}); err != ErrInvalidNodeStatus {
 		t.Fatalf("Update(offline to online) error = %v, want %v", err, ErrInvalidNodeStatus)
 	}
 }

@@ -10,6 +10,10 @@ func NewNodeRepository(db *gorm.DB) *NodeRepository {
 	return &NodeRepository{db: db}
 }
 
+func (r *NodeRepository) WithTx(tx *gorm.DB) *NodeRepository {
+	return &NodeRepository{db: tx}
+}
+
 type NodeRepository struct {
 	db *gorm.DB
 }

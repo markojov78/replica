@@ -42,7 +42,8 @@ func newUserLogTestHandler(t *testing.T) (http.Handler, *gorm.DB) {
 	nodeRepo := repository.NewNodeRepository(database)
 	commandRepo := repository.NewNodeCommandRepository(database)
 	inventoryRepo := repository.NewInventoryRepository(database)
-	nodeService := service.NewNodeService(nodeRepo, commandRepo).WithLogs(service.NewNodeLogService(repository.NewNodeLogRepository(database)))
+	nodeService := service.NewNodeService(nodeRepo, commandRepo).WithLogs(service.NewNodeLogService(repository.NewNodeLogRepository(database))).
+		WithChangeLogs(service.NewChangeLogService(repository.NewChangeLogRepository(database)))
 	settingService := service.NewSettingService(repository.NewSettingRepository(database))
 	handler := New(
 		config.Config{
@@ -337,5 +338,87 @@ func TestShareLogsAdminAPI(t *testing.T) {
 		row.ActionUserID == nil || *row.ActionUserID != viewer.ID || row.Message == nil || *row.Message != "permission denied" ||
 		row.SourceAddress == nil || *row.SourceAddress != "203.0.113.9" {
 		t.Fatalf("denied row = %+v", row)
+	}
+}
+
+func TestNodeLogsAdminAPI(t *testing.T) {
+	handler, database := newUserLogTestHandler(t)
+	if err := database.Create(&model.Node{ID: "node-c", Status: model.NodeStatusOffline, Secret: "x"}).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+	hashed, err := security.HashPassword("secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	if err := database.Create(&model.User{Username: "viewer", Status: model.UserStatusActive, Password: hashed}).Error; err != nil {
+		t.Fatalf("Create(viewer) error = %v", err)
+	}
+	adminToken, adminID := userLogLogin(t, handler, "admin", "198.51.100.4:4000")
+	viewerToken, _ := userLogLogin(t, handler, "viewer", "203.0.113.9:5555")
+
+	response := userLogJSONRequest(t, handler, http.MethodPatch, "/api/admin/nodes/node-c", "203.0.113.9:5555", map[string]any{"address": "http://node-c:1"}, viewerToken)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("PATCH as viewer = %d, want 403", response.Code)
+	}
+	var count int64
+	database.Model(&model.NodeLog{}).Count(&count)
+	if count != 0 {
+		t.Fatalf("403 wrote %d node_logs rows", count)
+	}
+
+	response = userLogJSONRequest(t, handler, http.MethodPatch, "/api/admin/nodes/node-c", "198.51.100.4:4000", map[string]any{"address": "http://node-c:2"}, adminToken)
+	if response.Code != http.StatusOK {
+		t.Fatalf("PATCH as admin = %d body=%s", response.Code, response.Body.String())
+	}
+	var row model.NodeLog
+	if err := database.First(&row).Error; err != nil {
+		t.Fatalf("First(node_logs) error = %v", err)
+	}
+	if row.Action != model.NodeLogActionUpdate || row.NodeID != "node-c" || row.ActionUserID == nil || *row.ActionUserID != adminID ||
+		row.SourceAddress == nil || *row.SourceAddress != "198.51.100.4" || row.Message == nil || *row.Message != "address:  -> http://node-c:2" {
+		t.Fatalf("row = %+v", row)
+	}
+}
+
+func TestReplicaUpdateAuthorizedByInventoryPermission(t *testing.T) {
+	handler, database := newUserLogTestHandler(t)
+	inventory := &model.Inventory{Name: "photos", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	if err := database.Create(&model.Node{ID: "node-b", Status: model.NodeStatusOffline, Secret: "x"}).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+	replica := &model.Replica{InventoryID: inventory.ID, NodeID: "node-b", URI: "/data/a", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeFilesystem}
+	if err := database.Create(replica).Error; err != nil {
+		t.Fatalf("Create(replica) error = %v", err)
+	}
+	hashed, err := security.HashPassword("secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	editor := &model.User{Username: "editor", Status: model.UserStatusActive, Password: hashed}
+	outsider := &model.User{Username: "outsider", Status: model.UserStatusActive, Password: hashed}
+	for _, user := range []*model.User{editor, outsider} {
+		if err := database.Create(user).Error; err != nil {
+			t.Fatalf("Create(user) error = %v", err)
+		}
+	}
+	inventoryUser := &model.InventoryUser{UserID: editor.ID, InventoryID: inventory.ID}
+	if err := database.Create(inventoryUser).Error; err != nil {
+		t.Fatalf("Create(inventory user) error = %v", err)
+	}
+	if err := database.Create(&model.InventoryPermission{InventoryUserID: inventoryUser.ID, Permission: string(model.PermissionActionUpdate)}).Error; err != nil {
+		t.Fatalf("Create(inventory permission) error = %v", err)
+	}
+	editorToken, _ := userLogLogin(t, handler, "editor", "203.0.113.9:5555")
+	outsiderToken, _ := userLogLogin(t, handler, "outsider", "203.0.113.9:5555")
+
+	path := "/api/admin/replicas/" + strconv.FormatUint(uint64(replica.ID), 10)
+	if response := userLogJSONRequest(t, handler, http.MethodPatch, path, "203.0.113.9:5555", map[string]any{"follow_symlinks": true}, outsiderToken); response.Code != http.StatusForbidden {
+		t.Fatalf("PATCH without permission = %d body=%s, want 403", response.Code, response.Body.String())
+	}
+	if response := userLogJSONRequest(t, handler, http.MethodPatch, path, "203.0.113.9:5555", map[string]any{"follow_symlinks": true}, editorToken); response.Code != http.StatusOK {
+		t.Fatalf("PATCH with inventory update permission = %d body=%s, want 200", response.Code, response.Body.String())
 	}
 }

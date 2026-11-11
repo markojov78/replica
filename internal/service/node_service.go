@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -104,6 +106,13 @@ type NodeService struct {
 	subs        map[string]map[chan NodeCommand]struct{}
 	connections map[string]int
 	logs        *NodeLogService
+	changeLogs  *ChangeLogService
+}
+
+// WithChangeLogs enables node_logs rows for node changes made through the admin API.
+func (s *NodeService) WithChangeLogs(logs *ChangeLogService) *NodeService {
+	s.changeLogs = logs
+	return s
 }
 
 // WithLogs enables storage-node log uploads and the log cursor in heartbeat responses.
@@ -152,7 +161,7 @@ func (s *NodeService) Start(ctx context.Context) {
 	}()
 }
 
-func (s *NodeService) Create(id, secret, address string, status *string, sharingEnabled bool) (*NodeDetails, error) {
+func (s *NodeService) Create(id, secret, address string, status *string, sharingEnabled bool, audit AuditContext) (*NodeDetails, error) {
 	hashedSecret, err := security.HashPassword(secret)
 	if err != nil {
 		return nil, err
@@ -174,7 +183,18 @@ func (s *NodeService) Create(id, secret, address string, status *string, sharing
 		Sharing: sharingEnabled,
 	}
 
-	if err := s.nodes.Create(node); err != nil {
+	err = s.changeLogs.Transaction(func(tx *gorm.DB, logs *ChangeLogWriter) error {
+		if err := s.nodesWithTx(tx).Create(node); err != nil {
+			return err
+		}
+		return logs.Node(NodeLogEntry{
+			Action:  model.NodeLogActionCreate,
+			Message: fmt.Sprintf("created node status=%s address=%s sharing_enabled=%t", node.Status, node.Address, node.Sharing),
+			NodeID:  node.ID,
+			Audit:   audit,
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -209,7 +229,11 @@ func (s *NodeService) List(page, perPage int) (*NodeList, error) {
 	}, nil
 }
 
-func (s *NodeService) Update(id string, input UpdateNodeInput) (*NodeDetails, error) {
+func (s *NodeService) Update(id string, input UpdateNodeInput, audit AuditContext) (*NodeDetails, error) {
+	return s.update(id, input, audit, model.NodeLogActionUpdate)
+}
+
+func (s *NodeService) update(id string, input UpdateNodeInput, audit AuditContext, action model.NodeLogAction) (*NodeDetails, error) {
 	s.statusMu.Lock()
 	defer s.statusMu.Unlock()
 
@@ -218,6 +242,7 @@ func (s *NodeService) Update(id string, input UpdateNodeInput) (*NodeDetails, er
 		return nil, err
 	}
 
+	previous := *node
 	deleteToken := input.Secret != nil
 
 	if input.Secret != nil {
@@ -250,37 +275,69 @@ func (s *NodeService) Update(id string, input UpdateNodeInput) (*NodeDetails, er
 		node.Sharing = *input.SharingEnabled
 	}
 
-	if err := s.nodes.Update(node); err != nil {
-		return nil, err
-	}
-
-	if deleteToken && s.nodeTokens != nil {
-		if err := s.nodeTokens.DeleteByNodeID(node.ID); err != nil {
-			return nil, err
-		}
-	}
-
+	var command *model.Command
 	if !input.skipRefreshConfigCommand {
-		command := &model.Command{
+		command = &model.Command{
 			NodeID:  node.ID,
 			Type:    model.NodeCommandTypeRefreshConfig,
 			Status:  model.NodeCommandStatusPending,
 			Payload: json.RawMessage(`{}`),
 		}
-		if err := s.commands.Create(command); err != nil {
-			return nil, err
+	}
+	err = s.changeLogs.Transaction(func(tx *gorm.DB, logs *ChangeLogWriter) error {
+		if err := s.nodesWithTx(tx).Update(node); err != nil {
+			return err
 		}
+		if deleteToken && s.nodeTokens != nil {
+			tokens := s.nodeTokens
+			if tx != nil {
+				tokens = tokens.WithTx(tx)
+			}
+			if err := tokens.DeleteByNodeID(node.ID); err != nil {
+				return err
+			}
+		}
+		if command != nil {
+			commands := s.commands
+			if tx != nil {
+				commands = commands.WithTx(tx)
+			}
+			if err := commands.Create(command); err != nil {
+				return err
+			}
+		}
+		changes := nodeChanges(previous, *node, input.Secret != nil)
+		if len(changes) == 0 {
+			return nil
+		}
+		message := strings.Join(changes, "; ")
+		if action == model.NodeLogActionDelete {
+			message = fmt.Sprintf("deleted node status: %s -> %s", previous.Status, node.Status)
+		}
+		return logs.Node(NodeLogEntry{Action: action, Message: message, NodeID: node.ID, Audit: audit})
+	})
+	if err != nil {
+		return nil, err
+	}
+	if command != nil {
 		s.PublishCommand(command)
 	}
 
 	return toNodeDetails(node), nil
 }
 
-func (s *NodeService) Delete(id string) (*NodeDetails, error) {
-	return s.Update(id, UpdateNodeInput{
+func (s *NodeService) Delete(id string, audit AuditContext) (*NodeDetails, error) {
+	return s.update(id, UpdateNodeInput{
 		Status:                   stringPtr(string(model.NodeStatusRevoked)),
 		skipRefreshConfigCommand: true,
-	})
+	}, audit, model.NodeLogActionDelete)
+}
+
+func (s *NodeService) nodesWithTx(tx *gorm.DB) *repository.NodeRepository {
+	if tx == nil {
+		return s.nodes
+	}
+	return s.nodes.WithTx(tx)
 }
 
 func (s *NodeService) ReportAvailability(id, address string, interval float64) (*NodeAvailabilityReport, error) {

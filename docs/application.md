@@ -358,6 +358,61 @@ node_id - primary key; the storage node
 last_id - highest node log id the coordinator has processed for the node, including rejected lines  
 updated_at - time of the last cursor change
 
+#### inventory_logs
+History of successful inventory changes made through the Coordinator Admin API (including the dashboard). Failed
+attempts are not logged. Rows reference other tables with foreign keys; inventories, users and nodes are only deleted
+logically, so referenced rows always exist.
+
+id - primary key  
+timestamp - time of the change  
+action - one of `create`, `update`, `delete`  
+message - optional details, e.g. `created inventory name=photos type=folder`, `name: photos -> pictures`,
+`permissions added: update`, `access granted: read`, `access revoked`  
+inventory_id - changed inventory, references `inventories`  
+user_id - optional user whose inventory permissions changed, references `users`; empty for inventory field changes  
+action_user_id - optional user who made the change, references `users`  
+source_address - optional client IP address (TCP peer address; forwarded headers are ignored)
+
+Inventory create writes a `create` row and one row per user with permissions (`permissions set: …`); the replica
+created with the inventory gets a `create` row in `replica_logs`. Inventory update writes one row for field changes and
+one row per user whose permissions changed. An update that changes nothing writes no row.
+
+#### replica_logs
+History of successful replica changes made through the Coordinator Admin API (including inventory create, which
+creates the first replica). Failed attempts are not logged.
+
+id - primary key  
+timestamp - time of the change  
+action - one of `create`, `update`, `delete`  
+message - optional details, e.g. `created replica node=node-a type=filesystem uri=/data/a upstream=none
+storage_profile=none follow_symlinks=false`, `status: active -> deleted; follow_symlinks: false -> true`,
+`deleted replica uri=/data/a`  
+replica_id - changed replica, references `replicas`  
+inventory_id - inventory of the replica, references `inventories`  
+replica_node_id - node the replica is assigned to, references `nodes`  
+action_user_id - optional user who made the change, references `users`  
+source_address - optional client IP address (TCP peer address; forwarded headers are ignored)
+
+Replica file status changes (`PATCH /replicas/{id}/files/{file_id}`) and admin commands are not logged.
+
+#### node_logs
+History of successful node changes made through the Coordinator Admin API. Failed attempts and automatic changes
+(heartbeat status, node login updates) are not logged.
+
+id - primary key  
+timestamp - time of the change  
+action - one of `create`, `update`, `delete`  
+message - optional details, e.g. `created node status=offline address=http://node-a:8081 sharing_enabled=true`,
+`address: … -> …; secret changed`, `deleted node status: offline -> revoked`  
+node_id - changed node, references `nodes`  
+action_user_id - optional user who made the change, references `users`  
+source_address - optional client IP address (TCP peer address; forwarded headers are ignored)
+
+The node secret is never logged; a secret change is recorded only as `secret changed`.
+
+Rows of `inventory_logs`, `replica_logs` and `node_logs` are written in the same transaction as the change; if a row
+cannot be written, the change fails.
+
 ## Operation
 ### Communication between nodes
 

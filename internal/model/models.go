@@ -373,6 +373,63 @@ func (NodeLogCursor) TableName() string {
 	return "node_log_cursors"
 }
 
+// InventoryLog records a successful inventory change made through the Coordinator Admin API.
+type InventoryLog struct {
+	ID            uint               `gorm:"primaryKey" json:"id"`
+	Timestamp     time.Time          `gorm:"not null;index" json:"timestamp"`
+	Action        InventoryLogAction `gorm:"size:32;not null;index" json:"action"`
+	Message       *string            `gorm:"size:2048" json:"message,omitempty"`
+	InventoryID   uint               `gorm:"not null;index" json:"inventory_id"`
+	UserID        *uint              `gorm:"index" json:"user_id,omitempty"`
+	ActionUserID  *uint              `gorm:"index" json:"action_user_id,omitempty"`
+	SourceAddress *string            `gorm:"size:255" json:"source_address,omitempty"`
+	Inventory     Inventory          `gorm:"foreignKey:InventoryID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
+	User          *User              `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
+	ActionUser    *User              `gorm:"foreignKey:ActionUserID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
+}
+
+func (InventoryLog) TableName() string {
+	return "inventory_logs"
+}
+
+// ReplicaLog records a successful replica change made through the Coordinator Admin API.
+type ReplicaLog struct {
+	ID            uint             `gorm:"primaryKey" json:"id"`
+	Timestamp     time.Time        `gorm:"not null;index" json:"timestamp"`
+	Action        ReplicaLogAction `gorm:"size:32;not null;index" json:"action"`
+	Message       *string          `gorm:"size:2048" json:"message,omitempty"`
+	ReplicaID     uint             `gorm:"not null;index" json:"replica_id"`
+	InventoryID   uint             `gorm:"not null;index" json:"inventory_id"`
+	ReplicaNodeID string           `gorm:"size:255;not null;index" json:"replica_node_id"`
+	ActionUserID  *uint            `gorm:"index" json:"action_user_id,omitempty"`
+	SourceAddress *string          `gorm:"size:255" json:"source_address,omitempty"`
+	Replica       Replica          `gorm:"foreignKey:ReplicaID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
+	Inventory     Inventory        `gorm:"foreignKey:InventoryID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
+	ReplicaNode   Node             `gorm:"foreignKey:ReplicaNodeID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
+	ActionUser    *User            `gorm:"foreignKey:ActionUserID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
+}
+
+func (ReplicaLog) TableName() string {
+	return "replica_logs"
+}
+
+// NodeLog records a successful node change made through the Coordinator Admin API.
+type NodeLog struct {
+	ID            uint          `gorm:"primaryKey" json:"id"`
+	Timestamp     time.Time     `gorm:"not null;index" json:"timestamp"`
+	Action        NodeLogAction `gorm:"size:32;not null;index" json:"action"`
+	Message       *string       `gorm:"size:2048" json:"message,omitempty"`
+	NodeID        string        `gorm:"size:255;not null;index" json:"node_id"`
+	ActionUserID  *uint         `gorm:"index" json:"action_user_id,omitempty"`
+	SourceAddress *string       `gorm:"size:255" json:"source_address,omitempty"`
+	Node          Node          `gorm:"foreignKey:NodeID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
+	ActionUser    *User         `gorm:"foreignKey:ActionUserID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT;" json:"-"`
+}
+
+func (NodeLog) TableName() string {
+	return "node_logs"
+}
+
 func AllModels() []any {
 	return []any{
 		&Inventory{},
@@ -400,5 +457,8 @@ func AllModels() []any {
 		&ShareLog{},
 		&ShareAccessLog{},
 		&NodeLogCursor{},
+		&InventoryLog{},
+		&ReplicaLog{},
+		&NodeLog{},
 	}
 }

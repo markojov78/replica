@@ -20,6 +20,9 @@ type UserLogAction string
 type ShareLogAction string
 type ShareAccessLogAction string
 type ShareAccessLogSource string
+type InventoryLogAction string
+type ReplicaLogAction string
+type NodeLogAction string
 
 const (
 	InventoryStatusActive  InventoryStatus = "active"
@@ -106,6 +109,18 @@ const (
 
 	ShareAccessLogSourceHTTP ShareAccessLogSource = "http"
 	ShareAccessLogSourceFuse ShareAccessLogSource = "fuse"
+
+	InventoryLogActionCreate InventoryLogAction = "create"
+	InventoryLogActionUpdate InventoryLogAction = "update"
+	InventoryLogActionDelete InventoryLogAction = "delete"
+
+	ReplicaLogActionCreate ReplicaLogAction = "create"
+	ReplicaLogActionUpdate ReplicaLogAction = "update"
+	ReplicaLogActionDelete ReplicaLogAction = "delete"
+
+	NodeLogActionCreate NodeLogAction = "create"
+	NodeLogActionUpdate NodeLogAction = "update"
+	NodeLogActionDelete NodeLogAction = "delete"
 )
 
 const (

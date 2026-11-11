@@ -125,7 +125,8 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionUpdate); err != nil {
+		caller, err := svc.auth.Authorize(accessToken, model.PermissionResourceInventories, model.PermissionActionUpdate)
+		if err != nil {
 			return nil, mapPermissionError(err)
 		}
 
@@ -137,7 +138,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 			UpstreamReplicaID: input.Body.UpstreamReplicaID,
 			StorageProfile:    input.Body.StorageProfile,
 			FollowSymlinks:    input.Body.FollowSymlinks != nil && *input.Body.FollowSymlinks,
-		})
+		}, userLogAudit(ctx, caller))
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
 		}
@@ -149,7 +150,8 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if err := AuthorizeReplicaAction(svc, accessToken, input.ID, model.PermissionResourceInventories, model.PermissionActionUpdate); err != nil {
+		caller, err := authorizeReplicaAction(svc, accessToken, input.ID, model.PermissionResourceInventories, model.PermissionActionUpdate)
+		if err != nil {
 			return nil, mapPermissionError(err)
 		}
 
@@ -164,7 +166,7 @@ func registerReplicaRoutes(api huma.API, svc services) {
 			UpstreamReplicaIDSet: upstreamReplicaIDSet,
 			StorageProfile:       input.Body.StorageProfile,
 			FollowSymlinks:       input.Body.FollowSymlinks,
-		})
+		}, userLogAudit(ctx, caller))
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
 		}
@@ -176,11 +178,12 @@ func registerReplicaRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if err := AuthorizeReplicaAction(svc, accessToken, input.ID, model.PermissionResourceInventories, model.PermissionActionUpdate); err != nil {
+		caller, err := authorizeReplicaAction(svc, accessToken, input.ID, model.PermissionResourceInventories, model.PermissionActionUpdate)
+		if err != nil {
 			return nil, mapPermissionError(err)
 		}
 
-		replica, err := svc.replicas.Delete(input.ID)
+		replica, err := svc.replicas.Delete(input.ID, userLogAudit(ctx, caller))
 		if err != nil {
 			return nil, mapInventoryError(err, svc.inventories)
 		}
@@ -262,25 +265,28 @@ type updateReplicaInput struct {
 
 // wrapper function to authorize based on user's roles with fallback to per-user permissions
 func AuthorizeReplicaAction(svc services, accessToken string, replicaID uint, resource model.PermissionResource, action model.PermissionAction) error {
+	_, err := authorizeReplicaAction(svc, accessToken, replicaID, resource, action)
+	return err
+}
+
+// authorizeReplicaAction is AuthorizeReplicaAction that also returns the authorized caller.
+func authorizeReplicaAction(svc services, accessToken string, replicaID uint, resource model.PermissionResource, action model.PermissionAction) (*service.AuthenticatedUser, error) {
 	user, err := svc.auth.Authorize(accessToken, resource, action)
 	if err != nil {
-		if errors.Is(err, service.ErrForbidden) {
-			replica, err := svc.replicas.Get(replicaID)
+		if errors.Is(err, service.ErrForbidden) && user != nil {
+			var replica *service.InventoryReplicaDetails
+			replica, err = svc.replicas.Get(replicaID)
 			if err == nil {
 				_, err = svc.auth.AuthorizeInventoryUser(user.ID, replica.InventoryID, action)
-			}
-
-			if err != nil {
-				return mapPermissionError(err)
 			}
 		}
 
 		if err != nil {
-			return mapPermissionError(err)
+			return nil, mapPermissionError(err)
 		}
 	}
 
-	return nil
+	return user, nil
 }
 
 func nullableUint(raw json.RawMessage) (*uint, bool, error) {

@@ -172,7 +172,7 @@ func TestReplicaServiceUpdateClearsUpstreamReplica(t *testing.T) {
 		t.Fatalf("set upstream replica error = %v", err)
 	}
 
-	updated, err := svc.Update(destination.ID, UpdateReplicaInput{UpstreamReplicaIDSet: true})
+	updated, err := svc.Update(destination.ID, UpdateReplicaInput{UpstreamReplicaIDSet: true}, AuditContext{})
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -192,7 +192,7 @@ func TestReplicaServiceUpdateStorageProfile(t *testing.T) {
 	database, svc, _, destination := newReconcileCommandTest(t)
 	profile := "backblaze"
 
-	updated, err := svc.Update(destination.ID, UpdateReplicaInput{StorageProfile: &profile})
+	updated, err := svc.Update(destination.ID, UpdateReplicaInput{StorageProfile: &profile}, AuditContext{})
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -223,7 +223,7 @@ func TestReplicaServiceUpdateFollowSymlinksQueuesRefreshThenScan(t *testing.T) {
 	defer unsubscribe()
 	followSymlinks := true
 
-	updated, err := svc.Update(destination.ID, UpdateReplicaInput{FollowSymlinks: &followSymlinks})
+	updated, err := svc.Update(destination.ID, UpdateReplicaInput{FollowSymlinks: &followSymlinks}, AuditContext{})
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -261,7 +261,7 @@ func TestReplicaServiceUpdateFollowSymlinksQueuesRefreshThenScan(t *testing.T) {
 		}
 	}
 
-	if _, err := svc.Update(destination.ID, UpdateReplicaInput{FollowSymlinks: &followSymlinks}); err != nil {
+	if _, err := svc.Update(destination.ID, UpdateReplicaInput{FollowSymlinks: &followSymlinks}, AuditContext{}); err != nil {
 		t.Fatalf("Update(unchanged) error = %v", err)
 	}
 	var count int64
@@ -276,7 +276,7 @@ func TestReplicaServiceUpdateFollowSymlinksQueuesRefreshThenScan(t *testing.T) {
 func TestReplicaServiceDeleteCreatesRefreshStateCommand(t *testing.T) {
 	database, svc, _, destination := newReconcileCommandTest(t)
 
-	if _, err := svc.Delete(destination.ID); err != nil {
+	if _, err := svc.Delete(destination.ID, AuditContext{}); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
