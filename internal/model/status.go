@@ -17,6 +17,9 @@ type CommandType string
 type PermissionResource string
 type PermissionAction string
 type UserLogAction string
+type ShareLogAction string
+type ShareAccessLogAction string
+type ShareAccessLogSource string
 
 const (
 	InventoryStatusActive  InventoryStatus = "active"
@@ -90,6 +93,19 @@ const (
 	UserLogActionTokenRefresh UserLogAction = "token_refresh"
 	UserLogActionTokenRevoke  UserLogAction = "token_revoke"
 	UserLogActionTokenExpired UserLogAction = "token_expired"
+
+	ShareLogActionCreate ShareLogAction = "create"
+	ShareLogActionUpdate ShareLogAction = "update"
+	ShareLogActionDelete ShareLogAction = "delete"
+
+	ShareAccessLogActionList   ShareAccessLogAction = "list"
+	ShareAccessLogActionRead   ShareAccessLogAction = "read"
+	ShareAccessLogActionUpload ShareAccessLogAction = "upload"
+	ShareAccessLogActionUpdate ShareAccessLogAction = "update"
+	ShareAccessLogActionDelete ShareAccessLogAction = "delete"
+
+	ShareAccessLogSourceHTTP ShareAccessLogSource = "http"
+	ShareAccessLogSourceFuse ShareAccessLogSource = "fuse"
 )
 
 const (
@@ -262,4 +278,17 @@ func (a PermissionAction) Valid() bool {
 	default:
 		return false
 	}
+}
+
+func (a ShareAccessLogAction) Valid() bool {
+	switch a {
+	case ShareAccessLogActionList, ShareAccessLogActionRead, ShareAccessLogActionUpload, ShareAccessLogActionUpdate, ShareAccessLogActionDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s ShareAccessLogSource) Valid() bool {
+	return s == ShareAccessLogSourceHTTP || s == ShareAccessLogSourceFuse
 }

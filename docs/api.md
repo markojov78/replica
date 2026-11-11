@@ -2873,6 +2873,8 @@ Behavior:
 - ensures each active replica assigned to the node with pending `replica_files` has a pending `reconcile_replica`
   command for that destination replica
 - returns pending durable coordinator commands for that node
+- returns `logs.last_id`, the highest node log id the coordinator has processed for that node (`0` when nothing was
+  uploaded); storage nodes use it to continue log ids after a restart and to detect lost uploads
 - does not delete or mutate commands as part of delivery
 - acts as fallback command delivery when the websocket command channel is unavailable
 
@@ -2906,7 +2908,10 @@ Example response:
       "created_at": "2026-05-21T11:59:00Z",
       "updated_at": "2026-05-21T11:59:00Z"
     }
-  ]
+  ],
+  "logs": {
+    "last_id": 1234
+  }
 }
 ```
 
@@ -2963,6 +2968,56 @@ Possible errors:
 - `403` disabled node
 - `403` revoked node
 - `426` upgrade required
+
+### /nodes/logs endpoint
+
+#### POST /nodes/logs
+Uploads a batch of storage-node log lines.
+
+Authorization:
+- requires `Authorization: Bearer <node-access-token>`
+
+Request:
+- `Content-Type: application/x-ndjson`
+- `Content-Encoding: gzip` (an uncompressed body is also accepted)
+- the body is JSON lines, one log entry per line, at most 5000 lines and 10 MB decompressed
+- every line has a node-assigned `id`, unique per node across all log types, and a `type`
+- `node_id` is taken from the node access token; a `node_id` in a line is ignored
+
+Line types:
+- `share_access`, stored in `share_access_logs`; fields: `id`, `type`, `timestamp`, `action` (`list`, `read`,
+  `upload`, `update`, `delete`), `success`, `message`, `share_id`, `file_id`, `path`, `user_id`, `anonymous`,
+  `source` (`http`, `fuse`), `bytes`, `source_address`
+
+Example line:
+```json
+{"id":1234,"type":"share_access","timestamp":"2026-11-11T21:44:49Z","action":"read","success":true,"share_id":4,"file_id":41,"path":"docs/a.pdf","anonymous":true,"source":"http","bytes":52311,"source_address":"203.0.113.5"}
+```
+
+Behavior:
+- valid lines are stored in one transaction
+- invalid lines (unreadable JSON, missing id or timestamp, unknown type, invalid field values) and lines whose
+  `(node_id, id)` is already stored are rejected individually and listed in `rejected`; the other lines are stored
+- the node log cursor advances to the highest id in the batch, including rejected lines, so the node does not send
+  them again
+- `last_id` in the response is the cursor after the upload
+
+Example response:
+```json
+{
+  "last_id": 1234,
+  "rejected": [
+    {"id": 1230, "line": 3, "error": "invalid action \"preview\""}
+  ]
+}
+```
+
+Possible errors:
+- `400` invalid log body (for example invalid gzip data)
+- `401` missing authenticated node
+- `403` disabled or revoked node
+- `413` log batch too large
+- `415` unsupported content encoding
 
 ### /commands endpoint
 

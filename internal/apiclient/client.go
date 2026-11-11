@@ -2,6 +2,7 @@ package apiclient
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -143,10 +144,29 @@ type Command struct {
 }
 
 type AvailabilityReport struct {
-	NodeID   string    `json:"node_id"`
-	Address  string    `json:"address"`
-	LastSeen string    `json:"last_seen"`
-	Commands []Command `json:"commands"`
+	NodeID   string      `json:"node_id"`
+	Address  string      `json:"address"`
+	LastSeen string      `json:"last_seen"`
+	Commands []Command   `json:"commands"`
+	Logs     *LogsStatus `json:"logs,omitempty"`
+}
+
+// LogsStatus is the coordinator's node log cursor returned in the heartbeat response.
+type LogsStatus struct {
+	LastID uint64 `json:"last_id"`
+}
+
+// LogUploadResult is the coordinator response to a node log upload.
+type LogUploadResult struct {
+	LastID   uint64         `json:"last_id"`
+	Rejected []LogRejection `json:"rejected"`
+}
+
+// LogRejection describes an uploaded log line the coordinator did not store.
+type LogRejection struct {
+	ID    uint64 `json:"id,omitempty"`
+	Line  int    `json:"line"`
+	Error string `json:"error"`
 }
 
 type UserPermission struct {
@@ -433,6 +453,65 @@ func isNodeAuthFailure(body []byte) bool {
 		Detail string `json:"detail"`
 	}
 	return json.Unmarshal(body, &problem) == nil && problem.Detail == nodeAuthFailedDetail
+}
+
+// UploadLogs sends NDJSON log lines to the coordinator, gzip-compressed. A 401 re-authenticates
+// the node and retries once; the endpoint authenticates only the node, so a 401 always means
+// the node token was rejected.
+func (c *Client) UploadLogs(ctx context.Context, lines []byte) (*LogUploadResult, error) {
+	var compressed bytes.Buffer
+	gz := gzip.NewWriter(&compressed)
+	if _, err := gz.Write(lines); err != nil {
+		return nil, err
+	}
+	if err := gz.Close(); err != nil {
+		return nil, err
+	}
+	payload := compressed.Bytes()
+
+	accessToken, err := c.ensureAccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := c.postLogs(ctx, payload, accessToken)
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized {
+		accessToken, err = c.refreshOrAuthenticate(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return c.postLogs(ctx, payload, accessToken)
+	}
+	return result, err
+}
+
+func (c *Client) postLogs(ctx context.Context, payload []byte, accessToken string) (*LogUploadResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.coordinatorURL+"/node/nodes/logs", bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-API-Version", apiVersion)
+	req.Header.Set("Content-Type", "application/x-ndjson")
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, &APIError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(data))}
+	}
+	var result LogUploadResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func (c *Client) ListOwnReplicas(ctx context.Context) ([]Replica, error) {

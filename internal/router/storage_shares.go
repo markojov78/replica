@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"replica/internal/model"
 	"replica/internal/service"
 )
 
@@ -15,22 +16,22 @@ func registerStorageShareRoutes(mux *http.ServeMux, svc services) {
 	mux.HandleFunc("POST /api/share/auth/refresh", gate(serveShareAuthRefresh(svc)))
 	mux.HandleFunc("GET /api/share/auth/me", gate(serveShareAuthMe(svc)))
 	mux.HandleFunc("GET /api/share/shares", gate(svc.storage.ServeAuthenticatedShares))
-	mux.HandleFunc("GET /api/share/shares/{id}", gate(svc.storage.ServeAuthenticatedShares))
-	mux.HandleFunc("GET /api/share/shares/{id}/files", gate(svc.storage.ServeAuthenticatedShares))
-	mux.HandleFunc("POST /api/share/shares/{id}/files", gate(svc.storage.ServeAuthenticatedShares))
-	mux.HandleFunc("DELETE /api/share/shares/{id}/files/{file_id}", gate(svc.storage.ServeAuthenticatedShares))
-	mux.HandleFunc("GET /api/share/shares/{id}/files/{file_id}/content", gate(svc.storage.ServeAuthenticatedShares))
+	mux.HandleFunc("GET /api/share/shares/{id}", gate(svc.storage.ShareAccessLog(model.ShareAccessLogActionList, false, svc.storage.ServeAuthenticatedShares)))
+	mux.HandleFunc("GET /api/share/shares/{id}/files", gate(svc.storage.ShareAccessLog(model.ShareAccessLogActionList, false, svc.storage.ServeAuthenticatedShares)))
+	mux.HandleFunc("POST /api/share/shares/{id}/files", gate(svc.storage.ShareAccessLog(model.ShareAccessLogActionUpload, false, svc.storage.ServeAuthenticatedShares)))
+	mux.HandleFunc("DELETE /api/share/shares/{id}/files/{file_id}", gate(svc.storage.ShareAccessLog(model.ShareAccessLogActionDelete, false, svc.storage.ServeAuthenticatedShares)))
+	mux.HandleFunc("GET /api/share/shares/{id}/files/{file_id}/content", gate(svc.storage.ShareAccessLog(model.ShareAccessLogActionRead, false, svc.storage.ServeAuthenticatedShares)))
 	mux.HandleFunc("GET /api/share/shares/{id}/files/{file_id}/preview", gate(svc.storage.ServeAuthenticatedShares))
 	mux.HandleFunc("GET /api/share/shares/{id}/files/{file_id}/thumbnail", gate(svc.storage.ServeAuthenticatedShares))
-	mux.HandleFunc("PUT /api/share/shares/{id}/files/{file_id}/content", gate(svc.storage.ServeAuthenticatedShares))
-	mux.HandleFunc("GET /s/{link_hash}", gate(svc.storage.ServePublicShares))
-	mux.HandleFunc("GET /s/{link_hash}/files", gate(svc.storage.ServePublicShares))
-	mux.HandleFunc("POST /s/{link_hash}/files", gate(svc.storage.ServePublicShares))
-	mux.HandleFunc("DELETE /s/{link_hash}/files/{file_id}", gate(svc.storage.ServePublicShares))
-	mux.HandleFunc("GET /s/{link_hash}/files/{file_id}/content", gate(svc.storage.ServePublicShares))
+	mux.HandleFunc("PUT /api/share/shares/{id}/files/{file_id}/content", gate(svc.storage.ShareAccessLog(model.ShareAccessLogActionUpdate, false, svc.storage.ServeAuthenticatedShares)))
+	mux.HandleFunc("GET /s/{link_hash}", gate(svc.storage.ShareAccessLog(model.ShareAccessLogActionList, true, svc.storage.ServePublicShares)))
+	mux.HandleFunc("GET /s/{link_hash}/files", gate(svc.storage.ShareAccessLog(model.ShareAccessLogActionList, true, svc.storage.ServePublicShares)))
+	mux.HandleFunc("POST /s/{link_hash}/files", gate(svc.storage.ShareAccessLog(model.ShareAccessLogActionUpload, true, svc.storage.ServePublicShares)))
+	mux.HandleFunc("DELETE /s/{link_hash}/files/{file_id}", gate(svc.storage.ShareAccessLog(model.ShareAccessLogActionDelete, true, svc.storage.ServePublicShares)))
+	mux.HandleFunc("GET /s/{link_hash}/files/{file_id}/content", gate(svc.storage.ShareAccessLog(model.ShareAccessLogActionRead, true, svc.storage.ServePublicShares)))
 	mux.HandleFunc("GET /s/{link_hash}/files/{file_id}/preview", gate(svc.storage.ServePublicShares))
 	mux.HandleFunc("GET /s/{link_hash}/files/{file_id}/thumbnail", gate(svc.storage.ServePublicShares))
-	mux.HandleFunc("PUT /s/{link_hash}/files/{file_id}/content", gate(svc.storage.ServePublicShares))
+	mux.HandleFunc("PUT /s/{link_hash}/files/{file_id}/content", gate(svc.storage.ShareAccessLog(model.ShareAccessLogActionUpdate, true, svc.storage.ServePublicShares)))
 }
 
 func sharingAPIGate(svc services) func(http.HandlerFunc) http.HandlerFunc {

@@ -5,6 +5,7 @@ package storage
 import (
 	"context"
 	"io"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/hanwen/go-fuse/v2/fs"
@@ -21,6 +22,9 @@ type readHandle struct {
 	rangeReader RangeReader
 	uri         string
 	rel         string
+	bytesRead   atomic.Int64
+	onRelease   func(bytes int64)
+	released    atomic.Bool
 }
 
 var _ = (fs.FileHandle)((*readHandle)(nil))
@@ -51,10 +55,14 @@ func (h *readHandle) Read(ctx context.Context, dest []byte, off int64) (fuse.Rea
 	if int64(read) > length {
 		read = int(length)
 	}
+	h.bytesRead.Add(int64(read))
 	return fuse.ReadResultData(buf[:read]), 0
 }
 
 func (h *readHandle) Release(_ context.Context) syscall.Errno {
+	if h.onRelease != nil && h.released.CompareAndSwap(false, true) {
+		h.onRelease(h.bytesRead.Load())
+	}
 	if h.closer != nil {
 		if err := h.closer.Close(); err != nil {
 			return fs.ToErrno(err)

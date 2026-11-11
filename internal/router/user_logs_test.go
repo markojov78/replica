@@ -42,7 +42,7 @@ func newUserLogTestHandler(t *testing.T) (http.Handler, *gorm.DB) {
 	nodeRepo := repository.NewNodeRepository(database)
 	commandRepo := repository.NewNodeCommandRepository(database)
 	inventoryRepo := repository.NewInventoryRepository(database)
-	nodeService := service.NewNodeService(nodeRepo, commandRepo)
+	nodeService := service.NewNodeService(nodeRepo, commandRepo).WithLogs(service.NewNodeLogService(repository.NewNodeLogRepository(database)))
 	settingService := service.NewSettingService(repository.NewSettingRepository(database))
 	handler := New(
 		config.Config{
@@ -64,7 +64,8 @@ func newUserLogTestHandler(t *testing.T) (http.Handler, *gorm.DB) {
 		nodeService,
 		service.NewInventoryService(inventoryRepo, nodeService),
 		service.NewReplicaService(repository.NewReplicaRepository(database), inventoryRepo, nodeService, settingService),
-		service.NewShareService(repository.NewShareRepository(database), nil, func() config.SharingConfig { return config.SharingConfig{} }),
+		service.NewShareService(repository.NewShareRepository(database), nil, func() config.SharingConfig { return config.SharingConfig{} }).
+			WithShareLogs(service.NewShareLogService(repository.NewShareLogRepository(database), "node-a")),
 		nil,
 	)
 	return handler, database
@@ -277,5 +278,64 @@ func TestUserLogsNodeUserAuthUsesNodeAttribution(t *testing.T) {
 	database.Model(&model.UserLog{}).Count(&after)
 	if after != before {
 		t.Fatalf("rejected node request wrote %d user log rows", after-before)
+	}
+}
+
+func TestShareLogsAdminAPI(t *testing.T) {
+	handler, database := newUserLogTestHandler(t)
+
+	inventory := &model.Inventory{Name: "photos", Status: model.InventoryStatusActive, Type: model.InventoryTypeFolder}
+	if err := database.Create(inventory).Error; err != nil {
+		t.Fatalf("Create(inventory) error = %v", err)
+	}
+	if err := database.Create(&model.Node{ID: "node-b", Status: model.NodeStatusOnline, Address: "https://node-b.example"}).Error; err != nil {
+		t.Fatalf("Create(node) error = %v", err)
+	}
+	replica := &model.Replica{InventoryID: inventory.ID, NodeID: "node-b", URI: "/data/a", Status: model.ReplicaStatusActive, Type: model.ReplicaTypeFilesystem}
+	if err := database.Create(replica).Error; err != nil {
+		t.Fatalf("Create(replica) error = %v", err)
+	}
+	hashed, err := security.HashPassword("secret")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	viewer := &model.User{Username: "viewer", Status: model.UserStatusActive, Password: hashed}
+	if err := database.Create(viewer).Error; err != nil {
+		t.Fatalf("Create(viewer) error = %v", err)
+	}
+	adminToken, adminID := userLogLogin(t, handler, "admin", "198.51.100.4:4000")
+	viewerToken, _ := userLogLogin(t, handler, "viewer", "203.0.113.9:5555")
+
+	response := userLogJSONRequest(t, handler, http.MethodPost, "/api/admin/shares", "198.51.100.4:4000", map[string]any{"replica_id": replica.ID, "name": "holiday"}, adminToken)
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST /shares = %d body=%s", response.Code, response.Body.String())
+	}
+	var share struct {
+		ID uint `json:"id"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &share); err != nil {
+		t.Fatalf("decode share: %v", err)
+	}
+	var row model.ShareLog
+	if err := database.Order("id desc").First(&row).Error; err != nil {
+		t.Fatalf("First(share_logs) error = %v", err)
+	}
+	if row.Action != model.ShareLogActionCreate || !row.Success || row.ShareID == nil || *row.ShareID != share.ID ||
+		row.ActionUserID == nil || *row.ActionUserID != adminID || row.SourceAddress == nil || *row.SourceAddress != "198.51.100.4" || row.NodeID != "node-a" {
+		t.Fatalf("create row = %+v", row)
+	}
+
+	response = userLogJSONRequest(t, handler, http.MethodPatch, "/api/admin/shares/"+strconv.FormatUint(uint64(share.ID), 10), "203.0.113.9:5555", map[string]any{"name": "renamed"}, viewerToken)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("PATCH as viewer = %d body=%s, want 403", response.Code, response.Body.String())
+	}
+	row = model.ShareLog{}
+	if err := database.Order("id desc").First(&row).Error; err != nil {
+		t.Fatalf("First(share_logs) error = %v", err)
+	}
+	if row.Action != model.ShareLogActionUpdate || row.Success || row.ShareID == nil || *row.ShareID != share.ID ||
+		row.ActionUserID == nil || *row.ActionUserID != viewer.ID || row.Message == nil || *row.Message != "permission denied" ||
+		row.SourceAddress == nil || *row.SourceAddress != "203.0.113.9" {
+		t.Fatalf("denied row = %+v", row)
 	}
 }

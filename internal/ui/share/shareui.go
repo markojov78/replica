@@ -17,6 +17,7 @@ import (
 
 	"replica/internal/apiclient"
 	"replica/internal/config"
+	"replica/internal/model"
 	"replica/internal/service"
 	"replica/internal/storage"
 	"replica/internal/ui/uiauth"
@@ -104,6 +105,14 @@ func Register(mux *http.ServeMux, runtime *storage.Runtime, authServices ...*ser
 	gateFunc := func(next http.HandlerFunc) http.HandlerFunc {
 		return gate(next).ServeHTTP
 	}
+	// Share access is logged per page or file operation; share lists, previews, thumbnails and
+	// HEAD requests are not logged.
+	logged := func(action model.ShareAccessLogAction, next http.HandlerFunc) http.HandlerFunc {
+		return runtime.ShareAccessLog(action, false, next)
+	}
+	loggedPublic := func(action model.ShareAccessLogAction, next http.HandlerFunc) http.HandlerFunc {
+		return runtime.ShareAccessLog(action, true, next)
+	}
 
 	mux.Handle("GET /share/static/", gate(http.StripPrefix("/share/static/", http.FileServer(http.FS(mustSub(assets, "static"))))))
 	mux.HandleFunc("GET /share", gateFunc(handler.loginPage))
@@ -112,27 +121,27 @@ func Register(mux *http.ServeMux, runtime *storage.Runtime, authServices ...*ser
 	mux.HandleFunc("POST /share/logout", gateFunc(handler.logout))
 	mux.HandleFunc("GET /share/api/auth/me", gateFunc(handler.shareAPIMe))
 	mux.HandleFunc("GET /share/api/shares", gateFunc(handler.shareAPI))
-	mux.HandleFunc("GET /share/api/shares/{id}", gateFunc(handler.shareAPI))
-	mux.HandleFunc("GET /share/api/shares/{id}/files", gateFunc(handler.shareAPI))
-	mux.HandleFunc("POST /share/api/shares/{id}/files", gateFunc(handler.shareAPI))
-	mux.HandleFunc("DELETE /share/api/shares/{id}/files/{file_id}", gateFunc(handler.shareAPI))
-	mux.HandleFunc("GET /share/api/shares/{id}/files/{file_id}/content", gateFunc(handler.shareAPI))
+	mux.HandleFunc("GET /share/api/shares/{id}", gateFunc(logged(model.ShareAccessLogActionList, handler.shareAPI)))
+	mux.HandleFunc("GET /share/api/shares/{id}/files", gateFunc(logged(model.ShareAccessLogActionList, handler.shareAPI)))
+	mux.HandleFunc("POST /share/api/shares/{id}/files", gateFunc(logged(model.ShareAccessLogActionUpload, handler.shareAPI)))
+	mux.HandleFunc("DELETE /share/api/shares/{id}/files/{file_id}", gateFunc(logged(model.ShareAccessLogActionDelete, handler.shareAPI)))
+	mux.HandleFunc("GET /share/api/shares/{id}/files/{file_id}/content", gateFunc(logged(model.ShareAccessLogActionRead, handler.shareAPI)))
 	mux.HandleFunc("HEAD /share/api/shares/{id}/files/{file_id}/content", gateFunc(handler.shareAPI))
 	mux.HandleFunc("GET /share/api/shares/{id}/files/{file_id}/preview", gateFunc(handler.shareAPI))
 	mux.HandleFunc("GET /share/api/shares/{id}/files/{file_id}/thumbnail", gateFunc(handler.shareAPI))
 	mux.HandleFunc("HEAD /share/api/shares/{id}/files/{file_id}/thumbnail", gateFunc(handler.shareAPI))
-	mux.HandleFunc("PUT /share/api/shares/{id}/files/{file_id}/content", gateFunc(handler.shareAPI))
+	mux.HandleFunc("PUT /share/api/shares/{id}/files/{file_id}/content", gateFunc(logged(model.ShareAccessLogActionUpdate, handler.shareAPI)))
 	mux.HandleFunc("GET /share/shares", gateFunc(handler.protected(handler.shareListPage)))
-	mux.HandleFunc("GET /share/shares/{id}", gateFunc(handler.protected(handler.shareFilesPage)))
-	mux.HandleFunc("POST /share/shares/{id}/files", gateFunc(handler.protected(handler.uploadShareFile)))
-	mux.HandleFunc("GET /share/shares/{id}/files/{file_id}/content", gateFunc(handler.protected(handler.shareFileContent)))
-	mux.HandleFunc("POST /share/shares/{id}/files/{file_id}/replace", gateFunc(handler.protected(handler.replaceShareFile)))
-	mux.HandleFunc("POST /share/shares/{id}/files/{file_id}/delete", gateFunc(handler.protected(handler.deleteShareFile)))
-	mux.HandleFunc("GET /w/{link_hash}", gateFunc(handler.publicSharePage))
-	mux.HandleFunc("GET /w/{link_hash}/files/{file_id}/content", gateFunc(handler.publicShareFileContent))
-	mux.HandleFunc("POST /w/{link_hash}/files", gateFunc(handler.uploadPublicFile))
-	mux.HandleFunc("POST /w/{link_hash}/files/{file_id}/replace", gateFunc(handler.replacePublicFile))
-	mux.HandleFunc("POST /w/{link_hash}/files/{file_id}/delete", gateFunc(handler.deletePublicFile))
+	mux.HandleFunc("GET /share/shares/{id}", gateFunc(logged(model.ShareAccessLogActionList, handler.protected(handler.shareFilesPage))))
+	mux.HandleFunc("POST /share/shares/{id}/files", gateFunc(logged(model.ShareAccessLogActionUpload, handler.protected(handler.uploadShareFile))))
+	mux.HandleFunc("GET /share/shares/{id}/files/{file_id}/content", gateFunc(logged(model.ShareAccessLogActionRead, handler.protected(handler.shareFileContent))))
+	mux.HandleFunc("POST /share/shares/{id}/files/{file_id}/replace", gateFunc(logged(model.ShareAccessLogActionUpdate, handler.protected(handler.replaceShareFile))))
+	mux.HandleFunc("POST /share/shares/{id}/files/{file_id}/delete", gateFunc(logged(model.ShareAccessLogActionDelete, handler.protected(handler.deleteShareFile))))
+	mux.HandleFunc("GET /w/{link_hash}", gateFunc(loggedPublic(model.ShareAccessLogActionList, handler.publicSharePage)))
+	mux.HandleFunc("GET /w/{link_hash}/files/{file_id}/content", gateFunc(loggedPublic(model.ShareAccessLogActionRead, handler.publicShareFileContent)))
+	mux.HandleFunc("POST /w/{link_hash}/files", gateFunc(loggedPublic(model.ShareAccessLogActionUpload, handler.uploadPublicFile)))
+	mux.HandleFunc("POST /w/{link_hash}/files/{file_id}/replace", gateFunc(loggedPublic(model.ShareAccessLogActionUpdate, handler.replacePublicFile)))
+	mux.HandleFunc("POST /w/{link_hash}/files/{file_id}/delete", gateFunc(loggedPublic(model.ShareAccessLogActionDelete, handler.deletePublicFile)))
 	return nil
 }
 
@@ -343,6 +352,7 @@ func (h *Handler) protected(next func(http.ResponseWriter, *http.Request, authCo
 			h.render(w, h.shareAuthStatus(err), "login", pageData{Title: "Sign in", Error: apiMessage(err)})
 			return
 		}
+		storage.NoteShareAccessUser(r.Context(), user.UserID)
 		if err := uiauth.ValidateCSRF(r, h.cookies); err != nil {
 			writeShareUIError(w, http.StatusForbidden, err.Error())
 			return
@@ -392,7 +402,7 @@ func (h *Handler) shareAPI(w http.ResponseWriter, r *http.Request) {
 		writeShareUIError(w, h.shareAuthStatus(err), apiMessage(err))
 		return
 	}
-	_ = user
+	storage.NoteShareAccessUser(r.Context(), user.UserID)
 	if err := uiauth.ValidateCSRF(r, h.cookies); err != nil {
 		writeShareUIError(w, http.StatusForbidden, err.Error())
 		return

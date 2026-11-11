@@ -234,21 +234,34 @@ func (n *shareFileNode) Open(ctx context.Context, flags uint32) (fs.FileHandle, 
 	if !ok {
 		return nil, 0, syscall.ENOENT
 	}
+	handle, errno := n.openHandle(ctx, file)
+	if errno != 0 {
+		n.s.runtime.recordFuseRead(n.s.shareID, file.FileID, n.path, 0, errno)
+		return nil, 0, errno
+	}
+	// One access log line per opened file, written when the handle is released.
+	handle.onRelease = func(bytes int64) {
+		n.s.runtime.recordFuseRead(n.s.shareID, file.FileID, n.path, bytes, nil)
+	}
+	return handle, 0, 0
+}
+
+func (n *shareFileNode) openHandle(ctx context.Context, file apiclient.ReplicaInventoryFile) (*readHandle, syscall.Errno) {
 	reader, err := GetReader(ctx, n.s.uri, n.s.profile)
 	if err != nil {
-		return nil, 0, fs.ToErrno(err)
+		return nil, fs.ToErrno(err)
 	}
 	if rangeReader, ok := reader.(RangeReader); ok {
-		return &readHandle{size: file.Size, rangeReader: rangeReader, uri: n.s.uri, rel: n.path}, 0, 0
+		return &readHandle{size: file.Size, rangeReader: rangeReader, uri: n.s.uri, rel: n.path}, 0
 	}
 	rc, _, err := reader.Open(ctx, n.s.uri, n.path)
 	if err != nil {
-		return nil, 0, fs.ToErrno(err)
+		return nil, fs.ToErrno(err)
 	}
 	readerAt, ok := rc.(io.ReaderAt)
 	if !ok {
 		_ = rc.Close()
-		return nil, 0, syscall.EIO
+		return nil, syscall.EIO
 	}
-	return &readHandle{size: file.Size, readerAt: readerAt, closer: rc}, 0, 0
+	return &readHandle{size: file.Size, readerAt: readerAt, closer: rc}, 0
 }

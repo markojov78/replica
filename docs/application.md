@@ -290,6 +290,74 @@ The coordinator logs:
 Log rows are written in the same transaction as the logged change. If a log row cannot be written, the action fails.
 Node authentication and storage-node events are not logged in `user_logs`.
 
+#### share_logs
+Append-only audit log of changes to shares and share permissions. It has no foreign keys, so entries outlive the shares
+and users they refer to.
+
+id - primary key  
+timestamp - time of the action, assigned by the node where the entry originates  
+action - one of `create`, `update`, `delete`  
+success - action outcome  
+message - optional details, e.g. `name: holiday -> summer; link regenerated; files added: 1`  
+share_id - optional share the action was performed on; empty for a failed create  
+user_id - optional user whose share permissions changed; empty for share field changes  
+anonymous - true when the entry describes a change of anonymous share permissions  
+action_user_id - optional user who performed the action  
+source_address - optional client IP address (TCP peer address; forwarded headers are ignored)  
+node_id - `app.node_id` of the coordinator process that created the entry; not a reference to `nodes`
+
+The coordinator logs share create, update and delete from the Admin API and the dashboard:
+- create writes a `create` row with the initial share fields, one `update` row per user with permissions
+  (`permissions set: …`) and one `update` row with `anonymous = true` when anonymous permissions are set
+- update writes one row for share field changes (name, status, expiration, link created/regenerated/removed, changed
+  property keys, files added/removed or switched to/from the whole replica), one row per user whose permissions changed
+  (`permissions added/removed`, `access granted`, `access revoked`) and one anonymous row for anonymous permission
+  changes; an update that changes nothing writes no row
+- delete writes a `delete` row
+- failed mutations, including validation errors and `403` permission denials; unauthenticated requests are not logged
+
+The share `link_hash` is never written to `share_logs`. Log rows are written in the same transaction as the logged
+change; if a log row cannot be written, the action fails. The automatic daily expiry of anonymous share access is not
+logged.
+
+#### share_access_logs
+Append-only log of access to shares on storage nodes. Entries are created on the storage node, buffered in the local
+node log file and uploaded to the coordinator in batches (see [Node logs](#node-logs)). It has no foreign keys.
+
+id - node-assigned log id, unique per node across all node log types; primary key together with `node_id`  
+node_id - node where the access happened, taken from the node access token on upload; not a reference to `nodes`  
+timestamp - time of the access, assigned by the storage node  
+action - one of `list`, `read`, `upload`, `update`, `delete`  
+success - access outcome  
+message - optional failure reason, e.g. `share not found`, `share delete permission required`, `invalid token`  
+share_id - optional share; empty when the share or public link could not be resolved  
+file_id - optional file; empty for share-level actions and uploads  
+path - optional file path at the time of access  
+user_id - optional authenticated user; empty for anonymous access and failed authentication  
+anonymous - true for access through a public share link  
+source - `http` (sharing API and sharing UI) or `fuse` (FUSE-mounted shares)  
+bytes - optional bytes sent (`read`) or received (`upload`, `update`) for successful transfers  
+source_address - optional client IP address as seen by the storage node (TCP peer address)  
+received_at - time the coordinator stored the entry
+
+Logged:
+- `list`: share details and share file listing for a specific share, and the sharing UI share and public link pages;
+  listing all shares of a user is not logged
+- `read`: file content download; for FUSE, one entry per opened file, written when the file is closed, with the
+  bytes read
+- `upload`, `update`, `delete`: file operations on editable shares
+- failed access, including unknown links, expired or missing shares, missing permissions and invalid tokens
+
+Not logged: previews, thumbnails and `HEAD` requests. Each request is logged separately, so one sharing UI page view
+can produce several entries. The share `link_hash` is never logged.
+
+#### node_log_cursors
+Per-node upload cursor for node logs.
+
+node_id - primary key; the storage node  
+last_id - highest node log id the coordinator has processed for the node, including rejected lines  
+updated_at - time of the last cursor change
+
 ## Operation
 ### Communication between nodes
 
@@ -343,13 +411,33 @@ The coordinator checks node status every five seconds and when WebSocket connect
 - without an active WebSocket connection, an older heartbeat or missing heartbeat data makes the node `offline`
 - `disabled` and `revoked` nodes are not changed automatically
 
-Heartbeat response can also contain pending orchestration tasks.
+Heartbeat response can also contain pending orchestration tasks and the node log cursor (`logs.last_id`, see
+[Node logs](#node-logs)).
 
 The tasks field acts as a fallback delivery mechanism when the WebSocket connection is unavailable.
 
 After updating the checking-in node state, the coordinator checks active replicas assigned to that node. If a replica
 has pending `replica_files` and no pending `reconcile_replica` command for that destination replica, the coordinator
 creates a new reconcile command. Failed, completed and canceled commands do not block creation.
+
+#### Node logs
+Storage nodes record share access (see `share_access_logs`) in a local JSON lines file (`logs.path`, default
+`/tmp/replica_logs.jsonl`) and upload it to the coordinator in gzip-compressed batches of up to 1000 lines every
+`logs.upload_interval` through [POST /nodes/logs](api.md#post-nodeslogs). Every line has a `type`, so other node log
+types can use the same file and upload.
+
+- Log ids are assigned by the node and are unique per node across all log types. After startup the node waits for
+  the first heartbeat, which returns the coordinator log cursor, and continues from the higher of the cursor and the
+  last id in the local file. Events before that are held in memory (up to 10000) and written once the ids are known.
+- The upload response returns the cursor after the upload. Lines up to it are confirmed and removed from the local file
+  by rewriting it with the remaining lines.
+- The coordinator rejects invalid and duplicate lines individually and stores the rest; rejected lines are written to
+  the node application log and not sent again. The node retries a batch only after transport or coordinator errors.
+- If a heartbeat cursor is lower than the confirmed id while no upload is in flight (for example after a coordinator
+  database restore), the node re-sends lines that are still in its local file.
+- Logging is best-effort and never blocks share access. The local file is not authoritative state.
+
+Coordinator + storage mode uses the same local file and upload as a standalone storage node.
 
 #### WebSocket orchestration channel
 After authentication, the storage service establishes a WebSocket connection to the coordinator.

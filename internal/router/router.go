@@ -86,6 +86,7 @@ func New(
 		registerInternalAuthRoutes(nodeGroup, svc)
 		registerInternalUserAuthRoutes(nodeGroup, svc)
 		registerInternalNodeWebSocketRoute(mux, svc)
+		registerInternalNodeLogRoute(mux, svc)
 		registerInternalNodeRoutes(nodeGroup, svc)
 		registerInternalCommandRoutes(nodeGroup, svc)
 		registerInternalReplicaRoutes(nodeGroup, svc)

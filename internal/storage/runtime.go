@@ -67,6 +67,7 @@ type Runtime struct {
 	thumbnail       *service.ThumbnailService
 	progressiveJPEG *service.ProgressiveJPEGService
 	fuseManager     *fuseManager
+	nodeLogs        *nodeLogBuffer
 }
 
 type runningReplicaWatcher struct {
@@ -117,6 +118,7 @@ func NewRuntime(cfg config.Config) (*Runtime, error) {
 		thumbnail:                  service.NewThumbnailService(cfg),
 		progressiveJPEG:            service.NewProgressiveJPEGService(cfg),
 		fuseManager:                newStorageFuseManager(cfg),
+		nodeLogs:                   newNodeLogBuffer(cfg.Logs.Path),
 	}
 	if r.fuseManager != nil {
 		r.fuseManager.runtime = r
@@ -146,6 +148,7 @@ func (r *Runtime) run(ctx context.Context) {
 	go r.refreshLoop(ctx, pair)
 	go r.commandLoop(ctx)
 	go r.heartbeatLoop(ctx)
+	go r.nodeLogs.Run(ctx, r.client, r.cfg.Logs.UploadInterval)
 	if err := r.reportStartupLocalChanges(ctx); err != nil {
 		return
 	}
@@ -180,6 +183,7 @@ func (r *Runtime) bootstrap(ctx context.Context) (*apiclient.NodeTokenPair, []ap
 			log.Printf("storage runtime initial heartbeat failed: %v", err)
 			continue
 		}
+		r.nodeLogs.ObserveCoordinator(report.Logs)
 
 		err = r.refreshLocalState(ctx)
 		if err != nil {
@@ -845,6 +849,7 @@ func (r *Runtime) heartbeatLoop(ctx context.Context) {
 				log.Printf("storage runtime heartbeat failed: %v", err)
 				continue
 			}
+			r.nodeLogs.ObserveCoordinator(report.Logs)
 
 			for _, command := range report.Commands {
 				r.enqueueCommand(command)

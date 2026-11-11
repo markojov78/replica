@@ -19,6 +19,10 @@ func NewShareRepository(db *gorm.DB) *ShareRepository {
 	return &ShareRepository{db: db}
 }
 
+func (r *ShareRepository) WithTx(tx *gorm.DB) *ShareRepository {
+	return &ShareRepository{db: tx}
+}
+
 func (r *ShareRepository) List() ([]model.Share, error) {
 	var shares []model.Share
 	err := r.db.Order("id asc").Find(&shares).Error

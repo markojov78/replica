@@ -527,3 +527,26 @@ Default value: `1s`
 
 Kernel cache TTL for file and directory attributes. Must be greater than zero when `sharing.fuse.path_prefix` is set.
 
+
+## Node log buffer path
+
+Config value: `logs.path`  
+Environment variable: `LOGS_PATH`  
+Type: string  
+Mandatory: no
+Default value: `/tmp/replica_logs.jsonl`
+
+JSON lines file in which a storage node buffers its logs (currently share access logs) until they are uploaded to
+the coordinator. Lines are removed after the coordinator confirms them. The file is not authoritative state: if it is
+lost, only lines not yet uploaded are lost. Required when `app.storage` is true.
+
+## Node log upload interval
+
+Config value: `logs.upload_interval`  
+Environment variable: `LOGS_UPLOAD_INTERVAL`  
+Type: duration  
+Mandatory: no
+Default value: `30s`
+
+How often a storage node uploads buffered log lines to the coordinator. Must be greater than zero when `app.storage`
+is true.

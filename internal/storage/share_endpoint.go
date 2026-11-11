@@ -136,6 +136,7 @@ func (r *Runtime) ServeAuthenticatedShares(w http.ResponseWriter, req *http.Requ
 		writeStorageShareError(w, storageShareAuthStatus(err), err.Error())
 		return
 	}
+	NoteShareAccessUser(req.Context(), userID)
 
 	switch {
 	case req.Method == http.MethodGet && req.PathValue("id") == "" && req.PathValue("file_id") == "":

@@ -35,6 +35,10 @@ auth:
   refresh_token_duration: "8h"
   share_api_token_cache_duration: "5m"
 
+logs:
+  path: "/tmp/replica_logs.jsonl"
+  upload_interval: "30s"
+
 http:
   address: ":8080"
 

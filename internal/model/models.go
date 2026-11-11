@@ -316,6 +316,63 @@ func (UserLog) TableName() string {
 	return "user_logs"
 }
 
+// ShareLog is an append-only audit record of changes to shares and share permissions.
+// It has no foreign keys so rows outlive the shares and users they refer to.
+type ShareLog struct {
+	ID            uint           `gorm:"primaryKey" json:"id"`
+	Timestamp     time.Time      `gorm:"not null;index" json:"timestamp"`
+	Action        ShareLogAction `gorm:"size:32;not null;index" json:"action"`
+	Success       bool           `gorm:"not null" json:"success"`
+	Message       *string        `gorm:"size:2048" json:"message,omitempty"`
+	ShareID       *uint          `gorm:"index" json:"share_id,omitempty"`
+	UserID        *uint          `gorm:"index" json:"user_id,omitempty"`
+	Anonymous     bool           `gorm:"not null;default:false" json:"anonymous"`
+	ActionUserID  *uint          `gorm:"index" json:"action_user_id,omitempty"`
+	SourceAddress *string        `gorm:"size:255" json:"source_address,omitempty"`
+	NodeID        string         `gorm:"size:255;not null" json:"node_id"`
+}
+
+func (ShareLog) TableName() string {
+	return "share_logs"
+}
+
+// ShareAccessLog is an append-only record of access to shares, created on storage nodes and
+// uploaded to the coordinator in batches. The id is assigned by the originating node and is
+// unique per node, so the primary key is (node_id, id).
+type ShareAccessLog struct {
+	ID            uint64               `gorm:"primaryKey;autoIncrement:false" json:"id"`
+	NodeID        string               `gorm:"primaryKey;size:255" json:"node_id"`
+	Timestamp     time.Time            `gorm:"not null;index;index:idx_share_access_logs_share_time,priority:2" json:"timestamp"`
+	Action        ShareAccessLogAction `gorm:"size:32;not null;index" json:"action"`
+	Success       bool                 `gorm:"not null" json:"success"`
+	Message       *string              `gorm:"size:2048" json:"message,omitempty"`
+	ShareID       *uint                `gorm:"index:idx_share_access_logs_share_time,priority:1" json:"share_id,omitempty"`
+	FileID        *uint                `gorm:"index" json:"file_id,omitempty"`
+	Path          *string              `gorm:"size:1024" json:"path,omitempty"`
+	UserID        *uint                `gorm:"index" json:"user_id,omitempty"`
+	Anonymous     bool                 `gorm:"not null" json:"anonymous"`
+	Source        ShareAccessLogSource `gorm:"size:16;not null" json:"source"`
+	Bytes         *int64               `json:"bytes,omitempty"`
+	SourceAddress *string              `gorm:"size:255" json:"source_address,omitempty"`
+	ReceivedAt    time.Time            `gorm:"not null" json:"received_at"`
+}
+
+func (ShareAccessLog) TableName() string {
+	return "share_access_logs"
+}
+
+// NodeLogCursor is the highest node log id the coordinator has processed for a node,
+// across all node log types.
+type NodeLogCursor struct {
+	NodeID    string    `gorm:"primaryKey;size:255" json:"node_id"`
+	LastID    uint64    `gorm:"not null" json:"last_id"`
+	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
+}
+
+func (NodeLogCursor) TableName() string {
+	return "node_log_cursors"
+}
+
 func AllModels() []any {
 	return []any{
 		&Inventory{},
@@ -340,5 +397,8 @@ func AllModels() []any {
 		&InventoryPermission{},
 		&UserToken{},
 		&UserLog{},
+		&ShareLog{},
+		&ShareAccessLog{},
+		&NodeLogCursor{},
 	}
 }

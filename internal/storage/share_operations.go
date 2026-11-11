@@ -460,6 +460,7 @@ func shareFileDurations(files []apiclient.ReplicaInventoryFile) map[uint]int64 {
 }
 
 func (r *Runtime) createShareFileOperation(ctx context.Context, share apiclient.Share, replica apiclient.Replica, relativeURI string, file io.Reader, size int64) error {
+	noteShareAccessFile(ctx, relativeURI, size)
 	if replica.InventoryType != "folder" {
 		return errShareCreateNotAllowed
 	}
@@ -537,6 +538,7 @@ func (w writeCounter) Write(p []byte) (int, error) {
 }
 
 func (r *Runtime) replaceShareFileContentOperation(ctx context.Context, share apiclient.Share, replica apiclient.Replica, fileID uint, ifMatch string, content io.Reader, size int64) error {
+	noteShareAccessFile(ctx, "", size)
 	file, err := r.shareFileForMutation(share, replica.ID, fileID)
 	if err != nil {
 		return err

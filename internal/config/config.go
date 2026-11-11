@@ -23,6 +23,13 @@ type Config struct {
 	Database DatabaseConfig
 	Seed     SeedConfig
 	Storage  StorageConfig
+	Logs     LogsConfig
+}
+
+// LogsConfig configures the storage-node log buffer that is uploaded to the coordinator.
+type LogsConfig struct {
+	Path           string
+	UploadInterval time.Duration
 }
 
 type AppConfig struct {
@@ -108,6 +115,12 @@ type rawConfig struct {
 	Database rawDatabaseConfig `json:"database" yaml:"database" toml:"database"`
 	Seed     rawSeedConfig     `json:"seed" yaml:"seed" toml:"seed"`
 	Storage  rawStorageConfig  `json:"storage" yaml:"storage" toml:"storage"`
+	Logs     rawLogsConfig     `json:"logs" yaml:"logs" toml:"logs"`
+}
+
+type rawLogsConfig struct {
+	Path           *string `json:"path" yaml:"path" toml:"path"`
+	UploadInterval *string `json:"upload_interval" yaml:"upload_interval" toml:"upload_interval"`
 }
 
 type rawAppConfig struct {
@@ -254,6 +267,10 @@ func Load() (Config, error) {
 			Driver:      driver,
 			DSN:         resolveDSN(fileCfg.Database.DSN, driver),
 			AutoMigrate: resolveBool("DB_AUTO_MIGRATE", fileCfg.Database.AutoMigrate, true),
+		},
+		Logs: LogsConfig{
+			Path:           resolveString("LOGS_PATH", fileCfg.Logs.Path, "/tmp/replica_logs.jsonl"),
+			UploadInterval: resolveDuration("LOGS_UPLOAD_INTERVAL", fileCfg.Logs.UploadInterval, 30*time.Second),
 		},
 		Seed: SeedConfig{
 			AdminName:     resolveString("SEED_ADMIN_NAME", fileCfg.Seed.AdminName, "admin"),
@@ -653,6 +670,12 @@ func (c Config) Validate() error {
 	}
 	if c.App.Storage && c.App.HeartbeatInterval <= 0 {
 		return errors.New("app.heartbeat_interval must be greater than 0 when storage is enabled")
+	}
+	if c.App.Storage && strings.TrimSpace(c.Logs.Path) == "" {
+		return errors.New("logs.path is required when storage is enabled")
+	}
+	if c.App.Storage && c.Logs.UploadInterval <= 0 {
+		return errors.New("logs.upload_interval must be greater than 0 when storage is enabled")
 	}
 	if c.App.Storage && c.App.APIRequestTimeout <= 0 {
 		return errors.New("app.api_request_timeout must be greater than 0 when storage is enabled")

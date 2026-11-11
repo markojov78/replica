@@ -47,10 +47,11 @@ type NodeList struct {
 }
 
 type NodeAvailabilityReport struct {
-	NodeID   string        `json:"node_id"`
-	Address  string        `json:"address"`
-	LastSeen string        `json:"last_seen"`
-	Commands []NodeCommand `json:"commands"`
+	NodeID   string          `json:"node_id"`
+	Address  string          `json:"address"`
+	LastSeen string          `json:"last_seen"`
+	Commands []NodeCommand   `json:"commands"`
+	Logs     *NodeLogsStatus `json:"logs,omitempty"`
 }
 
 type NodeCommand struct {
@@ -102,6 +103,18 @@ type NodeService struct {
 	mu          sync.RWMutex
 	subs        map[string]map[chan NodeCommand]struct{}
 	connections map[string]int
+	logs        *NodeLogService
+}
+
+// WithLogs enables storage-node log uploads and the log cursor in heartbeat responses.
+func (s *NodeService) WithLogs(logs *NodeLogService) *NodeService {
+	s.logs = logs
+	return s
+}
+
+// Logs returns the node log service, or nil when node log uploads are not enabled.
+func (s *NodeService) Logs() *NodeLogService {
+	return s.logs
 }
 
 func NewNodeService(nodes *repository.NodeRepository, commands *repository.CommandRepository, nodeTokens ...*repository.NodeTokenRepository) *NodeService {

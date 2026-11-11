@@ -70,8 +70,11 @@ func registerShareRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if _, err := svc.auth.Authorize(accessToken, model.PermissionResourceShares, model.PermissionActionCreate); err != nil {
-			return nil, mapPermissionError(err)
+		caller, err := svc.auth.Authorize(accessToken, model.PermissionResourceShares, model.PermissionActionCreate)
+		if err != nil {
+			return nil, mapLoggedPermissionError(ctx, err, caller, func(audit service.AuditContext) error {
+				return svc.shares.LogPermissionDenied(model.ShareLogActionCreate, nil, audit)
+			})
 		}
 
 		shareExpiration, _, err := nullableTime(input.Body.ShareExpiration)
@@ -89,7 +92,7 @@ func registerShareRoutes(api huma.API, svc services) {
 			AnonymousPermissions: input.Body.AnonymousPermissions,
 			Properties:           input.Body.Properties,
 			FileIDs:              input.Body.FileIDs,
-		})
+		}, userLogAudit(ctx, caller))
 		if err != nil {
 			return nil, mapShareError(err, svc.shares)
 		}
@@ -101,8 +104,11 @@ func registerShareRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if err := AuthorizeShareAction(svc, accessToken, input.ID, model.PermissionActionUpdate); err != nil {
-			return nil, mapPermissionError(err)
+		caller, err := authorizeShareAction(svc, accessToken, input.ID, model.PermissionActionUpdate)
+		if err != nil {
+			return nil, mapLoggedPermissionError(ctx, err, caller, func(audit service.AuditContext) error {
+				return svc.shares.LogPermissionDenied(model.ShareLogActionUpdate, &input.ID, audit)
+			})
 		}
 
 		shareExpiration, shareExpirationSet, err := nullableTime(input.Body.ShareExpiration)
@@ -120,7 +126,7 @@ func registerShareRoutes(api huma.API, svc services) {
 			AnonymousPermissions: input.Body.AnonymousPermissions,
 			Properties:           input.Body.Properties,
 			FileIDs:              input.Body.FileIDs,
-		})
+		}, userLogAudit(ctx, caller))
 		if err != nil {
 			return nil, mapShareError(err, svc.shares)
 		}
@@ -157,11 +163,14 @@ func registerShareRoutes(api huma.API, svc services) {
 		if err != nil {
 			return nil, huma.Error401Unauthorized("missing authenticated user")
 		}
-		if err := AuthorizeShareAction(svc, accessToken, input.ID, model.PermissionActionDelete); err != nil {
-			return nil, mapPermissionError(err)
+		caller, err := authorizeShareAction(svc, accessToken, input.ID, model.PermissionActionDelete)
+		if err != nil {
+			return nil, mapLoggedPermissionError(ctx, err, caller, func(audit service.AuditContext) error {
+				return svc.shares.LogPermissionDenied(model.ShareLogActionDelete, &input.ID, audit)
+			})
 		}
 
-		if err := svc.shares.Delete(input.ID); err != nil {
+		if err := svc.shares.Delete(input.ID, userLogAudit(ctx, caller)); err != nil {
 			return nil, mapShareError(err, svc.shares)
 		}
 		return &deleteShareResponse{Status: 204}, nil
@@ -169,18 +178,20 @@ func registerShareRoutes(api huma.API, svc services) {
 }
 
 func AuthorizeShareAction(svc services, accessToken string, shareID uint, action model.PermissionAction) error {
-	user, err := svc.auth.Authorize(accessToken, model.PermissionResourceShares, action)
-	if err != nil {
-		if errors.Is(err, service.ErrForbidden) && user != nil {
-			_, err = svc.auth.AuthorizeShareUser(user.ID, shareID, action)
-		}
-
-		if err != nil {
-			return mapPermissionError(err)
-		}
+	if _, err := authorizeShareAction(svc, accessToken, shareID, action); err != nil {
+		return mapPermissionError(err)
 	}
-
 	return nil
+}
+
+// authorizeShareAction authorizes a share action through global or share user permissions.
+// It returns the caller, also when the action is forbidden, and the unmapped error.
+func authorizeShareAction(svc services, accessToken string, shareID uint, action model.PermissionAction) (*service.AuthenticatedUser, error) {
+	user, err := svc.auth.Authorize(accessToken, model.PermissionResourceShares, action)
+	if err != nil && errors.Is(err, service.ErrForbidden) && user != nil {
+		_, err = svc.auth.AuthorizeShareUser(user.ID, shareID, action)
+	}
+	return user, err
 }
 
 type listSharesInput struct {

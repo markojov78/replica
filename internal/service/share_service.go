@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"slices"
 	"sort"
@@ -23,6 +24,7 @@ type ShareService struct {
 	repo          *repository.ShareRepository
 	nodes         *NodeService
 	sharingConfig func() config.SharingConfig
+	logs          *ShareLogService
 }
 
 var (
@@ -95,6 +97,24 @@ func NewShareService(repo *repository.ShareRepository, nodes *NodeService, confi
 		provider = configProviders[0]
 	}
 	return &ShareService{repo: repo, nodes: nodes, sharingConfig: provider}
+}
+
+// WithShareLogs enables share log rows for share create, update and delete.
+func (s *ShareService) WithShareLogs(logs *ShareLogService) *ShareService {
+	s.logs = logs
+	return s
+}
+
+func (s *ShareService) repoWithTx(tx *gorm.DB) *repository.ShareRepository {
+	if tx == nil {
+		return s.repo
+	}
+	return s.repo.WithTx(tx)
+}
+
+// LogPermissionDenied records a share mutation rejected by authorization.
+func (s *ShareService) LogPermissionDenied(action model.ShareLogAction, shareID *uint, audit AuditContext) error {
+	return s.logs.Write(ShareLogEntry{Action: action, Message: "permission denied", ShareID: shareID, Audit: audit})
 }
 
 func (s *ShareService) Start(ctx context.Context) {
@@ -198,7 +218,19 @@ func (s *ShareService) Get(id uint) (*ShareDetails, error) {
 	return s.shareDetails(share)
 }
 
-func (s *ShareService) Create(input CreateShareInput) (*ShareDetails, error) {
+func (s *ShareService) Create(input CreateShareInput, audit AuditContext) (*ShareDetails, error) {
+	share, err := s.create(input, audit)
+	if err != nil {
+		return nil, s.logs.Failure(ShareLogEntry{
+			Action:  model.ShareLogActionCreate,
+			Message: fmt.Sprintf("create share replica_id=%d failed: %v", input.ReplicaID, err),
+			Audit:   audit,
+		}, err)
+	}
+	return s.shareDetails(share)
+}
+
+func (s *ShareService) create(input CreateShareInput, audit AuditContext) (*model.Share, error) {
 	if input.ShareExpiration != nil && input.ShareExpiration.Before(time.Now()) {
 		return nil, ErrInvalidShareExpiration
 	}
@@ -266,19 +298,42 @@ func (s *ShareService) Create(input CreateShareInput) (*ShareDetails, error) {
 		}
 	}
 	command := newShareRefreshStateCommand(replica.NodeID)
-	if err := s.repo.CreateWithPermissions(share, permissions, anonymousPermissions, fileIDs, command); err != nil {
+	err = s.logs.Transaction(func(tx *gorm.DB, logs *ShareLogWriter) error {
+		if err := s.repoWithTx(tx).CreateWithPermissions(share, permissions, anonymousPermissions, fileIDs, command); err != nil {
+			return err
+		}
+		return writeShareCreateLogs(logs, share, permissions, anonymousPermissions, fileIDs, audit)
+	})
+	if err != nil {
 		return nil, err
 	}
 	s.publishCommand(command)
+	return share, nil
+}
+
+func (s *ShareService) Update(id uint, input UpdateShareInput, audit AuditContext) (*ShareDetails, error) {
+	share, err := s.update(id, input, audit)
+	if err != nil {
+		return nil, s.logs.Failure(ShareLogEntry{
+			Action:  model.ShareLogActionUpdate,
+			Message: fmt.Sprintf("update share %d failed: %v", id, err),
+			ShareID: uintPtr(id),
+			Audit:   audit,
+		}, err)
+	}
 	return s.shareDetails(share)
 }
 
-func (s *ShareService) Update(id uint, input UpdateShareInput) (*ShareDetails, error) {
+func (s *ShareService) update(id uint, input UpdateShareInput, audit AuditContext) (*model.Share, error) {
 	share, err := s.repo.FindByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrShareNotFound
 		}
+		return nil, err
+	}
+	previous, err := s.shareSnapshot(share)
+	if err != nil {
 		return nil, err
 	}
 	permissions, err := validateUserPermissions(input.UserPermissions)
@@ -339,14 +394,42 @@ func (s *ShareService) Update(id uint, input UpdateShareInput) (*ShareDetails, e
 	share.Properties = properties
 
 	command := newShareRefreshStateCommand(share.Replica.NodeID)
-	if err := s.repo.UpdateWithPermissions(share, permissions, input.UserPermissions != nil, anonymousPermissions, input.AnonymousPermissions != nil, fileIDs, input.FileIDs != nil, command); err != nil {
+	err = s.logs.Transaction(func(tx *gorm.DB, logs *ShareLogWriter) error {
+		if err := s.repoWithTx(tx).UpdateWithPermissions(share, permissions, input.UserPermissions != nil, anonymousPermissions, input.AnonymousPermissions != nil, fileIDs, input.FileIDs != nil, command); err != nil {
+			return err
+		}
+		current := shareLogState{share: *share, userPermissions: previous.userPermissions, anonymousPermissions: previous.anonymousPermissions, fileIDs: previous.fileIDs}
+		if input.UserPermissions != nil {
+			current.userPermissions = userPermissionSets(permissions)
+		}
+		if input.AnonymousPermissions != nil {
+			current.anonymousPermissions = anonymousPermissions
+		}
+		if input.FileIDs != nil {
+			current.fileIDs = fileIDs
+		}
+		return writeShareUpdateLogs(logs, previous, current, audit)
+	})
+	if err != nil {
 		return nil, err
 	}
 	s.publishCommand(command)
-	return s.shareDetails(share)
+	return share, nil
 }
 
-func (s *ShareService) Delete(id uint) error {
+func (s *ShareService) Delete(id uint, audit AuditContext) error {
+	if err := s.delete(id, audit); err != nil {
+		return s.logs.Failure(ShareLogEntry{
+			Action:  model.ShareLogActionDelete,
+			Message: fmt.Sprintf("delete share %d failed: %v", id, err),
+			ShareID: uintPtr(id),
+			Audit:   audit,
+		}, err)
+	}
+	return nil
+}
+
+func (s *ShareService) delete(id uint, audit AuditContext) error {
 	share, err := s.repo.FindByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -356,7 +439,19 @@ func (s *ShareService) Delete(id uint) error {
 	}
 	share.Status = model.ShareStatusDeleted
 	command := newShareRefreshStateCommand(share.Replica.NodeID)
-	if err := s.repo.UpdateWithCommand(share, command); err != nil {
+	err = s.logs.Transaction(func(tx *gorm.DB, logs *ShareLogWriter) error {
+		if err := s.repoWithTx(tx).UpdateWithCommand(share, command); err != nil {
+			return err
+		}
+		return logs.Write(ShareLogEntry{
+			Action:  model.ShareLogActionDelete,
+			Success: true,
+			Message: "deleted share name=" + share.Name,
+			ShareID: uintPtr(share.ID),
+			Audit:   audit,
+		})
+	})
+	if err != nil {
 		return err
 	}
 	s.publishCommand(command)

@@ -38,6 +38,16 @@ func registerInternalNodeRoutes(api huma.API, svc services) {
 			report.Commands = append(report.Commands, commands...)
 		}
 
+		if logs := svc.nodes.Logs(); logs != nil {
+			// The log cursor lets the node continue its log ids after a restart and confirm uploads.
+			// Failing to read it does not fail the heartbeat; the node waits for a later one.
+			if lastID, err := logs.LastID(node.ID); err != nil {
+				log.Printf("failed to read node log cursor node_id=%s error=%v", node.ID, err)
+			} else {
+				report.Logs = &service.NodeLogsStatus{LastID: lastID}
+			}
+		}
+
 		return &reportNodeAvailabilityResponse{Body: *report}, nil
 	})
 }
